@@ -1,0 +1,87 @@
+import { Switch, Route, Router as WouterRouter } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import NotFound from "@/pages/not-found";
+import LoginPage from "@/pages/login";
+import DashboardPage from "@/pages/dashboard";
+import StreamPage from "@/pages/stream";
+import BillingPage from "@/pages/billing";
+import AdminLoginPage from "@/pages/admin-login";
+import AdminDashboardPage from "@/pages/admin-dashboard";
+import AdminUsersPage from "@/pages/admin-users";
+import AdminPricingPage from "@/pages/admin-pricing";
+import AdminWalletPage from "@/pages/admin-wallet";
+import AdminSessionsPage from "@/pages/admin-sessions";
+import AdminNotificationsPage from "@/pages/admin-notifications";
+import AdminAdminSessionsPage from "@/pages/admin-admin-sessions";
+import AdminChatPage from "@/pages/admin-chat";
+import AdminDecartKeysPage from "@/pages/admin-decart-keys";
+import AdminApiMonitoringPage from "@/pages/admin-api-monitoring";
+import AdminLicenseKeysPage from "@/pages/admin-license-keys";
+import PopoutPage from "@/pages/popout";
+import AdminSubAdminsPage from "@/pages/admin-sub-admins";
+import AdminAnalyticsPage from "@/pages/admin-analytics";
+import SubAdminDashboardPage from "@/pages/subadmin-dashboard";
+import SubAdminLoginPage from "@/pages/subadmin-login";
+import SubAdminStreamPage from "@/pages/subadmin-stream";
+import SoftwarePricingPage from "@/pages/pricing";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 30000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+  },
+});
+
+const isDesktopApp = Boolean((window as any).electronAPI?.isElectron);
+
+function Router() {
+  return (
+    <Switch>
+      <Route path="/" component={isDesktopApp ? StreamPage : LoginPage} />
+      <Route path="/dashboard" component={DashboardPage} />
+      <Route path="/stream" component={StreamPage} />
+      <Route path="/billing" component={BillingPage} />
+      <Route path="/pricing" component={SoftwarePricingPage} />
+      <Route path="/admin" component={AdminLoginPage} />
+      <Route path="/admin/dashboard" component={AdminDashboardPage} />
+      <Route path="/admin/users" component={AdminUsersPage} />
+      <Route path="/admin/pricing" component={AdminPricingPage} />
+      <Route path="/admin/wallet" component={AdminWalletPage} />
+      <Route path="/admin/sessions" component={AdminSessionsPage} />
+      <Route path="/admin/notifications" component={AdminNotificationsPage} />
+      <Route path="/admin/admin-sessions" component={AdminAdminSessionsPage} />
+      <Route path="/admin/chat" component={AdminChatPage} />
+      <Route path="/admin/decart-keys" component={AdminDecartKeysPage} />
+      <Route path="/admin/api-monitoring" component={AdminApiMonitoringPage} />
+      <Route path="/admin/license-keys" component={AdminLicenseKeysPage} />
+      <Route path="/admin/analytics" component={AdminAnalyticsPage} />
+      <Route path="/popout" component={PopoutPage} />
+      <Route path="/admin/sub-admins" component={AdminSubAdminsPage} />
+      <Route path="/subadmin" component={SubAdminLoginPage} />
+      <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
+      <Route path="/subadmin/stream" component={SubAdminStreamPage} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <Router />
+        </WouterRouter>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;

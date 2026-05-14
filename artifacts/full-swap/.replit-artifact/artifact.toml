@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Full Swap"
+version = "1.0.0"
+id = "artifacts/full-swap"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22355
+
+[services.development]
+run = "pnpm --filter @workspace/full-swap run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/full-swap", "run", "build" ]
+publicDir = "artifacts/full-swap/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22355"
+BASE_PATH = "/"

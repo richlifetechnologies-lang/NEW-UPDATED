@@ -1,22 +1,35 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: FULL SWAP API - Real-time AI video transformation platform
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: User authentication
+  - name: users
+    description: User management
+  - name: sessions
+    description: Streaming sessions
+  - name: payments
+    description: USDT payment operations
+  - name: pricing
+    description: Pricing management
+  - name: admin
+    description: Admin operations
+  - name: decart
+    description: Decart AI token proxy
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +37,810 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "201":
+          description: User registered — email verification required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/verify-email:
+    post:
+      operationId: verifyEmail
+      tags: [auth]
+      summary: Verify email with 5-digit PIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                pin:
+                  type: string
+              required: [email, pin]
+      responses:
+        "200":
+          description: Email verified — token returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid or expired PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/resend-verification:
+    post:
+      operationId: resendVerification
+      tags: [auth]
+      summary: Resend email verification PIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+              required: [email]
+      responses:
+        "200":
+          description: PIN resent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Reset password using email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordBody"
+      responses:
+        "200":
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Email not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      deprecated: true
+      summary: "[DEPRECATED] User login — returns 410 Gone"
+      description: >
+        User accounts have been removed. This endpoint always returns
+        410 Gone with code ACCOUNTS_REMOVED. Admin access uses
+        POST /admin/login. Regular users authenticate via license key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "410":
+          description: Gone — user accounts have been removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/dashboard:
+    get:
+      operationId: getUserDashboard
+      tags: [users]
+      summary: Get user dashboard summary
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDashboard"
+
+  /users/set-usage-time:
+    post:
+      operationId: setUsageTime
+      tags: [users]
+      summary: Set planned usage time and generate invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetUsageTimeBody"
+      responses:
+        "200":
+          description: Invoice generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+
+  /sessions:
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      summary: List user sessions
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Session"
+    post:
+      operationId: startSession
+      tags: [sessions]
+      summary: Start a streaming session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSessionBody"
+      responses:
+        "201":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "402":
+          description: Payment required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /sessions/{sessionId}/stop:
+    post:
+      operationId: stopSession
+      tags: [sessions]
+      summary: Stop a streaming session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+
+  /payments/invoices:
+    get:
+      operationId: listInvoices
+      tags: [payments]
+      summary: List user invoices
+      responses:
+        "200":
+          description: List of invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invoice"
+
+  /payments/verify:
+    post:
+      operationId: verifyPayment
+      tags: [payments]
+      summary: Verify a USDT payment (optionally supply tx hash; auto-scans blockchain if omitted)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPaymentBody"
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentVerification"
+
+  /payments/status/{invoiceId}:
+    get:
+      operationId: getInvoiceStatus
+      tags: [payments]
+      summary: Poll on-chain status of an invoice (auto-verifies if confirmed)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Invoice blockchain status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceStatus"
+
+  /payments/wallet:
+    get:
+      operationId: getPaymentWallet
+      tags: [payments]
+      summary: Get current USDT payment wallet address
+      responses:
+        "200":
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletInfo"
+
+  /pricing:
+    get:
+      operationId: getPricing
+      tags: [pricing]
+      summary: Get pricing tiers
+      responses:
+        "200":
+          description: Pricing tiers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PricingTier"
+
+  /decart/token:
+    get:
+      operationId: getDecartToken
+      tags: [decart]
+      summary: Get a short-lived Decart AI token (auth required)
+      responses:
+        "200":
+          description: Short-lived token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecartTokenResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/login:
+    post:
+      operationId: adminLogin
+      tags: [admin]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid credentials or account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Account suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/dashboard:
+    get:
+      operationId: getAdminDashboard
+      tags: [admin]
+      summary: Admin dashboard stats
+      responses:
+        "200":
+          description: Admin dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDashboard"
+
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      tags: [admin]
+      summary: List all users
+      responses:
+        "200":
+          description: All users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserAdmin"
+
+  /admin/users/{userId}:
+    patch:
+      operationId: adminUpdateUser
+      tags: [admin]
+      summary: Update user membership/status
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateUserBody"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAdmin"
+    delete:
+      operationId: adminDeleteUser
+      tags: [admin]
+      summary: Delete a user account
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /admin/users/{userId}/reset-password:
+    post:
+      operationId: adminResetUserPassword
+      tags: [admin]
+      summary: Reset a user password (admin)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                newPassword:
+                  type: string
+                  minLength: 8
+              required: [newPassword]
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /admin/admins:
+    post:
+      operationId: createAdmin
+      tags: [admin]
+      summary: Create a new admin account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 20
+                password:
+                  type: string
+                  minLength: 8
+                avatarUrl:
+                  type: string
+                  nullable: true
+              required: [email, username, password]
+      responses:
+        "201":
+          description: Admin created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  email:
+                    type: string
+                  username:
+                    type: string
+                  avatarUrl:
+                    type: string
+                    nullable: true
+                required: [id, email, username]
+
+  /admin/admins/{userId}/suspend:
+    post:
+      operationId: suspendAdmin
+      tags: [admin]
+      summary: Revoke admin privileges and suspend account
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Admin suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /admin/revenue-chart:
+    get:
+      operationId: getAdminRevenueChart
+      tags: [admin]
+      summary: 30-day revenue chart data
+      responses:
+        "200":
+          description: Revenue chart
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    date:
+                      type: string
+                    usdt:
+                      type: number
+                    payments:
+                      type: integer
+                  required: [date, usdt, payments]
+
+  /admin/admin-sessions:
+    get:
+      operationId: getAdminSessionAudit
+      tags: [admin]
+      summary: Admin session audit log
+      responses:
+        "200":
+          description: Admin session audit
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    userId:
+                      type: integer
+                    username:
+                      type: string
+                    email:
+                      type: string
+                    avatarUrl:
+                      type: string
+                      nullable: true
+                    status:
+                      type: string
+                    startedAt:
+                      type: string
+                      format: date-time
+                    stoppedAt:
+                      type: string
+                      format: date-time
+                      nullable: true
+                    durationSeconds:
+                      type: integer
+                      nullable: true
+                    style:
+                      type: string
+                      nullable: true
+                  required: [id, userId, username, email, status, startedAt]
+
+  /admin/pricing:
+    put:
+      operationId: adminUpdatePricing
+      tags: [admin]
+      summary: Update pricing tiers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/PricingTierInput"
+      responses:
+        "200":
+          description: Updated pricing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PricingTier"
+
+  /admin/wallet:
+    put:
+      operationId: adminUpdateWallet
+      tags: [admin]
+      summary: Update USDT payment wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWalletBody"
+      responses:
+        "200":
+          description: Wallet updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletInfo"
+
+  /admin/sessions:
+    get:
+      operationId: adminListSessions
+      tags: [admin]
+      summary: List all active sessions
+      responses:
+        "200":
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionAdmin"
+
+  /chat:
+    post:
+      operationId: sendChatMessage
+      tags: [chat]
+      summary: Send a message to support
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required: [message]
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+
+  /chat/my:
+    get:
+      operationId: getMyChatMessages
+      tags: [chat]
+      summary: Get current user chat thread
+      responses:
+        "200":
+          description: Chat messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+
+  /chat/unread-count:
+    get:
+      operationId: getChatUnreadCount
+      tags: [chat]
+      summary: Get unread message count for current user
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                required: [count]
+
+  /chat/admin/threads:
+    get:
+      operationId: getAdminChatThreads
+      tags: [chat]
+      summary: Get all user chat threads (admin)
+      responses:
+        "200":
+          description: Chat threads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatThread"
+
+  /chat/admin/thread/{userId}:
+    get:
+      operationId: getAdminChatThread
+      tags: [chat]
+      summary: Get a specific user's chat thread (admin)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Chat messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+
+  /chat/admin/reply/{userId}:
+    post:
+      operationId: sendAdminChatReply
+      tags: [chat]
+      summary: Send admin reply to a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required: [message]
+      responses:
+        "201":
+          description: Reply sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +848,445 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    RegisterResponse:
+      type: object
+      properties:
+        requiresVerification:
+          type: boolean
+        email:
+          type: string
+        message:
+          type: string
+      required: [requiresVerification, email]
+
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        sender:
+          type: string
+          enum: [user, admin]
+        message:
+          type: string
+        readByAdmin:
+          type: integer
+        readByUser:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, sender, message, readByAdmin, readByUser, createdAt]
+
+    ChatThread:
+      type: object
+      properties:
+        userId:
+          type: integer
+        email:
+          type: string
+        username:
+          type: string
+        unreadCount:
+          type: integer
+        lastMessage:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ChatMessage"
+      required: [userId, email, username, unreadCount]
+
+    RegisterBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          minLength: 3
+          maxLength: 20
+          pattern: '^[a-zA-Z0-9_]+$'
+        password:
+          type: string
+          minLength: 8
+        browserFingerprint:
+          type: string
+          description: Client-side browser fingerprint hash for abuse prevention
+      required: [email, username, password]
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required: [email, password]
+
+    ResetPasswordBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        newPassword:
+          type: string
+          minLength: 8
+      required: [email, newPassword]
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+      required: [user, token]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        username:
+          type: string
+        membership:
+          type: string
+          enum: [active, suspended, free_trial]
+        freeSecondsRemaining:
+          type: integer
+        totalMinutesPurchased:
+          type: integer
+        totalMinutesUsed:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        avatarUrl:
+          type: string
+          nullable: true
+          description: Optional profile avatar URL
+        isSubAdmin:
+          type: integer
+          enum: [0, 1]
+          description: "1 if user has sub-admin privileges, 0 otherwise"
+      required: [id, email, username, membership, freeSecondsRemaining, totalMinutesPurchased, totalMinutesUsed, createdAt]
+
+    UserDashboard:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        recentSessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        recentInvoices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invoice"
+        totalSpent:
+          type: number
+        activeSessions:
+          type: integer
+      required: [user, recentSessions, recentInvoices, totalSpent, activeSessions]
+
+    SetUsageTimeBody:
+      type: object
+      properties:
+        minutes:
+          type: integer
+          minimum: 10
+      required: [minutes]
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: integer
+        status:
+          type: string
+          enum: [active, stopped, expired]
+        startedAt:
+          type: string
+          format: date-time
+        stoppedAt:
+          type: string
+          format: date-time
+          nullable: true
+        durationSeconds:
+          type: integer
+          nullable: true
+        style:
+          type: string
+          nullable: true
+      required: [id, userId, status, startedAt]
+
+    StartSessionBody:
+      type: object
+      properties:
+        style:
+          type: string
+      required: []
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: integer
+        minutes:
+          type: integer
+        amountUsdt:
+          type: number
+        status:
+          type: string
+          enum: [pending, paid, expired]
+        walletAddress:
+          type: string
+        walletNetwork:
+          type: string
+          nullable: true
+        allWallets:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              address:
+                type: string
+              network:
+                type: string
+            required: [address, network]
+        txHash:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, userId, minutes, amountUsdt, status, walletAddress, createdAt]
+
+    VerifyPaymentBody:
+      type: object
+      properties:
+        invoiceId:
+          type: string
+        txHash:
+          type: string
+      required: [invoiceId]
+
+    InvoiceStatus:
+      type: object
+      properties:
+        invoiceId:
+          type: string
+        status:
+          type: string
+        confirmed:
+          type: boolean
+        confirmations:
+          type: integer
+          nullable: true
+        txHash:
+          type: string
+          nullable: true
+        minutesAdded:
+          type: integer
+        message:
+          type: string
+      required: [invoiceId, status, confirmed, minutesAdded, message]
+
+    PaymentVerification:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        invoice:
+          $ref: "#/components/schemas/Invoice"
+        minutesAdded:
+          type: integer
+      required: [verified, invoice, minutesAdded]
+
+    WalletInfo:
+      type: object
+      properties:
+        address:
+          type: string
+        network:
+          type: string
+        wallets:
+          type: array
+          items:
+            type: object
+            properties:
+              address:
+                type: string
+              network:
+                type: string
+            required: [address, network]
+      required: [address, network]
+
+    PricingTier:
+      type: object
+      properties:
+        id:
+          type: integer
+        minutes:
+          type: integer
+        priceUsdt:
+          type: number
+        label:
+          type: string
+      required: [id, minutes, priceUsdt, label]
+
+    PricingTierInput:
+      type: object
+      properties:
+        minutes:
+          type: integer
+        priceUsdt:
+          type: number
+        label:
+          type: string
+      required: [minutes, priceUsdt, label]
+
+    DecartTokenResponse:
+      type: object
+      properties:
+        apiKey:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required: [apiKey, expiresAt]
+
+    AdminDashboard:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        activeUsers:
+          type: integer
+        activeSessions:
+          type: integer
+        totalRevenue:
+          type: number
+        revenueToday:
+          type: number
+        newUsersToday:
+          type: integer
+        recentActivity:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              message:
+                type: string
+              timestamp:
+                type: string
+            required: [type, message, timestamp]
+      required: [totalUsers, activeUsers, activeSessions, totalRevenue, revenueToday, newUsersToday, recentActivity]
+
+    UserAdmin:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        username:
+          type: string
+        membership:
+          type: string
+          enum: [active, suspended, free_trial]
+        totalMinutesPurchased:
+          type: integer
+        totalMinutesUsed:
+          type: number
+        freeSecondsRemaining:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        lastSession:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, email, username, membership, totalMinutesPurchased, totalMinutesUsed, freeSecondsRemaining, createdAt]
+
+    AdminUpdateUserBody:
+      type: object
+      properties:
+        membership:
+          type: string
+          enum: [active, suspended, free_trial]
+        totalMinutesPurchased:
+          type: integer
+      required: []
+
+    SessionAdmin:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: integer
+        username:
+          type: string
+        status:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        style:
+          type: string
+          nullable: true
+      required: [id, userId, username, status, startedAt]
+
+    UpdateWalletBody:
+      type: object
+      properties:
+        address:
+          type: string
+        network:
+          type: string
+        wallets:
+          type: array
+          items:
+            type: object
+            properties:
+              address:
+                type: string
+              network:
+                type: string
+            required: [address, network]
+      required: [address, network]
