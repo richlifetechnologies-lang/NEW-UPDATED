@@ -66,10 +66,12 @@ export async function getKeyCreditStatus(
   const completedSeconds = Number(completedResult[0]?.totalSeconds ?? 0);
 
   // Sum live session durations (status = 'active')
+  // Use billing_started_at (when Decart output actually began) instead of
+  // started_at (session row creation) for accurate credit computation.
   const liveResult = await db
     .select({
       count: sql<number>`COUNT(*)`,
-      liveSeconds: sql<number>`COALESCE(SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER), 0)`,
+      liveSeconds: sql<number>`COALESCE(SUM(EXTRACT(EPOCH FROM (NOW() - COALESCE(billing_started_at, started_at)))::INTEGER), 0)`,
     })
     .from(sessionsTable)
     .where(

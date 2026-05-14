@@ -3,6 +3,7 @@ import { db, sessionsTable, licenseKeysTable } from "@workspace/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireLicense } from "../lib/auth";
 import { randomUUID } from "crypto";
+import { getDecartKeyIdFromCache } from "./decart";
 
 const router = Router();
 
@@ -228,8 +229,32 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
       .where(eq(licenseKeysTable.id, license.id));
   }
 
+  // ── Compute live durationSeconds from billing anchor ───────────────────────
+  // Writing this every heartbeat makes active sessions visible with real-time
+  // durations in the Decart key usage history panel (not just at stop time).
+  const currentDurationSec = Math.max(0, Math.floor((now.getTime() - billingStart.getTime()) / 1000));
+
+  // ── Ensure decartKeyId is linked (fallback if token route missed it) ───────
+  // If decartKeyId is null, try: 1) license's explicit assignment, 2) token cache.
+  // This covers reconnects and edge cases where the token fetch didn't update the row.
+  const licenseKey = (req as any).licenseKey as string;
+  let decartKeyIdToSet: number | null = session.decartKeyId ?? null;
+  if (!decartKeyIdToSet) {
+    decartKeyIdToSet = freshLicense.assignedDecartKeyId
+      ?? getDecartKeyIdFromCache(licenseKey)
+      ?? null;
+    if (decartKeyIdToSet) {
+      console.log(`[SESSION] heartbeat_linked_decart_key sessionId=${sessionId} decartKeyId=${decartKeyIdToSet}`);
+    }
+  }
+
   await db.update(sessionsTable)
-    .set({ lastHeartbeatAt: now, lastDeductedAt: now })
+    .set({
+      lastHeartbeatAt: now,
+      lastDeductedAt: now,
+      durationSeconds: currentDurationSec,
+      ...(decartKeyIdToSet && !session.decartKeyId ? { decartKeyId: decartKeyIdToSet } : {}),
+    })
     .where(eq(sessionsTable.id, sessionId));
 
   // After this debit, is the license exhausted?

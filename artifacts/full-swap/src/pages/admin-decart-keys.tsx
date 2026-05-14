@@ -132,23 +132,43 @@ function CreditBar({ used, total, level }: { used: number; total: number; level:
 function UsageHistoryPanel({ keyId }: { keyId: number }) {
   const [history, setHistory] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false); // Bug #1: Refresh button feedback
+  const [tick, setTick] = useState(0); // force re-render every second for live duration
 
-  useEffect(() => {
+  const fetchHistory = useCallback(() => {
     fetch(`/api/admin/decart-keys/${keyId}/usage-history?limit=20`, {
       headers: getAuthHeaders(),
     })
       .then((r) => r.json())
-      .then(setHistory)
-      .catch(() => setHistory([]))
-      .finally(() => setLoading(false));
+      .then((data) => { setHistory(data); setLoading(false); })
+      .catch(() => { setHistory([]); setLoading(false); });
   }, [keyId]);
 
+  // Initial load + auto-refresh every 10 seconds
+  useEffect(() => {
+    fetchHistory();
+    const pollInterval = setInterval(fetchHistory, 10_000);
+    return () => clearInterval(pollInterval);
+  }, [fetchHistory]);
+
+  // Tick every second so active session durations update live
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 1_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const hasActive = history.some((s) => s.status === "active");
+
   if (loading) return <div className="text-xs text-slate-500 py-2">Loading history…</div>;
-  if (history.length === 0) return <div className="text-xs text-slate-500 py-2">No sessions recorded yet.</div>;
+  if (history.length === 0) return <div className="text-xs text-slate-500 py-2">No sessions recorded yet for this key.</div>;
 
   return (
     <div className="overflow-x-auto mt-2">
+      {hasActive && (
+        <div className="flex items-center gap-1.5 mb-2 text-xs text-emerald-400">
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          Live session in progress — credits updating every 10s
+        </div>
+      )}
       <table className="w-full text-xs text-slate-300">
         <thead>
           <tr className="border-b border-slate-700 text-slate-500">
@@ -160,23 +180,39 @@ function UsageHistoryPanel({ keyId }: { keyId: number }) {
           </tr>
         </thead>
         <tbody>
-          {history.map((s) => (
-            <tr key={s.sessionId} className="border-b border-slate-800 hover:bg-slate-800/40">
-              <td className="py-1 pr-3 font-mono text-slate-400">{s.sessionId.slice(0, 8)}…</td>
-              <td className="py-1 pr-3">{fmtDate(s.startedAt)}</td>
-              <td className="py-1 pr-3">{fmtSeconds(s.durationSeconds)}</td>
-              <td className="py-1 pr-3 text-right font-semibold text-slate-200">{s.creditsConsumed.toLocaleString()}</td>
-              <td className="py-1">
-                <span className={`px-1.5 py-0.5 rounded text-xs ${
-                  s.status === "active" ? "bg-emerald-900 text-emerald-300" :
-                  s.status === "stopped" ? "bg-slate-700 text-slate-300" :
-                  "bg-red-900 text-red-300"
-                }`}>
-                  {s.status}
-                </span>
-              </td>
-            </tr>
-          ))}
+          {history.map((s) => {
+            const isActive = s.status === "active";
+            // For active sessions compute live elapsed time client-side between polls
+            const liveDur = isActive
+              ? Math.max(s.durationSeconds, Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000))
+              : s.durationSeconds;
+            // Suppress unused tick warning — it forces re-render for live clock
+            void tick;
+            return (
+              <tr key={s.sessionId} className={`border-b border-slate-800 ${isActive ? "bg-emerald-950/20" : "hover:bg-slate-800/40"}`}>
+                <td className="py-1 pr-3 font-mono text-slate-400">{s.sessionId.slice(0, 8)}…</td>
+                <td className="py-1 pr-3">{fmtDate(s.startedAt)}</td>
+                <td className="py-1 pr-3 tabular-nums">{fmtSeconds(liveDur)}</td>
+                <td className="py-1 pr-3 text-right font-semibold tabular-nums text-slate-200">
+                  {(liveDur * 2).toLocaleString()}
+                </td>
+                <td className="py-1">
+                  {isActive ? (
+                    <span className="flex items-center gap-1 text-emerald-300">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      LIVE
+                    </span>
+                  ) : (
+                    <span className={`px-1.5 py-0.5 rounded text-xs ${
+                      s.status === "stopped" ? "bg-slate-700 text-slate-300" : "bg-red-900 text-red-300"
+                    }`}>
+                      {s.status}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

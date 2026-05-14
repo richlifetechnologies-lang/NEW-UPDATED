@@ -178,4 +178,13 @@ router.get("/token", requireLicense, async (req, res) => {
   }
 });
 
+/**
+ * Returns the Decart API key ID currently cached for a given license key.
+ * Used by the sessions heartbeat as a fallback to link sessions to their
+ * Decart key for credit tracking when decartKeyId is still null on the row.
+ */
+export function getDecartKeyIdFromCache(licenseKey: string): number | null {
+  return tokenCache.get(licenseKey)?.sourceKeyId ?? null;
+}
+
 export default router;
