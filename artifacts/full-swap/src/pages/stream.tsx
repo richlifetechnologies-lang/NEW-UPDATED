@@ -625,6 +625,25 @@ export default function StreamPage() {
               description: "Connection lost — click Stream Now to reconnect.",
               variant: "destructive",
             });
+            // Stop the server session immediately so billing halts.
+            // Without this the session stays "active" and keeps charging until the
+            // orphan sweeper runs (up to HEARTBEAT_GRACE_MS = 35s later).
+            const droppedSid = activeSessionRef.current;
+            if (droppedSid) {
+              const licKey = localStorage.getItem("fullswap_license_key") ?? "";
+              console.info(`[Stream] decart_drop_stop sessionId=${droppedSid}`);
+              fetch(`/api/sessions/${droppedSid}/stop`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
+                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 2 }),
+                keepalive: true,
+              }).catch(() => {});
+              activeSessionRef.current = null;
+              if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+              if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
+              setIsStreaming(false);
+              setElapsedSecs(0);
+            }
           }
         },
         onError: (err) => {
@@ -743,35 +762,16 @@ export default function StreamPage() {
       const sid = activeSessionRef.current;
       if (!sid) return;
       const licKey = localStorage.getItem("fullswap_license_key") ?? "";
-      // ── Loophole fix #2: navigator.sendBeacon is the ONLY transport the
-      // browser guarantees to flush during pagehide / tab-close. fetch+keepalive
-      // is best-effort and is silently dropped on many mobile browsers when the
-      // tab is killed by the OS. We send both for belt-and-braces.
+      // fetch+keepalive is the correct approach for unload — it supports custom headers
+      // (unlike sendBeacon which cannot set X-License-Key, causing a 401 → orphaned session).
+      // Browsers guarantee keepalive fetches flush even after the page unloads.
       const url = `/api/sessions/${sid}/stop`;
-      try {
-        const blob = new Blob(
-          [JSON.stringify({ licenseKey: licKey })],
-          { type: "application/json" },
-        );
-        const ok = typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function"
-          ? navigator.sendBeacon(url + `?licenseKey=${encodeURIComponent(licKey)}`, blob)
-          : false;
-        if (!ok) {
-          fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-            body: JSON.stringify({}),
-            keepalive: true,
-          }).catch(() => {});
-        }
-      } catch {
-        fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-          body: JSON.stringify({}),
-          keepalive: true,
-        }).catch(() => {});
-      }
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
+        body: JSON.stringify({}),
+        keepalive: true,
+      }).catch(() => {});
       activeSessionRef.current = null;
     }
     window.addEventListener("pagehide", handleUnload);
