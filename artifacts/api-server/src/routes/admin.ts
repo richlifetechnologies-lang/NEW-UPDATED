@@ -1232,12 +1232,29 @@ router.post("/decart-keys", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "label, apiKey, and apiSecret are required" });
     return;
   }
+
+  // Inherit global credit settings so the new key starts with the same
+  // configuration as all existing keys (thresholdPct, etc.)
+  const [globalSettings] = await db
+    .select()
+    .from(decartCreditSettingsTable)
+    .limit(1);
+  const inheritedThresholdPct = globalSettings?.globalThresholdPct ?? 15;
+
   const [key] = await db.insert(decartApiKeysTable).values({
     label,
     apiKey,
     apiSecret,
     isActive: true,
     maxUsers: maxUsers ?? null,
+    // Inherited from global settings
+    thresholdPct: inheritedThresholdPct,
+    // Explicit defaults to match existing key behaviour
+    totalCreditsLoaded: 0,
+    creditsBaseline: 0,
+    assignmentStatus: "available",
+    usageLoad: 0,
+    healthStatus: "healthy",
   }).returning();
   res.status(201).json({
     id: key.id,
