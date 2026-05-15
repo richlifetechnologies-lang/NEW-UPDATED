@@ -1865,6 +1865,62 @@ router.get("/analytics/transactions", requireAdmin, async (req, res) => {
 });
 
 
+// GET /api/admin/analytics/per-key -- per-license-key breakdown for tracking
+router.get("/analytics/per-key", requireAdmin, async (_req, res) => {
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        lk.id,
+        lk.key,
+        lk.minutes_allocated,
+        lk.used_seconds,
+        lk.is_active,
+        lk.created_at,
+        lk.last_used_at,
+        COUNT(s.id)::int                          AS session_count,
+        COALESCE(SUM(s.duration_seconds), 0)::int AS total_stream_seconds,
+        COALESCE(ft.revenue_usd, 0)               AS revenue_usd
+      FROM license_keys lk
+      LEFT JOIN sessions s ON s.license_key_id = lk.id
+      LEFT JOIN (
+        SELECT license_key, SUM(CAST(revenue_usd AS DECIMAL)) AS revenue_usd
+        FROM financial_transactions
+        GROUP BY license_key
+      ) ft ON ft.license_key = lk.key
+      GROUP BY lk.id, lk.key, lk.minutes_allocated, lk.used_seconds,
+               lk.is_active, lk.created_at, lk.last_used_at, ft.revenue_usd
+      ORDER BY lk.created_at DESC
+    `);
+
+    const keys = (rows as any[]).map((r: any) => ({
+      id:               Number(r.id),
+      key:              r.key as string,
+      minutesAllocated: parseFloat(r.minutes_allocated ?? "0"),
+      minutesUsed:      Math.round((Number(r.used_seconds ?? 0) / 60) * 100) / 100,
+      minutesRemaining: Math.max(0, Math.round(((parseFloat(r.minutes_allocated ?? "0") * 60 - Number(r.used_seconds ?? 0)) / 60) * 100) / 100),
+      sessionCount:     Number(r.session_count ?? 0),
+      totalStreamMinutes: Math.round((Number(r.total_stream_seconds ?? 0) / 60) * 100) / 100,
+      revenueUsd:       Math.round(parseFloat(r.revenue_usd ?? "0") * 100) / 100,
+      isActive:         Boolean(r.is_active),
+      lastUsedAt:       r.last_used_at ? new Date(r.last_used_at).toISOString() : null,
+      createdAt:        new Date(r.created_at).toISOString(),
+    }));
+
+    const totals = {
+      totalMinutesAllocated: Math.round(keys.reduce((s, k) => s + k.minutesAllocated, 0) * 100) / 100,
+      totalMinutesUsed:      Math.round(keys.reduce((s, k) => s + k.minutesUsed, 0) * 100) / 100,
+      totalStreamMinutes:    Math.round(keys.reduce((s, k) => s + k.totalStreamMinutes, 0) * 100) / 100,
+      totalSessions:         keys.reduce((s, k) => s + k.sessionCount, 0),
+      totalRevenueUsd:       Math.round(keys.reduce((s, k) => s + k.revenueUsd, 0) * 100) / 100,
+    };
+
+    res.json({ keys, totals });
+  } catch (err) {
+    console.error("[admin:analytics:per-key]", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 //  DECART CREDIT TRACKING ENDPOINTS
 // ─────────────────────────────────────────────────────────────
