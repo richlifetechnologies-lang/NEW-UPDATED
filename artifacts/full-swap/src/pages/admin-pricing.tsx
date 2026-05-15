@@ -24,11 +24,17 @@ type FormData = {
 
 const emptyForm: FormData = { label: "", minutes: "", priceUsd: "", planType: "topup", isActive: true };
 
+// Decart fixed rates — 2 credits/sec = 120/min = 7200/hr → $0.01/credit → $72/hr
+const CREDITS_PER_MINUTE = 120;
+const DECART_COST_PER_CREDIT = 0.01; // USD per credit
+
 function calcFromForm(form: FormData, rates: Rates) {
   const mins = parseInt(form.minutes) || 0;
   const usd = parseFloat(form.priceUsd) || 0;
+  const credits = Math.round(mins * CREDITS_PER_MINUTE);
   return {
-    credits: Math.round(mins * rates.creditsPerMinute),
+    credits,
+    decartCostUsd: +(credits * DECART_COST_PER_CREDIT).toFixed(2),
     priceUsdt: +(usd * rates.usdtPerUsd).toFixed(2),
     priceGhs: +(usd * rates.ghsPerUsd).toFixed(2),
   };
@@ -171,19 +177,27 @@ function PricingSection({
 
             {/* Live Calculator Output */}
             <div className="rounded-lg p-3 space-y-2" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}>
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Auto-Calculated</p>
-              <div className="grid grid-cols-3 gap-2">
+              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Auto-Calculated (2 credits/sec · $0.01/credit · $72/hr)</p>
+              <div className="grid grid-cols-2 gap-2 mb-2">
                 <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
-                  <p className="text-lg font-bold text-primary font-mono">{calc.credits}</p>
-                  <p className="text-[10px] text-muted-foreground">Credits</p>
+                  <p className="text-lg font-bold text-primary font-mono">{calc.credits.toLocaleString()}</p>
+                  <p className="text-[10px] text-muted-foreground">Decart Credits</p>
+                  <p className="text-[10px] text-muted-foreground">({CREDITS_PER_MINUTE} credits/min)</p>
                 </div>
+                <div className="text-center p-2 rounded" style={{ background: "hsl(0 84% 60% / 0.06)" }}>
+                  <p className="text-lg font-bold text-red-400 font-mono">${calc.decartCostUsd}</p>
+                  <p className="text-[10px] text-muted-foreground">Decart Cost (USD)</p>
+                  <p className="text-[10px] text-muted-foreground">($0.01 per credit)</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
                   <p className="text-lg font-bold text-foreground font-mono">{calc.priceUsdt}</p>
-                  <p className="text-[10px] text-muted-foreground">USDT</p>
+                  <p className="text-[10px] text-muted-foreground">Your Price (USDT)</p>
                 </div>
                 <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
-                  <p className="text-lg font-bold text-foreground font-mono">{calc.priceGhs}</p>
-                  <p className="text-[10px] text-muted-foreground">GHS</p>
+                  <p className="text-lg font-bold text-foreground font-mono">GHS {calc.priceGhs}</p>
+                  <p className="text-[10px] text-muted-foreground">Your Price (GHS)</p>
                 </div>
               </div>
             </div>

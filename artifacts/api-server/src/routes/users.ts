@@ -32,7 +32,7 @@ router.get("/dashboard", requireAuth, async (req, res) => {
       membership: user.membership,
       freeSecondsRemaining: user.freeSecondsRemaining,
       totalMinutesPurchased: user.totalMinutesPurchased,
-      totalSecondsUsed: user.totalSecondsUsed,
+      totalMinutesUsed: (user.totalSecondsUsed ?? 0) / 60,
       createdBySubAdmin: user.createdBySubAdmin ?? false,
     },
     recentSessions,

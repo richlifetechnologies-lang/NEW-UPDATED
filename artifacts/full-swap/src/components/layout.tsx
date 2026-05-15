@@ -1,25 +1,16 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Play, CreditCard, Zap, Menu, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { LayoutDashboard, Play, Menu, X } from "lucide-react";
+import { useState } from "react";
 import { clearLicenseKey } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { ChatWidget } from "@/components/chat-widget";
 
-const allNavItems = [
+const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/stream",    label: "Stream",    icon: Play },
-  { href: "/pricing",   label: "Software License Prices",   icon: CreditCard },
 ];
 
-export function AppLayout({ children, billingEnabled = true }: { children: React.node; billingEnabled?: boolean }) {
-  // Auto-detect if billing should be hidden for sub-admin-created users
-  const [isSubAdminUser, setIsScbAdminUser] = useState(false);
-  useEffect(() => {
-    // License-based system: always show all nav items (billing = pricing page)
-    // No sub-admin user concept in license system
-  }, []);
-  const showBilling = billingEnabled && !isSubAdminUser;
-  const navItems = showBilling ? allNavItems : allNavItems.filter(n => n.href !== "/pricing");
+export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [location, setLocation] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -50,7 +41,7 @@ export function AppLayout({ children, billingEnabled = true }: { children: React
 
         {/* Nav */}
         <nav className="flex-1 p-4 space-y-1">
-          {(billingEnabled ? navItems : navItems.filter(n => n.href !== "/pricing")).map(({ href, label, icon: Icon }) => {
+          {navItems.map(({ href, label, icon: Icon }) => {
             const active = location === href;
             return (
               <Link key={href} href={href}>

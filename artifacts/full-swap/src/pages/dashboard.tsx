@@ -79,7 +79,7 @@ export default function DashboardPage() {
 
   // For Electron: show license modal if not licensed
   if (isElectron && !licenseLoading && !isLicensed) {
-    return <LicenseActivationModal onActivate={activateLicense} onBuyKey={() => {}} error={licenseError} mode="no-license" />;
+    return <LicenseActivationModal onActivate={activateLicense} error={licenseError} mode="no-license" />;
   }
 
   // Loading license state

@@ -534,9 +534,9 @@ export default function AdminDecartKeysPage() {
                     </div>
                   )}
 
-                  {/* Stats Row */}
+                  {/* Stats Row — 2 credits/sec = 120 credits/min → $0.01/credit → $72/hr */}
                   {cs && (
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                         <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
                           <Activity className="w-3 h-3" /> Active Sessions
@@ -545,7 +545,7 @@ export default function AdminDecartKeysPage() {
                       </div>
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                         <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
-                          <Zap className="w-3 h-3" /> Remaining Credits
+                          <Zap className="w-3 h-3" /> Available Credits
                         </div>
                         <div className={`text-lg font-bold ${
                           cs.warningLevel === "critical" ? "text-red-400" :
@@ -553,17 +553,25 @@ export default function AdminDecartKeysPage() {
                         }`}>
                           {cs.creditsRemaining.toLocaleString()}
                         </div>
+                        <div className="text-xs text-slate-600">÷ 120 = {(cs.creditsRemaining / 120).toFixed(1)} min available</div>
                       </div>
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                         <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> Est. Runtime
+                          <Clock className="w-3 h-3" /> Est. Stream Time
                         </div>
                         <div className="text-lg font-bold text-slate-100">
-                          {cs.estimatedRemainingSeconds !== null ? fmtSeconds(cs.estimatedRemainingSeconds) : "—"}
+                          {fmtSeconds(Math.floor(cs.creditsRemaining / 2))}
                         </div>
-                        {cs.activeSessionCount > 0 && (
-                          <div className="text-xs text-slate-600">@ {cs.activeSessionCount} session{cs.activeSessionCount > 1 ? "s" : ""}</div>
-                        )}
+                        <div className="text-xs text-slate-600">@ 2 credits/sec</div>
+                      </div>
+                      <div className="bg-slate-800/60 rounded-lg px-3 py-2">
+                        <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
+                          <TrendingDown className="w-3 h-3" /> Decart Balance Value
+                        </div>
+                        <div className="text-lg font-bold text-emerald-400">
+                          ${(cs.creditsRemaining * 0.01).toFixed(2)}
+                        </div>
+                        <div className="text-xs text-slate-600">$0.01/credit · $72/hr</div>
                       </div>
                     </div>
                   )}

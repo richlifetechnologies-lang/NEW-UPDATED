@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation } from "wouter";
-import { useStartSession, useStopSession, getGetUserDashboardQueryKey, useGetUserDashboard } from "@workspace/api-client-react";
+import { useStartSession, useStopSession } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Play, Square, Camera, Zap, Monitor, Loader2, ImagePlus, X, CreditCard, Lock, Maximize2, RefreshCw, ChevronDown, Key, AlertCircle, CheckCircle, Timer } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { createDecartClient, models } from "@decartai/sdk";
 import { Link } from "wouter";
 import { useLicense } from "@/hooks/useLicense";
+import { getLicenseKey } from "@/lib/auth";
 import { LicenseActivationModal } from "@/components/license-modal";
 
 const LUCY_MODEL = "lucy-2.1" as const;
-const FREE_TRIAL_SECS = 50;
 
 type Style = { id: string; name: string; description: string; prompt: string };
 
@@ -39,11 +39,13 @@ async function fetchDecartToken(): Promise<string> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 || res.status === 403) {
+    const apiErr = body.error ?? "Failed to get streaming token";
+    // Only clear the key and redirect for a genuinely invalid / not-found key
+    if (res.status === 401) {
+      localStorage.removeItem("fullswap_license_key");
       window.location.href = "/";
-      throw new Error("Session expired. Please log in again.");
     }
-    throw new Error(body.error ?? "Failed to fetch Decart token from server");
+    throw new Error(apiErr);
   }
   const data = await res.json();
   return data.apiKey as string;
@@ -97,16 +99,11 @@ function TrialLockedOverlay() {
             <p className="text-xs text-muted-foreground mt-1">Styles Available</p>
           </div>
         </div>
-        <Link href="/billing">
-          <Button className="w-full gap-2 h-12 text-base font-bold tracking-wide"
-                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.3)" }}>
-            <CreditCard className="w-5 h-5" />
-            Purchase Streaming Time
-          </Button>
-        </Link>
-        <p className="text-xs text-muted-foreground mt-4">
-          Pay with USDT · Instant activation after payment confirmation
-        </p>
+        <div className="w-full px-4 py-3 rounded-xl text-center" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
+          <p className="text-sm font-semibold text-foreground mb-1">Need more time?</p>
+          <p className="text-xs text-muted-foreground">Contact your admin to add more streaming minutes to your license key.</p>
+          <p className="text-xs text-primary font-mono mt-1">@rich_life2k15 on Telegram</p>
+        </div>
       </div>
     </div>
   );
@@ -129,19 +126,14 @@ function NoAccessOverlay() {
           <Lock className="w-9 h-9 text-primary" />
         </div>
         <h2 className="text-2xl font-bold text-foreground mb-3 font-mono tracking-wide">No Streaming Time</h2>
-        <p className="text-muted-foreground text-sm leading-relaxed mb-8">
-          You have no streaming time remaining. Purchase streaming time to access the stream window and start your real time video transformation.
+        <p className="text-muted-foreground text-sm leading-relaxed mb-6">
+          You have no streaming time remaining. Contact your admin to get more minutes added to your license key.
         </p>
-        <Link href="/billing">
-          <Button className="w-full gap-2 h-12 text-base font-bold tracking-wide"
-                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.3)" }}>
-            <CreditCard className="w-5 h-5" />
-            Purchase Streaming Time
-          </Button>
-        </Link>
-        <p className="text-xs text-muted-foreground mt-4">
-          Pay with USDT · Instant activation after payment confirmation
-        </p>
+        <div className="w-full px-4 py-3 rounded-xl text-center" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
+          <p className="text-sm font-semibold text-foreground mb-1">Contact Admin</p>
+          <p className="text-xs text-primary font-mono">@rich_life2k15 on Telegram</p>
+          <p className="text-xs text-muted-foreground mt-0.5">loveoflots06@gmail.com</p>
+        </div>
       </div>
     </div>
   );
@@ -166,6 +158,7 @@ export default function StreamPage() {
   const cameraStreamRef       = useRef<MediaStream | null>(null);
   const refImageInputRef      = useRef<HTMLInputElement>(null);
   const trialLimitRef         = useRef<number>(Infinity);
+  const streamStartRemRef     = useRef<number>(0);   // remaining secs captured at stream start for smooth countdown
   const activeSessionRef      = useRef<string | null>(null);
   const connectionStatusRef   = useRef<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
 
@@ -188,14 +181,6 @@ export default function StreamPage() {
   // Desktop license gate
   const { isElectron, isLicensed, isLoading: licenseLoading, error: licenseError, activateLicense } = useLicense();
 
-  const handleBuyKey = useCallback(() => {
-    const buyUrl = "https://fullswapbyrich.xyz/billing";
-    if (window.electronAPI?.openExternal) {
-      window.electronAPI.openExternal(buyUrl);
-    } else {
-      window.open(buyUrl, "_blank");
-    }
-  }, []);
 
   // ── License renewal ─────────────────────────────────────────────────
   const [renewKey, setRenewKey] = useState<string>("");
@@ -205,21 +190,35 @@ export default function StreamPage() {
 
   const startSession = useStartSession({ mutation: {} });
   const stopSession  = useStopSession({ mutation: {} });
-  const dashboard    = useGetUserDashboard({
-    query: {
-      queryKey: getGetUserDashboardQueryKey(),
+  // ── Live license status (polls /api/license/status every 5s) ─────────────
+  // Source of truth for remaining time. Replaces the broken user-dashboard approach:
+  // /api/users/dashboard uses requireAuth (JWT only) — license-key users always get 401.
+  // /api/license/status uses requireLicense (X-License-Key) and already includes
+  // unbilled active-session seconds so remainingSeconds is always real-time accurate.
+  // Rate: 2 credits/sec = 120 credits/min = $0.01/credit → $0.02/sec → $72/hr
+  const licKey = getLicenseKey() ?? "";
+  const licenseStatus = useQuery({
+    queryKey: ["license-status", licKey],
+    queryFn: async (): Promise<{
+      minutesAllocated: number; usedSeconds: number; remainingSeconds: number;
+      minutesRemaining: number; minutesUsed: number; isActive: boolean;
+    } | null> => {
+      if (!licKey) return null;
+      const res = await fetch("/api/license/status", { headers: { "X-License-Key": licKey } });
+      if (!res.ok) return null;
+      return res.json();
     },
+    enabled: !!licKey,
+    refetchInterval: 5_000,   // poll every 5s — keeps balance in sync with server billing
+    staleTime: 2_000,
   });
 
-  const user          = dashboard.data?.user;
-  const isAdminUser   = !!(user?.isAdmin);
-  const isFreeTrial   = user?.membership === "free_trial";
-  const freeSecsLeft  = user?.freeSecondsRemaining ?? 0;
-  const hasPaidTime        = (user?.totalMinutesPurchased ?? 0) > (user?.totalMinutesUsed ?? 0);
-  const paidMinsRemaining  = Math.max(0, (user?.totalMinutesPurchased ?? 0) - (user?.totalMinutesUsed ?? 0));
-  const totalAvailableSecs = paidMinsRemaining * 60 + (isFreeTrial ? freeSecsLeft : 0);
-  const trialLocked        = dashboard.isSuccess && !isAdminUser && isFreeTrial && freeSecsLeft <= 0 && !hasPaidTime;
-  const noAccess           = dashboard.isSuccess && !isAdminUser && totalAvailableSecs <= 0;
+  const isAdminUser      = false;          // license-key users are never admins; admins use /admin
+  const remainingSeconds = licenseStatus.data?.remainingSeconds ?? 0;
+  const minutesAllocated = licenseStatus.data?.minutesAllocated ?? 0;
+  const paidMinsRemaining  = remainingSeconds / 60;
+  const totalAvailableSecs = remainingSeconds;
+  const noAccess           = licenseStatus.isSuccess && totalAvailableSecs <= 0;
 
   // Keep connectionStatusRef in sync so interval callbacks always read the latest value
   useEffect(() => { connectionStatusRef.current = connectionStatus; }, [connectionStatus]);
@@ -246,8 +245,7 @@ export default function StreamPage() {
 
     try {
       await stopSession.mutateAsync({ sessionId });
-      queryClient.invalidateQueries({ queryKey: getGetUserDashboardQueryKey() });
-      dashboard.refetch();
+      queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     } catch { /* best effort */ }
 
     setIsStreaming(false);
@@ -258,7 +256,7 @@ export default function StreamPage() {
     if (!trialExpired) {
       toast({ title: "Session stopped", description: `Streamed for ${formatTime(secs)}` });
     }
-  }, [stopSession, queryClient, dashboard, toast]);
+  }, [stopSession, queryClient, licKey, toast]);
 
   const enumerateCameras = useCallback(async () => {
     try {
@@ -400,9 +398,11 @@ export default function StreamPage() {
       activeSessionRef.current = sessionId;
       setIsStreamStarting(false);
 
-      const paidSecsRemaining = Math.max(0, ((user?.totalMinutesPurchased ?? 0) - (user?.totalMinutesUsed ?? 0)) * 60);
-      const totalAvailableSecs = (isFreeTrial ? freeSecsLeft : 0) + paidSecsRemaining;
-      trialLimitRef.current = isAdminUser ? Infinity : (totalAvailableSecs > 0 ? totalAvailableSecs : Infinity);
+      // Capture remaining seconds from license status at stream start for smooth countdown
+      // and server-side kill threshold (2 credits/sec = 120/min → $0.02/sec → $72/hr)
+      const remainingAtStart     = licenseStatus.data?.remainingSeconds ?? 0;
+      streamStartRemRef.current  = remainingAtStart;
+      trialLimitRef.current      = remainingAtStart > 0 ? remainingAtStart : Infinity;
 
       // Timer starts only when Decart output actually appears — not here at click time
       let elapsed = 0;
@@ -445,7 +445,7 @@ export default function StreamPage() {
             if (elapsed >= trialLimitRef.current) {
               // Bug #5: show splash screen when minutes reach zero
               setLicenseExhausted(true);
-              stopStreamInternally(sessionId, elapsed, isFreeTrial);
+              stopStreamInternally(sessionId, elapsed, false);
             }
           }, 1000);
         },
@@ -489,14 +489,7 @@ export default function StreamPage() {
         }).catch(() => {});
       }
 
-      if (isFreeTrial) {
-        toast({
-          title: "Free trial started",
-          description: `You have ${formatTime(freeSecsLeft)} — stream will auto-stop when trial ends`,
-        });
-      } else {
-        toast({ title: "Session started", description: "Stream is live — Real Time transformation active" });
-      }
+      toast({ title: "Session started", description: "Stream is live — Real Time transformation active" });
     } catch (err: unknown) {
       setConnectionStatus("error");
       setIsStreaming(false);
@@ -520,9 +513,11 @@ export default function StreamPage() {
         }).catch(() => {});
       }
       const errMsg = err instanceof Error ? err.message : "Could not connect";
-      if (errMsg.toLowerCase().includes("401") || errMsg.toLowerCase().includes("unauthorized") || errMsg.toLowerCase().includes("expired")) {
+      // Only clear key for genuinely invalid/revoked license (not streaming-disabled or out-of-time)
+      const isInvalidKey = errMsg.includes("Invalid license key") || errMsg.includes("License key required") || errMsg.includes("has been revoked");
+      if (isInvalidKey) {
         localStorage.removeItem("fullswap_license_key");
-        toast({ title: "License expired", description: "Please renew your license key.", variant: "destructive" });
+        toast({ title: "License invalid", description: "Your license key is no longer valid. Please contact admin.", variant: "destructive" });
         setTimeout(() => setLocation("/"), 1800);
         return;
       }
@@ -638,7 +633,7 @@ export default function StreamPage() {
           if (data.ok === false && data.reason === "no_time") {
             toast({
               title: "Streaming time exhausted",
-              description: "You have run out of streaming minutes. Please purchase more time to continue.",
+              description: "You have used all your streaming minutes. Contact admin to add more time to your license key.",
               variant: "destructive",
             });
             setLicenseExhausted(true);
@@ -672,16 +667,15 @@ export default function StreamPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming, activeSession, stopStreamInternally]);
 
-  // FIX #2: Real-time balance sync during active streaming.
-  // Poll dashboard every 15s to refresh UI with actual server-side balance (usedSeconds).
-  // This prevents stale frontend estimates from diverging from actual billing.
+  // Recalibrate smooth countdown on each 5s server poll during streaming.
+  // server.remainingSeconds = allocated - usedBefore - sessionElapsed
+  // → effective start ref = remainingSeconds + currentElapsed (anchors smooth tick-down)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!isStreaming) return;
-    const id = setInterval(() => {
-      dashboard.refetch();
-    }, 15_000); // 15s — sync every 15s during active stream
-    return () => clearInterval(id);
-  }, [isStreaming, dashboard]);
+    if (isStreaming && licenseStatus.data?.remainingSeconds !== undefined) {
+      streamStartRemRef.current = licenseStatus.data.remainingSeconds + elapsedSecsRef.current;
+    }
+  }, [licenseStatus.data]); // re-run only when server data updates (every 5s)
 
   // ── License renewal handler ──────────────────────────────────────────
   const handleRenewLicense = useCallback(async () => {
@@ -706,7 +700,7 @@ export default function StreamPage() {
           `License activated! ${remMins > 0 ? remMins + " minutes remaining" : allMins + " minutes allocated"}.`
         );
         setRenewKey("");
-        queryClient.invalidateQueries({ queryKey: getGetUserDashboardQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["license-status"] });
       } else {
         setRenewOk(false);
         setRenewMsg("Invalid license key. " + (data.error ? "(" + data.error + ") " : "") + "Please check your key and try again.");
@@ -775,17 +769,18 @@ export default function StreamPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [stopStreamInternally]);
 
-  const trialSecsRemaining = isFreeTrial ? Math.max(0, freeSecsLeft - elapsedSecs) : 0;
-  const trialPct           = isFreeTrial ? Math.max(0, 1 - elapsedSecs / FREE_TRIAL_SECS) : 1;
-  const paidSecsRemaining  = Math.max(0, paidMinsRemaining * 60 - (isStreaming ? Math.max(0, elapsedSecs - freeSecsLeft) : 0));
+  // Smooth per-second countdown: streamStartRemRef anchors remaining secs at stream start.
+  // elapsedSecs ticks every second (client timer). Server polls every 5s recalibrate the ref.
+  // Formula: remaining = (remainingAtStart + elapsedAtLastPoll) - elapsedNow
+  //        = initialRemaining - elapsedSecs  ← exact Decart billing: 1s = 2 credits = $0.02
+  const paidSecsRemaining = isStreaming
+    ? Math.max(0, streamStartRemRef.current - elapsedSecs)
+    : remainingSeconds;
 
   // ── License deduction bar ────────────────────────────────────────────────
-  // Total capacity = everything ever allocated to this key (paid + free trial)
-  const totalCapacitySecs    = Math.max(1, (user?.totalMinutesPurchased ?? 0) * 60 + (isFreeTrial ? FREE_TRIAL_SECS : 0));
-  // Live remaining ticks down in real-time during streaming (driven by elapsedSecs every 1s)
-  const liveRemainingBarSecs = isStreaming
-    ? Math.max(0, trialSecsRemaining + paidSecsRemaining)
-    : totalAvailableSecs;
+  // totalCapacitySecs = all minutes ever allocated on this key (1 min = 120 Decart credits)
+  const totalCapacitySecs    = Math.max(1, minutesAllocated * 60);
+  const liveRemainingBarSecs = Math.max(0, paidSecsRemaining);
   const barPct = Math.max(0, Math.min(1, liveRemainingBarSecs / totalCapacitySecs));
 
   return (
@@ -796,10 +791,9 @@ export default function StreamPage() {
         </div>
       )}
       {(isElectron && !licenseLoading && !isLicensed) && (
-        <LicenseActivationModal onActivate={activateLicense} onBuyKey={handleBuyKey} error={licenseError} mode="no-license" />
+        <LicenseActivationModal onActivate={activateLicense} error={licenseError} mode="no-license" />
       )}
-      {(noAccess || licenseExhausted) && <LicenseActivationModal onActivate={activateLicense} onBuyKey={handleBuyKey} error={licenseError} mode="exhausted" />}
-      {!noAccess && trialLocked && <TrialLockedOverlay />}
+      {(noAccess || licenseExhausted) && <LicenseActivationModal onActivate={activateLicense} error={licenseError} mode="exhausted" />}
 
       <div className="p-6 lg:p-8 space-y-6" data-testid="stream-page">
         {/* Header */}
@@ -809,14 +803,6 @@ export default function StreamPage() {
             <p className="text-muted-foreground mt-1 text-sm">Real-time live video transformation</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Free trial time remaining */}
-            {isFreeTrial && !isStreaming && freeSecsLeft > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/30 rounded-lg">
-                <Zap className="w-4 h-4 text-primary" />
-                <span className="text-primary text-sm font-semibold font-mono">{formatTime(freeSecsLeft)}</span>
-                <span className="text-muted-foreground text-xs">free trial left</span>
-              </div>
-            )}
             {/* Paid minutes remaining */}
             {!isAdminUser && paidMinsRemaining > 0 && (
               <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
@@ -831,7 +817,7 @@ export default function StreamPage() {
             {isStreaming && (
               <div className="flex items-center gap-3 px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-lg" data-testid="status-live">
                 <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-                <span className="text-red-400 font-mono font-bold text-sm">{isAdminUser ? formatTime(elapsedSecs) : formatTime(Math.max(0, trialSecsRemaining + paidSecsRemaining))}</span>
+                <span className="text-red-400 font-mono font-bold text-sm">{isAdminUser ? formatTime(elapsedSecs) : formatTime(Math.max(0, paidSecsRemaining))}</span>
                 {connectionStatus === "connecting" && (
                   <span className="text-xs text-yellow-400 flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" /> Connecting...
@@ -880,11 +866,13 @@ export default function StreamPage() {
             </div>
 
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{Math.round(barPct * 100)}% remaining</span>
+              <span className="flex items-center gap-2">
+                <span>{Math.round(barPct * 100)}% remaining</span>
+                <span className="text-slate-700">·</span>
+                <span className="text-yellow-500/70 font-mono font-medium">⚡ 2 cr/s · $0.02/s · $72/hr</span>
+              </span>
               {barPct <= 0.15 && liveRemainingBarSecs > 0 ? (
-                <Link href="/billing">
-                  <span className="text-red-400 underline cursor-pointer font-medium">⚠ Running low — buy more time</span>
-                </Link>
+                <span className="text-red-400 font-medium">⚠ Running low — contact admin</span>
               ) : (
                 <span>{Math.floor(liveRemainingBarSecs / 60)}m {liveRemainingBarSecs % 60}s left</span>
               )}
@@ -892,31 +880,6 @@ export default function StreamPage() {
           </div>
         )}
 
-        {/* Trial countdown bar */}
-        {isStreaming && isFreeTrial && (
-          <div className="p-3 bg-card border border-primary/20 rounded-lg space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Zap className="w-3 h-3 text-primary" /> Free trial
-              </span>
-              <span className={`text-xs font-mono font-bold ${trialSecsRemaining <= 20 ? "text-red-400 animate-pulse" : "text-primary"}`}>
-                {formatTime(trialSecsRemaining)} remaining
-              </span>
-            </div>
-            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-1000 ${trialSecsRemaining <= 20 ? "bg-red-400" : "bg-primary"}`}
-                style={{ width: `${trialPct * 100}%` }}
-              />
-            </div>
-            {trialSecsRemaining <= 20 && (
-              <p className="text-xs text-red-400">
-                Trial ending soon — stream will stop automatically.{" "}
-                <Link href="/billing"><span className="underline cursor-pointer">Purchase time now</span></Link>
-              </p>
-            )}
-          </div>
-        )}
 
         {/* Main layout: video area + style sidebar */}
         <div className="grid lg:grid-cols-3 gap-6">

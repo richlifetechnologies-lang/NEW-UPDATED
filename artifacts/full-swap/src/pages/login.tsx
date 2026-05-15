@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Key, CheckCircle2, AlertCircle, Loader2, DollarSign, Clock, MessageCircle, Mail, X, Zap, Monitor, Shield } from "lucide-react";
+import { Key, CheckCircle2, AlertCircle, Loader2, Clock, Zap, Monitor, Shield } from "lucide-react";
 import { setLicenseKey, getLicenseKey } from "@/lib/auth";
 
 function LeftPanel() {
@@ -39,7 +39,6 @@ function LeftPanel() {
           <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "calc(50% - 1px)",
                         background: "hsl(222 44% 6%)", display: "flex", flexDirection: "column",
                         alignItems: "center", justifyContent: "center", gap: "8px" }}>
-            {/* Neutral face silhouette */}
             <svg width="64" height="74" viewBox="0 0 64 74" fill="none" xmlns="http://www.w3.org/2000/svg">
               <ellipse cx="32" cy="30" rx="22" ry="24" fill="hsl(222 40% 14%)" stroke="hsl(222 40% 30%)" strokeWidth="1.5"/>
               <circle cx="24" cy="25" r="3" fill="hsl(222 40% 35%)"/>
@@ -61,7 +60,6 @@ function LeftPanel() {
                         background: "linear-gradient(135deg, hsl(187 100% 52% / 0.06), hsl(210 100% 55% / 0.04))",
                         display: "flex", flexDirection: "column", alignItems: "center",
                         justifyContent: "center", gap: "8px" }}>
-            {/* Transformed face with glow */}
             <div style={{ position: "relative" }}>
               <div style={{ position: "absolute", inset: "-8px", borderRadius: "50%",
                             background: "radial-gradient(ellipse, hsl(187 100% 52% / 0.18) 0%, transparent 70%)" }} />
@@ -75,7 +73,6 @@ function LeftPanel() {
                       strokeWidth="1.5" strokeLinecap="round"/>
                 <path d="M26 54 L26 60 Q32 64 38 60 L38 54" fill="none"
                       stroke="hsl(187 100% 52% / 0.4)" strokeWidth="1.2"/>
-                {/* Glow dots */}
                 <circle cx="32" cy="6" r="1.5" fill="hsl(187 100% 52% / 0.4)"/>
                 <circle cx="56" cy="24" r="1" fill="hsl(210 100% 55% / 0.5)"/>
                 <circle cx="8" cy="40" r="1" fill="hsl(187 100% 52% / 0.3)"/>
@@ -113,10 +110,10 @@ function LeftPanel() {
 
         <div className="space-y-3">
           {[
-            { icon: Clock,   text: "50 sec free trial — no card needed" },
+            { icon: Clock,   text: "License key only — contact admin for access" },
             { icon: Zap,     text: "Real-time live video transformation" },
             { icon: Monitor, text: "OBS Studio virtual camera integration" },
-            { icon: Shield,  text: "Pay with USDT — private & secure" },
+            { icon: Shield,  text: "License key gated — admin controlled access" },
           ].map(({ icon: Icon, text }, i) => (
             <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl"
                  style={{ background: "hsl(222 44% 7%)", border: "1px solid hsl(222 40% 12%)" }}>
@@ -137,78 +134,12 @@ function LeftPanel() {
 
 interface DownloadAvailability { windows: boolean; macosArm64: boolean; macosX64: boolean }
 
-
-type PricingTier = { id: number; minutes: number; priceUsdt: number; label: string };
-
-function PricingPopup({ onClose }: { onClose: () => void }) {
-  const [tiers, setTiers] = useState<PricingTier[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/pricing").then(r => r.json())
-      .then(data => { setTiers(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0" style={{ background: "hsl(222 47% 4% / 0.85)" }} onClick={onClose} />
-      <div className="relative z-10 max-w-sm w-full mx-4" style={{
-        background: "hsl(222 44% 6%)", border: "1px solid hsl(187 100% 52% / 0.3)",
-        borderRadius: "1.25rem", padding: "1.75rem 1.5rem",
-        boxShadow: "0 0 60px hsl(187 100% 52% / 0.15)", maxHeight: "80vh", overflowY: "auto",
-      }}>
-        <button onClick={onClose} className="absolute top-3 right-3 text-muted-foreground hover:text-foreground cursor-pointer">
-          <X className="w-4 h-4" />
-        </button>
-        <div className="flex items-center gap-2 mb-4">
-          <DollarSign className="w-5 h-5 text-primary" />
-          <h3 className="text-base font-bold text-foreground font-mono">Software License Prices</h3>
-        </div>
-        {loading ? (
-          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-        ) : tiers.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-6">No pricing available. Contact support.</p>
-        ) : (
-          <div className="space-y-2">
-            {tiers.map(tier => (
-              <div key={tier.id} className="flex items-center justify-between px-4 py-3 rounded-lg"
-                style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 14%)" }}>
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-primary shrink-0" />
-                  <div>
-                    <p className="text-sm font-bold text-foreground font-mono">{tier.label}</p>
-                    <p className="text-[10px] text-muted-foreground">{tier.minutes} minutes streaming</p>
-                  </div>
-                </div>
-                <p className="text-sm font-bold text-primary font-mono">${tier.priceUsdt} USDT</p>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="mt-4 pt-4 border-t border-border space-y-2">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 14%)" }}>
-            <MessageCircle className="w-4 h-4 text-sky-400 shrink-0" />
-            <div><p className="text-[10px] text-muted-foreground">Buy via Telegram</p><p className="text-xs font-bold text-foreground font-mono">@rich_life2k15</p></div>
-          </div>
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 14%)" }}>
-            <Mail className="w-4 h-4 text-amber-400 shrink-0" />
-            <div><p className="text-[10px] text-muted-foreground">Buy via Email</p><p className="text-xs font-bold text-foreground font-mono">loveoflots06@gmail.com</p></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function LoginPage() {
   const [, setLocation] = useLocation();
   const [licenseKey, setLicenseKeyState] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPricing, setShowPricing] = useState(false);
 
-  // If already activated, go to stream
   useEffect(() => {
     if (getLicenseKey()) setLocation("/stream");
   }, [setLocation]);
@@ -244,7 +175,6 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex" style={{ background: "hsl(222 47% 4%)" }}>
-      {showPricing && <PricingPopup onClose={() => setShowPricing(false)} />}
       <LeftPanel />
 
       {/* Right panel - License key entry */}
@@ -267,7 +197,6 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* License key input */}
           <div className="space-y-4">
             <div>
               <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 block">
@@ -311,16 +240,6 @@ export default function LoginPage() {
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               {loading ? "Validating..." : "Activate & Enter Studio"}
-            </Button>
-
-            <Button
-              variant="ghost"
-              onClick={() => setShowPricing(true)}
-              className="w-full h-10 text-sm font-semibold gap-2"
-              style={{ color: "hsl(187 100% 65%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}
-            >
-              <DollarSign className="w-4 h-4" />
-              Software License Key Prices
             </Button>
           </div>
 
