@@ -11,10 +11,10 @@ const router = Router();
 // ───────────────────────────────────────────────────────────────────
 //  Tunables (loophole-fix constants)
 // ───────────────────────────────────────────────────────────────────
-const HEARTBEAT_GRACE_MS      = 20_000;  // kill orphaned session after 20s of no heartbeat (saves Decart credits)
+const HEARTBEAT_GRACE_MS      = 35_000;  // kill orphaned session after 35s of no heartbeat (>3 missed beats)
 const SWEEP_INTERVAL_MS       = 10_000;  // sweeper runs every 10s for fast credit protection
 const SINGLE_SESSION_GRACE_MS = 5_000;   // prevent rapid re-clicks from creating multiple sessions
-const DEDUCTION_FREEZE_MS     = 25_000;  // kill session if billing started but zero deductions landed within 25s
+const DEDUCTION_FREEZE_MS     = 45_000;  // kill session if billing started but zero deductions landed within 45s
 
 // ── BILLING-FIX: Decart credit-based billing constants ─────────────────────
 const DECART_CREDITS_PER_SEC  = 2;   // Decart billing rate: 2 credits/sec (Lucy 2.1)
@@ -119,9 +119,13 @@ function startOrphanSweeper() {
           sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${heartbeatCutoff}`
         ));
       for (const s of orphans) {
-        const endAt = s.lastHeartbeatAt ?? s.billingStartedAt ?? s.startedAt;
-        const durationSecs = Math.floor((endAt.getTime() - (s.billingStartedAt ?? s.startedAt).getTime()) / 1000);
-        console.log(`[SESSION] orphan_kill sessionId=${s.id} reason=no_heartbeat endAt=${endAt.toISOString()}`);
+        // Use NOW (not lastHeartbeatAt) so sessions with missing heartbeats are
+        // still billed for the time they actually ran. lastHeartbeatAt equals
+        // billingStartedAt when no heartbeat ever fired, giving 0 duration.
+        const endAt = new Date(now);
+        const billingStart = s.billingStartedAt ?? s.startedAt;
+        const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
+        console.log(`[SESSION] orphan_kill sessionId=${s.id} reason=no_heartbeat endAt=${endAt.toISOString()} durationSecs=${durationSecs}`);
         await settleSession(s.id, { endAt });
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
       }
@@ -136,9 +140,10 @@ function startOrphanSweeper() {
         ));
       for (const s of frozen) {
         if (orphans.some((o) => o.id === s.id)) continue;
-        const endAt = s.lastDeductedAt ?? s.billingStartedAt ?? s.startedAt;
-        const durationSecs = Math.floor((endAt.getTime() - (s.billingStartedAt ?? s.startedAt).getTime()) / 1000);
-        console.log(`[SESSION] freeze_kill sessionId=${s.id} reason=deduction_frozen billingStartedAt=${s.billingStartedAt?.toISOString()} lastDeductedAt=${s.lastDeductedAt?.toISOString()}`);
+        const endAt = new Date(now);
+        const billingStart = s.billingStartedAt ?? s.startedAt;
+        const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
+        console.log(`[SESSION] freeze_kill sessionId=${s.id} reason=deduction_frozen billingStartedAt=${s.billingStartedAt?.toISOString()} lastDeductedAt=${s.lastDeductedAt?.toISOString()} durationSecs=${durationSecs}`);
         await settleSession(s.id, { endAt });
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "freeze", killedAt: endAt }).catch(() => {});
       }

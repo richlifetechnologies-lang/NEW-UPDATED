@@ -783,6 +783,10 @@ export default function StreamPage() {
 
     const id = setInterval(async () => {
       try {
+        // AbortSignal.timeout may be unsupported in some environments —
+        // fall back gracefully so heartbeats always reach the server.
+        let abortSignal: AbortSignal | undefined;
+        try { abortSignal = AbortSignal.timeout(8_000); } catch { abortSignal = undefined; }
         const res = await fetch(`/api/sessions/${activeSession}/heartbeat`, {
           method: "POST",
           headers: {
@@ -790,7 +794,7 @@ export default function StreamPage() {
             "X-License-Key": (localStorage.getItem("fullswap_license_key") ?? ""),
             "X-Device-ID": getDeviceId(),
           },
-          signal: AbortSignal.timeout(8_000), // 8s timeout per heartbeat
+          ...(abortSignal ? { signal: abortSignal } : {}),
         });
 
         if (res.ok) {
