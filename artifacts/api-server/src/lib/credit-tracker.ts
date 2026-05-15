@@ -5,8 +5,13 @@
 // Remaining = totalCreditsLoaded - (creditsUsed - creditsBaseline)
 
 import { db, decartApiKeysTable, sessionsTable } from "@workspace/db";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import {
+  DECART_CREDITS_PER_SEC,
+  calculateCreditsUsedSinceTopup,
+  calculateCreditsRemaining,
+} from "./billing-math";
 
 export interface KeyCreditStatus {
   id: number;
@@ -84,17 +89,14 @@ export async function getKeyCreditStatus(
   const activeSessionCount = Number(liveResult[0]?.count ?? 0);
   const liveSeconds = Number(liveResult[0]?.liveSeconds ?? 0);
 
-  const totalSeconds = completedSeconds + liveSeconds;
-  const creditsUsedTotal = totalSeconds * 2;
-
-  // Credits used since last top-up (subtract baseline)
-  const creditsUsedSinceTopup = Math.max(
-    0,
-    creditsUsedTotal - (key.creditsBaseline ?? 0)
+  const creditsUsedSinceTopup = calculateCreditsUsedSinceTopup(
+    completedSeconds,
+    liveSeconds,
+    key.creditsBaseline ?? 0
   );
-  const creditsRemaining = Math.max(
-    0,
-    (key.totalCreditsLoaded ?? 0) - creditsUsedSinceTopup
+  const creditsRemaining = calculateCreditsRemaining(
+    key.totalCreditsLoaded ?? 0,
+    creditsUsedSinceTopup
   );
 
   // Warning level
@@ -184,7 +186,8 @@ export async function recordTopup(
     .limit(1);
 
   const currentTotalSeconds = Number(usageResult[0]?.totalSeconds ?? 0);
-  const newBaseline = currentTotalSeconds * 2; // credits equivalent
+  // Baseline in credits = totalSeconds × DECART_CREDITS_PER_SEC (2)
+  const newBaseline = currentTotalSeconds * DECART_CREDITS_PER_SEC;
   // FIX (Bug #1): SET the exact value entered - do NOT accumulate with prior balance
   // Old: newTotal = (key.totalCreditsLoaded ?? 0) + creditsToAdd  <- accumulates
   // New: newTotal = creditsToAdd                                   <- exact SET

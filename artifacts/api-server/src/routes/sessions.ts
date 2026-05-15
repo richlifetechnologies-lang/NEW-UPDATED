@@ -5,20 +5,24 @@ import { requireLicense } from "../lib/auth";
 import { randomUUID } from "crypto";
 import { getDecartKeyIdFromCache } from "./decart";
 import { notifySessionDead } from "../lib/notifications";
+import { logger } from "../lib/logger";
+
+// ── All billing/timing constants imported from single source of truth ──────
+import {
+  HEARTBEAT_GRACE_MS,
+  SWEEP_INTERVAL_MS,
+  SINGLE_SESSION_GRACE_MS,
+  DEDUCTION_FREEZE_MS,
+  DECART_CREDITS_PER_SEC,
+  MINIMUM_RESERVATION_SEC,
+  calculateDebit,
+  applyMinimumDuration,
+  creditBasedIncrement,
+  wallClockIncrement,
+  licenseRemainingSeconds,
+} from "../lib/billing-math";
 
 const router = Router();
-
-// ───────────────────────────────────────────────────────────────────
-//  Tunables (loophole-fix constants)
-// ───────────────────────────────────────────────────────────────────
-const HEARTBEAT_GRACE_MS      = 35_000;  // kill orphaned session after 35s of no heartbeat (>3 missed beats)
-const SWEEP_INTERVAL_MS       = 10_000;  // sweeper runs every 10s for fast credit protection
-const SINGLE_SESSION_GRACE_MS = 5_000;   // prevent rapid re-clicks from creating multiple sessions
-const DEDUCTION_FREEZE_MS     = 45_000;  // kill session if billing started but zero deductions landed within 45s
-
-// ── BILLING-FIX: Decart credit-based billing constants ─────────────────────
-const DECART_CREDITS_PER_SEC  = 2;   // Decart billing rate: 2 credits/sec (Lucy 2.1)
-const MINIMUM_RESERVATION_SEC = 1;   // Seconds reserved upfront at session creation
 
 function formatSession(s: any) {
   return {
@@ -55,41 +59,53 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
   const lastDebit    = session.lastDeductedAt ?? billingStart;
 
   // ── BILLING-FIX: Credit-based duration reconciliation ──────────────────
-  // If creditsConsumed is provided, use Decart's actual billing (2 credits/sec)
-  // instead of frontend timestamps. Formula: actualSec = ceil(creditsConsumed / 2)
+  // If creditsConsumed is provided, use Decart's actual generationTick count
+  // (2 credits/sec) instead of frontend timestamps. Pure billing-math functions
+  // handle all the arithmetic — any formula change must go through billing-math.ts
+  // so tests catch it immediately.
   let incrementSec: number;
   let totalDuration: number;
 
   if (opts?.creditsConsumed && opts.creditsConsumed > 0) {
-    const creditBasedSec    = Math.ceil(opts.creditsConsumed / DECART_CREDITS_PER_SEC);
-    const alreadyBilledSec  = Math.max(0, Math.floor((lastDebit.getTime() - billingStart.getTime()) / 1000));
-    incrementSec  = Math.max(0, creditBasedSec - alreadyBilledSec);
-    totalDuration = creditBasedSec;
+    const alreadyBilledSec = Math.max(
+      0,
+      Math.floor((lastDebit.getTime() - billingStart.getTime()) / 1000)
+    );
+    ({ incrementSec, totalDuration } = creditBasedIncrement(opts.creditsConsumed, alreadyBilledSec));
   } else {
-    incrementSec  = Math.max(0, Math.floor((endAt.getTime() - lastDebit.getTime()) / 1000));
-    totalDuration = Math.floor((endAt.getTime() - billingStart.getTime()) / 1000);
+    ({ incrementSec, totalDuration } = wallClockIncrement(
+      endAt.getTime(),
+      lastDebit.getTime(),
+      billingStart.getTime()
+    ));
   }
 
   // Every session has MINIMUM_RESERVATION_SEC debited at creation.
   // Guarantee duration_seconds reflects at least that so analytics never show 0.
-  totalDuration = Math.max(totalDuration, MINIMUM_RESERVATION_SEC);
+  totalDuration = applyMinimumDuration(totalDuration);
 
   // Re-read license to get a fresh usedSeconds value
   const [license] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, session.licenseKeyId!));
   let debited = 0;
   if (license && incrementSec > 0) {
-    const allocated = (license.minutesAllocated ?? 0) * 60;
-    const used      = license.usedSeconds ?? 0;
-    const remaining = Math.max(0, allocated - used);
-    debited = Math.min(incrementSec, remaining);
+    const remainingSec = licenseRemainingSeconds(license.minutesAllocated ?? 0, license.usedSeconds ?? 0);
+    debited = calculateDebit(incrementSec, remainingSec);
     if (debited > 0) {
       await db.update(licenseKeysTable)
-        .set({ usedSeconds: used + debited, lastUsedAt: endAt })
+        .set({ usedSeconds: (license.usedSeconds ?? 0) + debited, lastUsedAt: endAt })
         .where(eq(licenseKeysTable.id, license.id));
     }
   }
 
-  console.log(`[SESSION] session_end sessionId=${sessionId} totalDuration=${totalDuration}s deducted=${debited}s creditsBased=${opts?.creditsConsumed ? `yes(${opts.creditsConsumed}cr)` : 'no'}`);
+  logger.info(
+    {
+      sessionId,
+      totalDuration,
+      debited,
+      creditsBased: opts?.creditsConsumed ? opts.creditsConsumed : false,
+    },
+    "[Session] session_end"
+  );
 
   await db.update(sessionsTable)
     .set({ status: "stopped", stoppedAt: endAt, durationSeconds: totalDuration, lastDeductedAt: endAt })
