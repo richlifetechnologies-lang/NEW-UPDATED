@@ -298,6 +298,11 @@ export interface UpdateWalletBody {
   wallets?: UpdateWalletBodyWalletsItem[];
 }
 
+export type StopSessionBody = {
+  /** Actual Decart credits consumed (generationTick count × 2). Used to reconcile billing with Decart's exact charge. */
+  creditsConsumed?: number;
+};
+
 export type AdminResetUserPasswordBody = {
   /** @minLength 8 */
   newPassword: string;

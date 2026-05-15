@@ -146,6 +146,9 @@ export default function StreamPage() {
   // Remaining seconds from the most recent validate call — used as fallback when
   // licenseStatus query hasn't loaded yet for a freshly-entered key.
   const validatedRemainingRef = useRef<number>(0);
+  // Counts Decart generationTick events (1 tick = 1 billed second = 2 credits).
+  // Sent to the server on stop so billing matches Decart's exact charge.
+  const tickCountRef          = useRef<number>(0);
 
   // ── Audio sync refs ──────────────────────────────────────────────────
   const audioContextRef     = useRef<AudioContext | null>(null);
@@ -256,7 +259,7 @@ export default function StreamPage() {
     activeSessionRef.current = null;
 
     try {
-      await stopSession.mutateAsync({ sessionId });
+      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 2 } });
       queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     } catch { /* best effort */ }
 
@@ -634,6 +637,13 @@ export default function StreamPage() {
 
       decartClientRef.current = realtimeClient;
       console.info("[Decart] SDK client connected successfully. Waiting for first remote frame...");
+
+      // Count every generationTick — Decart charges 2 credits per tick (1 tick = 1 billed second).
+      // This gives us the exact credit count to pass to /stop for perfect billing reconciliation.
+      tickCountRef.current = 0;
+      realtimeClient.on("generationTick", () => {
+        tickCountRef.current += 1;
+      });
 
       // ── Loophole fix #3: bill from connect-resolved, not from first frame ──
       // Decart's WebRTC peer is now established and Lucy 2.1 is metering wall-clock

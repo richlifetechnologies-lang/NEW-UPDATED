@@ -40,6 +40,7 @@ import type {
   Session,
   SessionAdmin,
   StartSessionBody,
+  StopSessionBody,
   UpdateWalletBody,
   UserAdmin,
   WalletInfo,
@@ -299,11 +300,14 @@ export const getStopSessionUrl = (sessionId: string) => {
 
 export const stopSession = async (
   sessionId: string,
+  stopSessionBody?: StopSessionBody,
   options?: RequestInit,
 ): Promise<Session> => {
   return customFetch<Session>(getStopSessionUrl(sessionId), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(stopSessionBody),
   });
 };
 
@@ -314,14 +318,14 @@ export const getStopSessionMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof stopSession>>,
     TError,
-    { sessionId: string },
+    { sessionId: string; data: BodyType<StopSessionBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof stopSession>>,
   TError,
-  { sessionId: string },
+  { sessionId: string; data: BodyType<StopSessionBody> },
   TContext
 > => {
   const mutationKey = ["stopSession"];
@@ -335,11 +339,11 @@ export const getStopSessionMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof stopSession>>,
-    { sessionId: string }
+    { sessionId: string; data: BodyType<StopSessionBody> }
   > = (props) => {
-    const { sessionId } = props ?? {};
+    const { sessionId, data } = props ?? {};
 
-    return stopSession(sessionId, requestOptions);
+    return stopSession(sessionId, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -348,7 +352,7 @@ export const getStopSessionMutationOptions = <
 export type StopSessionMutationResult = NonNullable<
   Awaited<ReturnType<typeof stopSession>>
 >;
-
+export type StopSessionMutationBody = BodyType<StopSessionBody>;
 export type StopSessionMutationError = ErrorType<unknown>;
 
 /**
@@ -361,14 +365,14 @@ export const useStopSession = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof stopSession>>,
     TError,
-    { sessionId: string },
+    { sessionId: string; data: BodyType<StopSessionBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof stopSession>>,
   TError,
-  { sessionId: string },
+  { sessionId: string; data: BodyType<StopSessionBody> },
   TContext
 > => {
   return useMutation(getStopSessionMutationOptions(options));

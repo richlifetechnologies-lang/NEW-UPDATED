@@ -81,6 +81,16 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                creditsConsumed:
+                  type: integer
+                  description: Actual Decart credits consumed (generationTick count × 2). Used to reconcile billing with Decart's exact charge.
       responses:
         "200":
           description: Session stopped

@@ -42,6 +42,15 @@ export const StopSessionParams = zod.object({
   sessionId: zod.coerce.string(),
 });
 
+export const StopSessionBody = zod.object({
+  creditsConsumed: zod
+    .number()
+    .optional()
+    .describe(
+      "Actual Decart credits consumed (generationTick count × 2). Used to reconcile billing with Decart's exact charge.",
+    ),
+});
+
 export const StopSessionResponse = zod.object({
   id: zod.string(),
   userId: zod.number(),
