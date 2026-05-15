@@ -70,8 +70,8 @@ export default function AdminAdminSessionsPage() {
 
   const suspend = useSuspendAdmin({
     mutation: {
-      onSuccess: (data) => {
-        toast({ title: `${data.username} suspended`, description: "Admin access revoked and account suspended." });
+      onSuccess: (data: any) => {
+        toast({ title: `${data.username ?? "Admin"} suspended`, description: "Admin access revoked and account suspended." });
         setConfirmSuspend(null);
         queryClient.invalidateQueries({ queryKey: getGetAdminSessionAuditQueryKey() });
         audit.refetch();
@@ -343,7 +343,7 @@ export default function AdminAdminSessionsPage() {
               data-testid="button-confirm-suspend"
               variant="destructive"
               disabled={suspend.isPending}
-              onClick={() => confirmSuspend && suspend.mutate(confirmSuspend.userId)}
+              onClick={() => confirmSuspend && suspend.mutate({ userId: confirmSuspend.userId })}
             >
               {suspend.isPending ? "Suspending…" : "Suspend Admin"}
             </Button>

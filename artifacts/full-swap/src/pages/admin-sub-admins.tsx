@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/admin-layout";
 import { Button } from "@/components/ui/button";
@@ -80,7 +80,7 @@ export default function AdminSubAdminsPage() {
     if (r.ok) { toast({ title: "Sub admin removed" }); fetchSubs(); fetchAudit(); }
   }
 
-  const actionIcon: Record<string, JSX.Element> = {
+  const actionIcon: Record<string, React.ReactElement> = {
     login: <LogIn className="w-3 h-3" />, credit_user: <Coins className="w-3 h-3" />,
     minutes_allocated: <Activity className="w-3 h-3" />, suspended: <Ban className="w-3 h-3" />,
     deleted: <Trash2 className="w-3 h-3" />, created: <Plus className="w-3 h-3" />,

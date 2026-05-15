@@ -19,7 +19,7 @@ const navItems = [
   { href: "/admin/sub-admins", label: "Sub Admins", icon: UserCog },
 ];
 
-export function AdminLayout({ children }: { children: React.node }) {
+export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const profile = getAdminProfile();

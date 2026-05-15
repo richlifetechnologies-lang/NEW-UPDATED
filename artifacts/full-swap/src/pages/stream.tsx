@@ -610,12 +610,13 @@ export default function StreamPage() {
             }
           }, 1000);
         },
-        onStatus: (status) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(({ onStatus: (status: string) => {
           // Backup: transition to connected when SDK signals ready
           // (fires before first remote frame, ensures overlay hides promptly)
           if (status === "connected") setConnectionStatus("connected");
-        },
-        onConnectionStateChange: (state) => {
+        } }) as any),
+        onConnectionStateChange: (state: string) => {
           console.info("[Decart] Connection state →", state);
           if (state === "disconnected" || state === "failed") {
             connectionStatusRef.current = "dropped";
@@ -646,7 +647,7 @@ export default function StreamPage() {
             }
           }
         },
-        onError: (err) => {
+        onError: (err: unknown) => {
           const msg = (err as any)?.message ?? "Stream error — please try again.";
           console.error("[Decart] Stream error:", msg);
           setConnectionStatus("error");
@@ -1541,7 +1542,7 @@ export default function StreamPage() {
               onKeyDown={e => e.key === "Enter" && !renewLoading && handleRenewLicense()}
               placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
               className="flex-1 px-3 py-2.5 rounded-lg text-sm font-mono tracking-widest placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition-colors"
-              style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.3)", color: "hsl(187 100% 90%)", focusRingColor: "hsl(187 100% 52%)" }}
+              style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.3)", color: "hsl(187 100% 90%)" }}
               disabled={renewLoading}
               spellCheck={false}
               autoComplete="off"

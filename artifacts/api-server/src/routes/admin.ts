@@ -339,12 +339,12 @@ router.post("/pricing", requireAdmin, async (req, res) => {
     planType: planType ?? "topup",
     isActive: isActive ?? true,
   } as any).returning();
-  res.status(201).json(tier);
+  return res.status(201).json(tier);
 });
 
 // PUT /admin/pricing/:id — update a user pricing tier
 router.put("/pricing/:id", requireAdmin, async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   const { minutes, credits, priceUsd, priceUsdt, priceGhs, label, planType, isActive } = req.body;
   await db.update(pricingTable).set({
@@ -357,15 +357,15 @@ router.put("/pricing/:id", requireAdmin, async (req, res) => {
     ...(planType  !== undefined && { planType }),
     ...(isActive  !== undefined && { isActive }),
   } as any).where(eq(pricingTable.id, id));
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 // DELETE /admin/pricing/:id — delete a user pricing tier
 router.delete("/pricing/:id", requireAdmin, async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   await db.delete(pricingTable).where(eq(pricingTable.id, id));
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 router.get("/wallet", requireAdmin, async (req, res) => {
@@ -550,7 +550,7 @@ router.get("/sessions", requireAdmin, async (_req, res) => {
       .set({ status: "stopped", stoppedAt: now, durationSeconds })
       .where(eq(sessionsTable.id, session.id));
 
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, session.userId));
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, session.userId as number));
     if (user && !user.isAdmin) {
       const freeDeduct = Math.min(user.freeSecondsRemaining, durationSeconds);
       const paidDeduct = durationSeconds - freeDeduct;
@@ -610,7 +610,7 @@ router.post("/sessions/:sessionId/terminate", requireAdmin, async (req, res) => 
     .where(eq(sessionsTable.id, sessionId))
     .returning();
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, session.userId));
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, session.userId as number));
   if (user && !user.isAdmin) {
     const freeDeduct = Math.min(user.freeSecondsRemaining, durationSeconds);
     const paidDeduct = durationSeconds - freeDeduct;
@@ -1107,7 +1107,7 @@ router.post("/sub-admins", requireAdmin, async (req, res) => {
   await db.update(usersTable).set({ isAdmin: 0 } as any).where(eq(usersTable.id, newSub.id));
   await db.execute(`UPDATE users SET is_sub_admin = 1, sub_admin_minutes_balance = 0 WHERE id = ${newSub.id}`);
   // Audit
-  const actingAdmin = (_req as any).user;
+  const actingAdmin = (req as any).user;
   await db.insert(subAdminAuditTable).values({
     subAdminId: newSub.id, action: "created",
     performedBy: actingAdmin?.id ?? null,
@@ -1117,7 +1117,7 @@ router.post("/sub-admins", requireAdmin, async (req, res) => {
 });
 
 router.put("/sub-admins/:id/minutes", requireAdmin, async (req: any, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid sub admin ID" }); return; }
   const { minutes } = req.body as { minutes?: number };
   if (!minutes || minutes < 1 || !Number.isInteger(minutes)) {
@@ -1139,7 +1139,7 @@ router.put("/sub-admins/:id/minutes", requireAdmin, async (req: any, res) => {
 });
 
 router.post("/sub-admins/:id/suspend", requireAdmin, async (req: any, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid sub admin ID" }); return; }
   const [sub] = await db.select().from(usersTable).where(eq(usersTable.id, id));
   if (!sub || !(sub as any).isSubAdmin) { res.status(404).json({ error: "Sub admin not found" }); return; }
@@ -1153,7 +1153,7 @@ router.post("/sub-admins/:id/suspend", requireAdmin, async (req: any, res) => {
 });
 
 router.post("/sub-admins/:id/activate", requireAdmin, async (req: any, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid sub admin ID" }); return; }
   const [updated] = await db.update(usersTable)
     .set({ membership: "active" as const }).where(eq(usersTable.id, id)).returning();
@@ -1162,7 +1162,7 @@ router.post("/sub-admins/:id/activate", requireAdmin, async (req: any, res) => {
 });
 
 router.delete("/sub-admins/:id", requireAdmin, async (req: any, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid sub admin ID" }); return; }
   const [sub] = await db.select().from(usersTable).where(eq(usersTable.id, id));
   if (!sub || !(sub as any).isSubAdmin) { res.status(404).json({ error: "Sub admin not found" }); return; }
@@ -1391,12 +1391,12 @@ router.post("/sub-admin-pricing", requireAdmin, async (req, res) => {
     priceUsdt, priceGhs: priceGhs ?? "0", label, planType: planType ?? "topup",
     isActive: isActive ?? true,
   } as any).returning();
-  res.json(tier);
+  return res.json(tier);
 });
 
 // PUT /admin/sub-admin-pricing/:id — update a sub-admin pricing tier
 router.put("/sub-admin-pricing/:id", requireAdmin, async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   const { minutes, credits, priceUsd, priceUsdt, priceGhs, label, planType, isActive } = req.body;
   await db.update(subAdminPricingTable).set({
@@ -1409,15 +1409,15 @@ router.put("/sub-admin-pricing/:id", requireAdmin, async (req, res) => {
     ...(planType !== undefined && { planType }),
     ...(isActive !== undefined && { isActive }),
   } as any).where(eq(subAdminPricingTable.id, id));
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 // DELETE /admin/sub-admin-pricing/:id — delete a sub-admin pricing tier
 router.delete("/sub-admin-pricing/:id", requireAdmin, async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   await db.delete(subAdminPricingTable).where(eq(subAdminPricingTable.id, id));
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 
@@ -1540,7 +1540,7 @@ router.get("/session-audit", requireAdmin, async (req, res) => {
 
 // GET /admin/user-usage/:userId — per-user usage breakdown
 router.get("/user-usage/:userId", requireAdmin, async (req, res) => {
-  const userId = parseInt(req.params.userId);
+  const userId = parseInt(req.params["userId"] as string);
   if (isNaN(userId)) return res.status(400).json({ error: "Invalid user ID" });
   
   try {
@@ -1557,7 +1557,7 @@ router.get("/user-usage/:userId", requireAdmin, async (req, res) => {
       `SELECT COALESCE(SUM(duration_seconds), 0) as total FROM sessions WHERE user_id = ${userId}`
     );
     
-    res.json({
+    return res.json({
       user: {
         id: user.id, email: user.email, username: user.username,
         totalMinutesPurchased: user.totalMinutesPurchased,
@@ -1580,13 +1580,13 @@ router.get("/user-usage/:userId", requireAdmin, async (req, res) => {
     });
   } catch (err) {
     console.error("[user-usage]", err);
-    res.status(500).json({ error: "Failed to fetch user usage" });
+    return res.status(500).json({ error: "Failed to fetch user usage" });
   }
 });
 
 // POST /admin/users/:userId/adjust-credits — admin adjusts user credits
 router.post("/users/:userId/adjust-credits", requireAdmin, async (req, res) => {
-  const userId = parseInt(req.params.userId);
+  const userId = parseInt(req.params["userId"] as string);
   const { minutes, reason } = req.body as { minutes?: number; reason?: string };
   
   if (!minutes || !Number.isInteger(minutes)) {
@@ -1601,7 +1601,7 @@ router.post("/users/:userId/adjust-credits", requireAdmin, async (req, res) => {
     .set({ totalMinutesPurchased: newTotal, membership: "active" as const })
     .where(eq(usersTable.id, userId));
   
-  res.json({
+  return res.json({
     success: true,
     userId,
     previousMinutes: user.totalMinutesPurchased,
@@ -1700,7 +1700,7 @@ router.patch("/license-keys/:keyId", requireAdmin, async (req, res) => {
 
     await db.update(licenseKeysTable)
       .set(updates)
-      .where(eq(licenseKeysTable.id, parseInt(keyId)));
+      .where(eq(licenseKeysTable.id, parseInt(keyId as string)));
 
     res.json({ success: true });
   } catch (err) {
@@ -1712,7 +1712,7 @@ router.patch("/license-keys/:keyId", requireAdmin, async (req, res) => {
 router.delete("/license-keys/:keyId", requireAdmin, async (req, res) => {
   try {
     const { keyId } = req.params;
-    await db.delete(licenseKeysTable).where(eq(licenseKeysTable.id, parseInt(keyId)));
+    await db.delete(licenseKeysTable).where(eq(licenseKeysTable.id, parseInt(keyId as string)));
     res.json({ success: true });
   } catch (err) {
     console.error("Failed to delete license key:", err);
@@ -1730,7 +1730,7 @@ router.post("/license-keys/:keyId/credit", requireAdmin, async (req, res) => {
       return;
     }
 
-    const [license] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, parseInt(keyId)));
+    const [license] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, parseInt(keyId as string)));
     if (!license) {
       res.status(404).json({ error: "License key not found" });
       return;
@@ -1739,7 +1739,7 @@ router.post("/license-keys/:keyId/credit", requireAdmin, async (req, res) => {
     const newMinutesAllocated = license.minutesAllocated + minutes;
     await db.update(licenseKeysTable)
       .set({ minutesAllocated: newMinutesAllocated })
-      .where(eq(licenseKeysTable.id, parseInt(keyId)));
+      .where(eq(licenseKeysTable.id, parseInt(keyId as string)));
 
     res.json({
       success: true,
@@ -1757,7 +1757,8 @@ router.post("/license-keys/:sessionId/terminate", requireAdmin, async (req, res)
   try {
     const { sessionId } = req.params;
 
-    const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
+    const sessionIdStr = sessionId as string;
+    const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionIdStr));
     if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;
@@ -1769,7 +1770,7 @@ router.post("/license-keys/:sessionId/terminate", requireAdmin, async (req, res)
         stoppedAt: new Date(),
         durationSeconds: Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000),
       })
-      .where(eq(sessionsTable.id, sessionId));
+      .where(eq(sessionsTable.id, sessionIdStr));
 
     res.json({ success: true });
   } catch (err) {
@@ -1957,7 +1958,7 @@ router.get("/decart-keys/credit-status", requireAdmin, async (req, res) => {
 
 /** POST /api/admin/decart-keys/:id/topup */
 router.post("/decart-keys/:id/topup", requireAdmin, async (req, res) => {
-  const keyId = parseInt(req.params.id);
+  const keyId = parseInt(req.params["id"] as string);
   const { credits } = req.body as { credits: number };
   if (!credits || isNaN(credits) || credits <= 0) { res.status(400).json({ error: "credits must be a positive number" }); return; }
   try {
@@ -1970,7 +1971,7 @@ router.post("/decart-keys/:id/topup", requireAdmin, async (req, res) => {
 
 /** PUT /api/admin/decart-keys/:id/threshold */
 router.put("/decart-keys/:id/threshold", requireAdmin, async (req, res) => {
-  const keyId = parseInt(req.params.id);
+  const keyId = parseInt(req.params["id"] as string);
   const { thresholdPct } = req.body as { thresholdPct: number };
   if (thresholdPct === undefined || thresholdPct < 0 || thresholdPct > 100) { res.status(400).json({ error: "thresholdPct must be 0-100" }); return; }
   try {
@@ -1981,7 +1982,7 @@ router.put("/decart-keys/:id/threshold", requireAdmin, async (req, res) => {
 
 /** GET /api/admin/decart-keys/:id/usage-history */
 router.get("/decart-keys/:id/usage-history", requireAdmin, async (req, res) => {
-  const keyId = parseInt(req.params.id);
+  const keyId = parseInt(req.params["id"] as string);
   const limit = Math.min(parseInt((req.query.limit as string) ?? "50"), 200);
   try {
     const history = await getKeyUsageHistory(keyId, limit);

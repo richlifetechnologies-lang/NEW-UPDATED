@@ -226,7 +226,7 @@ router.post("/generate", requireAdmin, async (req, res) => {
 // The assignment count in GET /admin/decart-keys updates automatically on the next fetch.
 router.patch("/:key/reassign", requireAdmin, async (req, res) => {
   try {
-    const licenseKeyStr = req.params.key.toUpperCase();
+    const licenseKeyStr = (req.params.key as string).toUpperCase();
     const { decartApiKeyId } = req.body as { decartApiKeyId: number | null };
 
     // Validate the license exists
@@ -309,13 +309,13 @@ router.put("/:key", requireAdmin, async (req, res) => {
     if (typeof isActive === "boolean") updates.isActive = isActive;
     if (typeof notes === "string") updates.notes = notes;
     if (expiresAt !== undefined) updates.expiresAt = expiresAt ? new Date(expiresAt) : null;
-    await db.update(licenseKeysTable).set(updates).where(eq(licenseKeysTable.key, req.params.key.toUpperCase()));
+    await db.update(licenseKeysTable).set(updates).where(eq(licenseKeysTable.key, (req.params.key as string).toUpperCase()));
     return res.json({ success: true });
   } catch (err) { return res.status(500).json({ error: "Server error" }); }
 });
 
 router.delete("/:key/revoke", requireAdmin, async (req, res) => {
-  try { await db.update(licenseKeysTable).set({ isActive: false }).where(eq(licenseKeysTable.key, req.params.key.toUpperCase())); return res.json({ success: true }); }
+  try { await db.update(licenseKeysTable).set({ isActive: false }).where(eq(licenseKeysTable.key, (req.params.key as string).toUpperCase())); return res.json({ success: true }); }
   catch { return res.status(500).json({ error: "Server error" }); }
 });
 
@@ -324,7 +324,7 @@ router.delete("/:key/revoke", requireAdmin, async (req, res) => {
 // The admin must call DELETE /:key/unbind before binding a new device.
 router.patch("/:key/bind", requireAdmin, async (req, res) => {
   try {
-    const key = req.params.key.toUpperCase();
+    const key = (req.params.key as string).toUpperCase();
     const { deviceId } = req.body as { deviceId?: string };
     if (!deviceId || !deviceId.trim()) {
       return res.status(400).json({ error: "deviceId is required" });
@@ -351,14 +351,14 @@ router.patch("/:key/bind", requireAdmin, async (req, res) => {
 });
 
 router.delete("/:key/unbind", requireAdmin, async (req, res) => {
-  try { await db.update(licenseKeysTable).set({ deviceId: null, activatedAt: null }).where(eq(licenseKeysTable.key, req.params.key.toUpperCase())); return res.json({ success: true }); }
+  try { await db.update(licenseKeysTable).set({ deviceId: null, activatedAt: null }).where(eq(licenseKeysTable.key, (req.params.key as string).toUpperCase())); return res.json({ success: true }); }
   catch { return res.status(500).json({ error: "Server error" }); }
 });
 
 // POST /api/license/:key/renew -- renew an existing license and record financial transaction
 router.post("/:key/renew", requireAdmin, async (req, res) => {
   try {
-    const key = req.params.key.toUpperCase();
+    const key = (req.params.key as string).toUpperCase();
     const { pricingId, expiresAt, minutesAllocated, decartCredits } = req.body as {
       pricingId?: number;
       expiresAt?: string;
@@ -438,7 +438,7 @@ router.post("/:key/renew", requireAdmin, async (req, res) => {
 
 router.delete("/:key", requireAdmin, async (req, res) => {
   try {
-    const key = req.params.key.toUpperCase();
+    const key = (req.params.key as string).toUpperCase();
     // Look up the license to get its numeric id (needed for FK-linked sessions)
     const [license] = await db.select({ id: licenseKeysTable.id })
       .from(licenseKeysTable)

@@ -139,6 +139,7 @@ function useAdminCreditsReset(refetchDashboard: () => void) {
 function useDecartCredits() {
   const [state, setState] = useState<DecartCreditState>({
     base: null, setAt: null, consumedSeconds: 0, activeSessions: 0, estimatedRemaining: null,
+    hourlyRateCredits: 0, daysRemaining: null,
   });
   // Live tick: extra seconds elapsed since last API poll (for smooth countdown)
   const [tickExtra, setTickExtra] = useState(0);
@@ -185,6 +186,8 @@ function useDecartCredits() {
         consumedSeconds: 0,
         activeSessions: data.activeSessions ?? 0,
         estimatedRemaining: data.credits,
+        hourlyRateCredits: (data as any).hourlyRateCredits ?? 0,
+        daysRemaining: (data as any).daysRemaining ?? null,
       });
       activeRef.current = data.activeSessions ?? 0;
       setTickExtra(0);

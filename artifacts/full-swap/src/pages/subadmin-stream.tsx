@@ -202,7 +202,7 @@ export default function SubAdminStreamPage() {
       tokenRefreshRef.current = setTimeout(async () => {
         try {
           const newKey = await fetchDecartToken();
-          decartClientRef.current?.updateToken(newKey);
+          (decartClientRef.current as any)?.updateToken(newKey);
         } catch { /* ignore */ }
       }, 55 * 60 * 1000);
 
@@ -219,12 +219,12 @@ export default function SubAdminStreamPage() {
         : undefined;
 
       // Connect Decart
-      const connected = await client.realtime.connect({
+      const connected = await (client.realtime as any).connect({
         stream: cameraStreamRef.current,
         model: LUCY_MODEL,
         prompt,
         ...(refImageData ? { referenceImage: refImageData } : {}),
-        onRemoteStream: (editedStream) => {
+        onRemoteStream: (editedStream: MediaStream) => {
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = editedStream;
           if (timerRef.current) return;
           // Mark billing start
@@ -237,7 +237,7 @@ export default function SubAdminStreamPage() {
           setIsStreaming(true);
           toast({ title: "Stream live" });
         },
-        onConnectionChange: (status) => {
+        onConnectionChange: (status: string) => {
           if (status === "disconnected" && isStreaming) setConnectionStatus("dropped");
         },
       });
@@ -515,7 +515,7 @@ export default function SubAdminStreamPage() {
             {/* Refresh style */}
             {isStreaming && (
               <Button variant="outline" className="w-full gap-2" onClick={async () => {
-                try { await decartClientRef.current?.updatePrompt(customPrompt.trim() || selectedStyleData?.prompt || ""); }
+                try { await (decartClientRef.current as any)?.updatePrompt(customPrompt.trim() || selectedStyleData?.prompt || ""); }
                 catch { /* ignore */ }
               }}>
                 <RefreshCw className="w-4 h-4" /> Apply Style

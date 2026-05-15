@@ -89,7 +89,7 @@ router.get("/users/search", requireSubAdmin, async (req, res) => {
 // POST /subadmin/users/:userId/credit — deducts from combined balance (allocated + purchased)
 router.post("/users/:userId/credit", requireSubAdmin, async (req, res) => {
   const subAdmin = (req as any).user;
-  const userId = parseInt(req.params.userId);
+  const userId = parseInt(req.params["userId"] as string);
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user ID" }); return; }
   const { minutes, note } = req.body as { minutes?: number; note?: string };
   if (!minutes || minutes < 1 || !Number.isInteger(minutes)) {
@@ -195,7 +195,7 @@ router.get("/pricing", requireSubAdmin, async (_req, res) => {
     );
   }
 
-  res.json(
+  return res.json(
     tiers
       .filter(t => {
         if (!(t.isActive ?? true)) return false;
@@ -261,7 +261,7 @@ router.post("/invoices/:invoiceId/fail", requireSubAdmin, async (req, res) => {
   }
 
   await db.update(invoicesTable)
-    .set({ status: "failed" })
+    .set({ status: "cancelled" })
     .where(eq(invoicesTable.id, invoiceId));
 
   res.json({ failed: true, invoiceId });

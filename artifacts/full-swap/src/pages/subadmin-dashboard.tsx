@@ -159,6 +159,31 @@ export default function SubAdminDashboardPage() {
     }
   }
 
+  async function handleGenerateLicenseKey() {
+    const mins = parseInt(genMinutes);
+    if (!mins || mins < 1) { toast({ title: "Invalid minutes", variant: "destructive" }); return; }
+    const totalBal = (me?.subAdminMinutesBalance ?? 0) + (me?.totalMinutesPurchased ?? 0);
+    if (mins > totalBal) { toast({ title: "Insufficient balance", description: `You only have ${totalBal} minutes available`, variant: "destructive" }); return; }
+    setIsGenerating(true);
+    try {
+      const res = await fetch(API("/subadmin/license/generate"), {
+        method: "POST", headers: authH(),
+        body: JSON.stringify({ minutes: mins, notes: genNotes || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      setNewKey(data.key);
+      toast({ title: "Key generated!", description: data.key });
+      setGenMinutes(""); setGenNotes("");
+      const meRes = await fetch(API("/subadmin/me"), { headers: authH() }).then(r => r.json());
+      setMe(meRes);
+      const licRes = await fetch(API("/subadmin/license/list"), { headers: authH() }).then(r => r.json());
+      if (Array.isArray(licRes)) setLicenseKeys(licRes);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setIsGenerating(false); }
+  }
+
   // Manual cancel — user clicked "Cancel Order" → status becomes "cancelled"
   async function cancelPayment() {
     if (!pendingInvoice) return;
@@ -675,33 +700,6 @@ export default function SubAdminDashboardPage() {
                       ? { label: "Failed",    icon: <Ban className="w-3 h-3" />,           badge: "bg-orange-500/15 text-orange-400 border border-orange-500/25", row: "border-orange-500/15" }
                       : { label: "Unknown",   icon: <Clock3 className="w-3 h-3" />,        badge: "bg-muted text-muted-foreground",                               row: "border-muted" };
 
-                  
-  // License Key Generation
-  const handleGenerateLicenseKey = async () => {
-    const mins = parseInt(genMinutes);
-    if (!mins || mins < 1) { toast({ title: "Invalid minutes", variant: "destructive" }); return; }
-    const totalBal = (me?.subAdminMinutesBalance ?? 0) + (me?.totalMinutesPurchased ?? 0);
-    if (mins > totalBal) { toast({ title: "Insufficient balance", description: `You only have ${totalBal} minutes available`, variant: "destructive" }); return; }
-    setIsGenerating(true);
-    try {
-      const res = await fetch(API("/subadmin/license/generate"), {
-        method: "POST", headers: authH(),
-        body: JSON.stringify({ minutes: mins, notes: genNotes || null }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed");
-      setNewKey(data.key);
-      toast({ title: "License Key Generated!", description: `${data.key} (${mins} min)` });
-      setGenMinutes(""); setGenNotes("");
-      // Refresh
-      const meRes = await fetch(API("/subadmin/me"), { headers: authH() }).then(r => r.json());
-      setMe(meRes);
-      const licRes = await fetch(API("/subadmin/license/list"), { headers: authH() }).then(r => r.json());
-      if (Array.isArray(licRes)) setLicenseKeys(licRes);
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally { setIsGenerating(false); }
-  };
 
   return (
                       <div key={inv.id} className={`flex items-center justify-between p-3 rounded-lg bg-background border ${statusCfg.row} hover:bg-muted/10 transition-colors`}>
