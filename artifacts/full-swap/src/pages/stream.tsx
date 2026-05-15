@@ -109,35 +109,6 @@ function TrialLockedOverlay() {
   );
 }
 
-function NoAccessOverlay() {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 backdrop-blur-md" style={{ background: "hsl(222 47% 4% / 0.92)" }} />
-      <div className="relative z-10 max-w-md w-full mx-4 text-center"
-           style={{
-             background: "hsl(222 44% 6%)",
-             border: "1px solid hsl(187 100% 52% / 0.25)",
-             borderRadius: "1.25rem",
-             padding: "2.5rem 2rem",
-             boxShadow: "0 0 80px hsl(187 100% 52% / 0.12), 0 0 0 1px hsl(187 100% 52% / 0.08)",
-           }}>
-        <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
-             style={{ background: "hsl(187 100% 52% / 0.08)", border: "2px solid hsl(187 100% 52% / 0.25)" }}>
-          <Lock className="w-9 h-9 text-primary" />
-        </div>
-        <h2 className="text-2xl font-bold text-foreground mb-3 font-mono tracking-wide">No Streaming Time</h2>
-        <p className="text-muted-foreground text-sm leading-relaxed mb-6">
-          You have no streaming time remaining. Contact your admin to get more minutes added to your license key.
-        </p>
-        <div className="w-full px-4 py-3 rounded-xl text-center" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
-          <p className="text-sm font-semibold text-foreground mb-1">Contact Admin</p>
-          <p className="text-xs text-primary font-mono">@rich_life2k15 on Telegram</p>
-          <p className="text-xs text-muted-foreground mt-0.5">loveoflots06@gmail.com</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function StreamPage() {
   const [, setLocation] = useLocation();
@@ -985,7 +956,6 @@ export default function StreamPage() {
       {(isElectron && !licenseLoading && !isLicensed) && (
         <LicenseActivationModal onActivate={activateLicense} error={licenseError} mode="no-license" />
       )}
-      {(noAccess || licenseExhausted) && <LicenseActivationModal onActivate={activateLicense} error={licenseError} mode="exhausted" />}
 
       <div className="p-6 lg:p-8 space-y-6" data-testid="stream-page">
         {/* Header */}
@@ -1394,18 +1364,7 @@ export default function StreamPage() {
 
             {/* Start / Stop button */}
             <div className="flex items-center gap-3">
-              {!isStreaming ? (
-                <Button
-                  data-testid="button-start-stream"
-                  onClick={handleStartStream}
-                  disabled={startSession.isPending || !cameraReady}
-                  className="gap-2 flex-1 h-12 text-base font-bold tracking-wide"
-                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.25)" }}
-                >
-                  <Play className="w-5 h-5" />
-                  {startSession.isPending ? "Starting..." : "Stream Now"}
-                </Button>
-              ) : (
+              {isStreaming ? (
                 <Button
                   data-testid="button-stop-stream"
                   onClick={handleStopStream}
@@ -1415,6 +1374,25 @@ export default function StreamPage() {
                 >
                   <Square className="w-5 h-5" />
                   {stopSession.isPending ? "Stopping..." : "Stop Session"}
+                </Button>
+              ) : (noAccess || licenseExhausted) ? (
+                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-amber-300">No streaming time remaining</p>
+                    <p className="text-xs text-amber-400/70 truncate">Contact your admin to add more minutes — @rich_life2k15</p>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  data-testid="button-start-stream"
+                  onClick={handleStartStream}
+                  disabled={startSession.isPending || !cameraReady}
+                  className="gap-2 flex-1 h-12 text-base font-bold tracking-wide"
+                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.25)" }}
+                >
+                  <Play className="w-5 h-5" />
+                  {startSession.isPending ? "Starting..." : "Stream Now"}
                 </Button>
               )}
             </div>
