@@ -17,6 +17,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _licenseKeyGetter: AuthTokenGetter | null = null;
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -42,6 +43,17 @@ export function setBaseUrl(url: string | null): void {
  */
 export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
   _authTokenGetter = getter;
+}
+
+/**
+ * Register a getter that supplies the current license key.
+ * Before every fetch the getter is invoked; when it returns a non-null string,
+ * an `X-License-Key: <key>` header is attached to the request.
+ * This ensures generated hooks (useStartSession, useStopSession, etc.) reach
+ * the license-protected API endpoints without manual header wiring.
+ */
+export function setLicenseKeyGetter(getter: AuthTokenGetter | null): void {
+  _licenseKeyGetter = getter;
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
@@ -355,6 +367,17 @@ export async function customFetch<T = unknown>(
     const token = await _authTokenGetter();
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
+    }
+  }
+
+  // Attach license key when a getter is configured and no X-License-Key
+  // header has been explicitly provided. This makes every generated hook
+  // (useStartSession, useStopSession, etc.) work with license-gated endpoints
+  // without requiring manual header wiring at each call site.
+  if (_licenseKeyGetter && !headers.has("x-license-key")) {
+    const licenseKey = await _licenseKeyGetter();
+    if (licenseKey) {
+      headers.set("x-license-key", licenseKey);
     }
   }
 
