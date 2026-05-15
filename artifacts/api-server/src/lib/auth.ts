@@ -120,6 +120,14 @@ export async function requireLicense(req: Request, res: Response, next: NextFunc
       licenseKey = authHeader.slice(7);
     }
   }
+  // sendBeacon cannot set custom headers — accept key from query param or body as fallback.
+  // This covers the pagehide/beforeunload stop-session call that fires on page refresh.
+  if (!licenseKey && req.query["licenseKey"]) {
+    licenseKey = req.query["licenseKey"] as string;
+  }
+  if (!licenseKey && (req.body as any)?.licenseKey) {
+    licenseKey = (req.body as any).licenseKey as string;
+  }
 
   if (!licenseKey) {
     res.status(401).json({ error: "License key required" });
