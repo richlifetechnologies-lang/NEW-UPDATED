@@ -34,8 +34,17 @@ async function fetchDecartToken(): Promise<string> {
     window.location.href = "/";
     throw new Error("License key required.");
   }
+  const deviceId = (() => {
+    const STORAGE_KEY = "fullswap_device_id";
+    let id = localStorage.getItem(STORAGE_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(STORAGE_KEY, id);
+    }
+    return id;
+  })();
   const res = await fetch("/api/decart/token", {
-    headers: { "X-License-Key": licenseKey },
+    headers: { "X-License-Key": licenseKey, "X-Device-ID": deviceId },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
