@@ -4,7 +4,7 @@ import { useStartSession, useStopSession, getGetUserDashboardQueryKey, useGetUse
 import { AppLayout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Square, Camera, Zap, Monitor, Loader2, ImagePlus, X, CreditCard, Lock, Maximize2, RefreshCw, ChevronDown, Key, AlertCircle, CheckCircle } from "lucide-react";
+import { Play, Square, Camera, Zap, Monitor, Loader2, ImagePlus, X, CreditCard, Lock, Maximize2, RefreshCw, ChevronDown, Key, AlertCircle, CheckCircle, Timer } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createDecartClient, models } from "@decartai/sdk";
 import { Link } from "wouter";
@@ -779,6 +779,15 @@ export default function StreamPage() {
   const trialPct           = isFreeTrial ? Math.max(0, 1 - elapsedSecs / FREE_TRIAL_SECS) : 1;
   const paidSecsRemaining  = Math.max(0, paidMinsRemaining * 60 - (isStreaming ? Math.max(0, elapsedSecs - freeSecsLeft) : 0));
 
+  // ── License deduction bar ────────────────────────────────────────────────
+  // Total capacity = everything ever allocated to this key (paid + free trial)
+  const totalCapacitySecs    = Math.max(1, (user?.totalMinutesPurchased ?? 0) * 60 + (isFreeTrial ? FREE_TRIAL_SECS : 0));
+  // Live remaining ticks down in real-time during streaming (driven by elapsedSecs every 1s)
+  const liveRemainingBarSecs = isStreaming
+    ? Math.max(0, trialSecsRemaining + paidSecsRemaining)
+    : totalAvailableSecs;
+  const barPct = Math.max(0, Math.min(1, liveRemainingBarSecs / totalCapacitySecs));
+
   return (
     <AppLayout>
       {isElectron && licenseLoading && (
@@ -833,6 +842,55 @@ export default function StreamPage() {
             )}
           </div>
         </div>
+
+        {/* ── License Time Deduction Bar ─────────────────────────────── */}
+        {!isAdminUser && totalCapacitySecs > 1 && (
+          <div className="p-4 bg-card border border-border rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Timer className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">License Time</span>
+                {isStreaming && (
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-red-400 ml-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                    DEDUCTING
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-sm font-mono font-bold tabular-nums ${barPct <= 0.15 ? "text-red-400 animate-pulse" : barPct <= 0.3 ? "text-amber-400" : "text-green-400"}`}>
+                  {formatTime(liveRemainingBarSecs)}
+                </span>
+                <span className="text-xs text-muted-foreground">/ {formatTime(totalCapacitySecs)}</span>
+              </div>
+            </div>
+
+            {/* The bar itself — shrinks left-to-right as minutes are consumed */}
+            <div className="relative h-4 bg-muted/50 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+                  barPct <= 0.15 ? "bg-red-500" : barPct <= 0.3 ? "bg-amber-500" : "bg-green-500"
+                }`}
+                style={{ width: `${(barPct * 100).toFixed(3)}%` }}
+              />
+              {/* Subtle shimmer when streaming */}
+              {isStreaming && barPct > 0 && (
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pulse rounded-full pointer-events-none" />
+              )}
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{Math.round(barPct * 100)}% remaining</span>
+              {barPct <= 0.15 && liveRemainingBarSecs > 0 ? (
+                <Link href="/billing">
+                  <span className="text-red-400 underline cursor-pointer font-medium">⚠ Running low — buy more time</span>
+                </Link>
+              ) : (
+                <span>{Math.floor(liveRemainingBarSecs / 60)}m {liveRemainingBarSecs % 60}s left</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Trial countdown bar */}
         {isStreaming && isFreeTrial && (
