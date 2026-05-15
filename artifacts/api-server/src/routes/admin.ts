@@ -1868,7 +1868,7 @@ router.get("/analytics/transactions", requireAdmin, async (req, res) => {
 // GET /api/admin/analytics/per-key -- per-license-key breakdown for tracking
 router.get("/analytics/per-key", requireAdmin, async (_req, res) => {
   try {
-    const rows = await db.execute(sql`
+    const result = await db.execute(sql`
       SELECT
         lk.id,
         lk.key,
@@ -1892,7 +1892,7 @@ router.get("/analytics/per-key", requireAdmin, async (_req, res) => {
       ORDER BY lk.created_at DESC
     `);
 
-    const keys = (rows as any[]).map((r: any) => ({
+    const keys = (result.rows as any[]).map((r: any) => ({
       id:               Number(r.id),
       key:              r.key as string,
       minutesAllocated: parseFloat(r.minutes_allocated ?? "0"),
