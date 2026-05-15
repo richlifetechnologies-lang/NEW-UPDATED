@@ -22,23 +22,27 @@ router.post("/validate", async (req, res) => {
     if (!license.isActive) return res.json({ valid: false, error: "License key has been revoked" });
     if (license.expiresAt && license.expiresAt < new Date()) return res.json({ valid: false, error: "License key has expired" });
     if (!license.streamingEnabled) return res.json({ valid: false, error: "Streaming is disabled for this license" });
-    if (deviceId && deviceId !== "web-browser" && license.deviceId && license.deviceId === deviceId === false) {
-      return res.json({ valid: false, error: "This license key is already activated on another device" });
-    }
-    if (deviceId && deviceId !== "web-browser" && license.deviceId && license.deviceId !== deviceId) {
-      return res.json({ valid: false, error: "This license key is already activated on another device" });
-    }
-    if (deviceId && deviceId !== "web-browser" && !license.deviceId) {
-      const now = new Date();
-      await db.update(licenseKeysTable).set({ deviceId, activatedAt: now }).where(eq(licenseKeysTable.key, normalizedKey));
-      // Fire Telegram alert: first-time device activation
-      notifyLicenseActivated({ key: normalizedKey, minutesAllocated: license.minutesAllocated ?? 0, activatedAt: now, deviceId }).catch(() => {});
-    }
-    if ((!deviceId || deviceId === "web-browser") && !license.activatedAt) {
+    // Also accept device ID from the X-Device-ID header (set automatically
+    // by the frontend for every request) as a fallback to the body field.
+    const headerDeviceId = (req.headers["x-device-id"] as string | undefined)?.trim();
+    const effectiveDeviceId = (deviceId && deviceId.trim()) ? deviceId.trim() : (headerDeviceId ?? null);
+
+    if (effectiveDeviceId) {
+      if (license.deviceId && license.deviceId !== effectiveDeviceId) {
+        // Key is already bound to a different device
+        return res.json({ valid: false, error: "This license key is already activated on another device. Contact your admin to unbind it." });
+      }
+      if (!license.deviceId) {
+        // First-time binding — attach device and record activation timestamp
+        const now = new Date();
+        await db.update(licenseKeysTable).set({ deviceId: effectiveDeviceId, activatedAt: now }).where(eq(licenseKeysTable.key, normalizedKey));
+        notifyLicenseActivated({ key: normalizedKey, minutesAllocated: license.minutesAllocated ?? 0, activatedAt: now, deviceId: effectiveDeviceId }).catch(() => {});
+      }
+    } else if (!license.activatedAt) {
+      // No device ID at all — record activation timestamp only (legacy path)
       const now = new Date();
       await db.update(licenseKeysTable).set({ activatedAt: now }).where(eq(licenseKeysTable.key, normalizedKey));
-      // Fire Telegram alert: first-time web activation
-      notifyLicenseActivated({ key: normalizedKey, minutesAllocated: license.minutesAllocated ?? 0, activatedAt: now, deviceId: deviceId || null }).catch(() => {});
+      notifyLicenseActivated({ key: normalizedKey, minutesAllocated: license.minutesAllocated ?? 0, activatedAt: now, deviceId: null }).catch(() => {});
     }
     await db.update(licenseKeysTable).set({ lastUsedAt: new Date() }).where(eq(licenseKeysTable.key, normalizedKey));
     const allocatedSeconds = (license.minutesAllocated ?? 0) * 60;

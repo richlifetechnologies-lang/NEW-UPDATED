@@ -152,6 +152,29 @@ export async function requireLicense(req: Request, res: Response, next: NextFunc
       return;
     }
 
+    // ── Device-binding enforcement ─────────────────────────────────────────
+    // Each license key is allowed on exactly one device (browser profile).
+    // The device ID is a UUID generated on first use and stored in localStorage.
+    // If the key has no device bound yet → bind it now (first-use activation).
+    // If the key is already bound → the requesting device must match.
+    const deviceId = req.headers["x-device-id"] as string | undefined;
+    if (deviceId && deviceId.trim()) {
+      const trimmedDeviceId = deviceId.trim();
+      if (!license.deviceId) {
+        // First time this key is used — bind it to this device silently
+        await db
+          .update(licenseKeysTable)
+          .set({ deviceId: trimmedDeviceId, activatedAt: license.activatedAt ?? new Date() })
+          .where(eq(licenseKeysTable.key, normalizedKey));
+        (license as any).deviceId = trimmedDeviceId;
+      } else if (license.deviceId !== trimmedDeviceId) {
+        res.status(403).json({
+          error: "This license key is already bound to another device. Contact your admin to unbind it.",
+        });
+        return;
+      }
+    }
+
     (req as any).license = license;
     (req as any).licenseKey = normalizedKey;
     next();

@@ -2,6 +2,26 @@ export function getLicenseKey(): string | null {
   return localStorage.getItem("fullswap_license_key");
 }
 
+/**
+ * Returns a stable device fingerprint for this browser profile.
+ * Generated once and stored in localStorage; survives page reloads and
+ * browser restarts within the same profile. Clearing localStorage (or
+ * using a private/incognito window) produces a fresh ID — intentional,
+ * as the admin can always unbind from the dashboard.
+ */
+export function getDeviceId(): string {
+  const STORAGE_KEY = "fullswap_device_id";
+  let id = localStorage.getItem(STORAGE_KEY);
+  if (!id) {
+    // crypto.randomUUID is available in all modern browsers (Chrome 92+, Firefox 95+, Safari 15.4+)
+    id = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(STORAGE_KEY, id);
+  }
+  return id;
+}
+
 export function setLicenseKey(key: string): void {
   localStorage.setItem("fullswap_license_key", key.trim().toUpperCase());
 }

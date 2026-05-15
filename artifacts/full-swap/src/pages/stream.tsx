@@ -9,7 +9,7 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { createDecartClient, models } from "@decartai/sdk";
 import { Link } from "wouter";
 import { useLicense } from "@/hooks/useLicense";
-import { getLicenseKey } from "@/lib/auth";
+import { getLicenseKey, getDeviceId } from "@/lib/auth";
 import { LicenseActivationModal } from "@/components/license-modal";
 
 const LUCY_MODEL = "lucy-2.1" as const;
@@ -663,7 +663,7 @@ export default function StreamPage() {
         const licKey = localStorage.getItem("fullswap_license_key") ?? "";
         fetch(`/api/sessions/${sessionId}/output-started`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": licKey },
+          headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
         }).catch(() => {});
       }
 
@@ -685,7 +685,7 @@ export default function StreamPage() {
         console.info(`[Stream] session_failed_cleanup sessionId=${failedSid}`);
         fetch(`/api/sessions/${failedSid}/stop`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": licKey },
+          headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
           body: JSON.stringify({}),
           keepalive: true,
         }).catch(() => {});
@@ -739,7 +739,7 @@ export default function StreamPage() {
         const licKey = localStorage.getItem("fullswap_license_key") ?? "";
         fetch(`/api/sessions/${sid}/stop`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": licKey },
+          headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
           body: JSON.stringify({}),
           keepalive: true,
         }).catch(() => {});
@@ -769,7 +769,7 @@ export default function StreamPage() {
         if (!ok) {
           fetch(url, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-License-Key": licKey },
+            headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
             body: JSON.stringify({}),
             keepalive: true,
           }).catch(() => {});
@@ -777,7 +777,7 @@ export default function StreamPage() {
       } catch {
         fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": licKey },
+          headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
           body: JSON.stringify({}),
           keepalive: true,
         }).catch(() => {});
@@ -805,7 +805,11 @@ export default function StreamPage() {
       try {
         const res = await fetch(`/api/sessions/${activeSession}/heartbeat`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": (localStorage.getItem("fullswap_license_key") ?? "") },
+          headers: {
+            "Content-Type": "application/json",
+            "X-License-Key": (localStorage.getItem("fullswap_license_key") ?? ""),
+            "X-Device-ID": getDeviceId(),
+          },
           signal: AbortSignal.timeout(8_000), // 8s timeout per heartbeat
         });
 

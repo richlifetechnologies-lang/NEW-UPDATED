@@ -18,6 +18,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
 let _licenseKeyGetter: AuthTokenGetter | null = null;
+let _deviceIdGetter: AuthTokenGetter | null = null;
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -54,6 +55,18 @@ export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
  */
 export function setLicenseKeyGetter(getter: AuthTokenGetter | null): void {
   _licenseKeyGetter = getter;
+}
+
+/**
+ * Register a getter that supplies the current device fingerprint.
+ * Before every fetch the getter is invoked; when it returns a non-null string,
+ * an `X-Device-ID: <id>` header is attached to the request.
+ * The server uses this to enforce the one-key-per-device rule: on first use
+ * the key is bound to this ID; subsequent requests from a different ID are
+ * rejected with 403 until an admin unbinds the key from the dashboard.
+ */
+export function setDeviceIdGetter(getter: AuthTokenGetter | null): void {
+  _deviceIdGetter = getter;
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
@@ -378,6 +391,16 @@ export async function customFetch<T = unknown>(
     const licenseKey = await _licenseKeyGetter();
     if (licenseKey) {
       headers.set("x-license-key", licenseKey);
+    }
+  }
+
+  // Attach device fingerprint so the server can enforce the one-key-per-device
+  // rule. On first use the server binds the key to this ID; subsequent requests
+  // from a different ID are rejected with 403 until an admin unbinds the key.
+  if (_deviceIdGetter && !headers.has("x-device-id")) {
+    const deviceId = await _deviceIdGetter();
+    if (deviceId) {
+      headers.set("x-device-id", deviceId);
     }
   }
 
