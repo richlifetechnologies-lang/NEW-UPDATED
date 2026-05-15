@@ -4,7 +4,7 @@ import { useStartSession, useStopSession } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Square, Camera, Zap, Monitor, Loader2, ImagePlus, X, CreditCard, Lock, Maximize2, RefreshCw, ChevronDown, Key, AlertCircle, CheckCircle, Timer } from "lucide-react";
+import { Play, Square, Camera, Zap, Monitor, Loader2, ImagePlus, X, CreditCard, Lock, Maximize2, RefreshCw, ChevronDown, Key, AlertCircle, CheckCircle, Timer, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { createDecartClient, models } from "@decartai/sdk";
 import { Link } from "wouter";
@@ -162,6 +162,20 @@ export default function StreamPage() {
   const activeSessionRef      = useRef<string | null>(null);
   const connectionStatusRef   = useRef<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
 
+  // ── Audio sync refs ──────────────────────────────────────────────────
+  const audioContextRef     = useRef<AudioContext | null>(null);
+  const audioDelayNodeRef   = useRef<DelayNode | null>(null);
+  const audioGainNodeRef    = useRef<GainNode | null>(null);
+  const audioAnalyserRef    = useRef<AnalyserNode | null>(null);
+  const micStreamRef        = useRef<MediaStream | null>(null);
+  const vuAnimFrameRef      = useRef<number | null>(null);
+  const connectStartMsRef   = useRef<number>(0);
+  // Ref mirrors for state values used inside SDK callbacks
+  const audioEnabledRef     = useRef<boolean>(false);
+  const audioDelayMsRef     = useRef<number>(150);
+  const audioMutedRef       = useRef<boolean>(false);
+  const audioGainRef        = useRef<number>(1.0);
+
   const [activeSession,     setActiveSession]     = useState<string | null>(null);
   const [selectedStyle,     setSelectedStyle]     = useState("natural");
   const [isStreaming,       setIsStreaming]        = useState(false);
@@ -177,6 +191,17 @@ export default function StreamPage() {
   // Bug #5: track when license minutes are fully exhausted to show splash screen
   const [licenseExhausted,  setLicenseExhausted]   = useState(false);
   const [isStreamStarting,  setIsStreamStarting]   = useState(false);
+
+  // ── Audio sync state ─────────────────────────────────────────────────
+  const [audioEnabled,        setAudioEnabled]        = useState(false);
+  const [audioDelayMs,        setAudioDelayMs]        = useState(150);
+  const [audioMuted,          setAudioMuted]          = useState(false);
+  const [audioGain,           setAudioGain]           = useState(1.0);
+  const [microphones,         setMicrophones]         = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId,       setSelectedMicId]       = useState("");
+  const [vuLevel,             setVuLevel]             = useState(0);
+  const [detectedLatencyMs,   setDetectedLatencyMs]   = useState<number | null>(null);
+  const [audioPipelineActive, setAudioPipelineActive] = useState(false);
 
   // Desktop license gate
   const { isElectron, isLicensed, isLoading: licenseLoading, error: licenseError, activateLicense } = useLicense();
@@ -337,6 +362,132 @@ export default function StreamPage() {
     }
   };
 
+  // ── Audio sync functions ─────────────────────────────────────────────
+
+  const enumerateMics = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter(d => d.kind === "audioinput");
+      setMicrophones(mics);
+      if (mics.length > 0) setSelectedMicId(prev => prev || mics[0]!.deviceId);
+    } catch { /* ignore */ }
+  }, []);
+
+  const stopVuMeter = useCallback(() => {
+    if (vuAnimFrameRef.current) {
+      cancelAnimationFrame(vuAnimFrameRef.current);
+      vuAnimFrameRef.current = null;
+    }
+    setVuLevel(0);
+  }, []);
+
+  const startVuMeter = useCallback((analyser: AnalyserNode) => {
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((s, v) => s + v, 0) / data.length;
+      setVuLevel(avg / 255);
+      vuAnimFrameRef.current = requestAnimationFrame(tick);
+    };
+    vuAnimFrameRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const stopAudioPipeline = useCallback(() => {
+    stopVuMeter();
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    audioDelayNodeRef.current = null;
+    audioGainNodeRef.current  = null;
+    audioAnalyserRef.current  = null;
+    micStreamRef.current?.getTracks().forEach(t => t.stop());
+    micStreamRef.current = null;
+    setAudioPipelineActive(false);
+  }, [stopVuMeter]);
+
+  const startAudioPipeline = useCallback(async (micDeviceId?: string) => {
+    stopAudioPipeline();
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: micDeviceId ? { deviceId: { exact: micDeviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } : { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        video: false,
+      });
+      micStreamRef.current = micStream;
+
+      const ctx = new AudioContext();
+      await ctx.resume();
+      audioContextRef.current = ctx;
+
+      const source  = ctx.createMediaStreamSource(micStream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      audioAnalyserRef.current = analyser;
+
+      const delay = ctx.createDelay(2.0);
+      delay.delayTime.value = audioDelayMsRef.current / 1000;
+      audioDelayNodeRef.current = delay;
+
+      const gain = ctx.createGain();
+      gain.gain.value = audioMutedRef.current ? 0 : audioGainRef.current;
+      audioGainNodeRef.current = gain;
+
+      source.connect(analyser);
+      analyser.connect(delay);
+      delay.connect(gain);
+      gain.connect(ctx.destination);
+
+      startVuMeter(analyser);
+      setAudioPipelineActive(true);
+      await enumerateMics();
+    } catch {
+      toast({ title: "Microphone error", description: "Could not access microphone. Check your browser permissions.", variant: "destructive" });
+      audioEnabledRef.current = false;
+      setAudioEnabled(false);
+    }
+  }, [stopAudioPipeline, startVuMeter, enumerateMics, toast]);
+
+  const handleAudioToggle = useCallback(async (enabled: boolean) => {
+    audioEnabledRef.current = enabled;
+    setAudioEnabled(enabled);
+    if (enabled) {
+      await startAudioPipeline(selectedMicId || undefined);
+    } else {
+      stopAudioPipeline();
+    }
+  }, [startAudioPipeline, stopAudioPipeline, selectedMicId]);
+
+  const handleMicSwitch = useCallback(async (deviceId: string) => {
+    setSelectedMicId(deviceId);
+    if (audioEnabled) await startAudioPipeline(deviceId);
+  }, [audioEnabled, startAudioPipeline]);
+
+  const handleAudioDelayChange = useCallback((ms: number) => {
+    audioDelayMsRef.current = ms;
+    setAudioDelayMs(ms);
+    if (audioDelayNodeRef.current && audioContextRef.current) {
+      audioDelayNodeRef.current.delayTime.setTargetAtTime(ms / 1000, audioContextRef.current.currentTime, 0.05);
+    }
+  }, []);
+
+  const handleAudioGainChange = useCallback((gain: number) => {
+    audioGainRef.current = gain;
+    setAudioGain(gain);
+    if (audioGainNodeRef.current && !audioMutedRef.current) {
+      audioGainNodeRef.current.gain.setTargetAtTime(gain, audioContextRef.current!.currentTime, 0.05);
+    }
+  }, []);
+
+  const handleAudioMuteToggle = useCallback(() => {
+    const next = !audioMutedRef.current;
+    audioMutedRef.current = next;
+    setAudioMuted(next);
+    if (audioGainNodeRef.current && audioContextRef.current) {
+      audioGainNodeRef.current.gain.setTargetAtTime(next ? 0 : audioGainRef.current, audioContextRef.current.currentTime, 0.05);
+    }
+  }, []);
+
   const handleStartStream = async () => {
     // FIX #3: Debounce rapid re-clicks during startup to prevent duplicate sessions
     if (isStreamStarting) return;
@@ -419,6 +570,7 @@ export default function StreamPage() {
       }
       const prompt = customPrompt || selectedStyleData?.prompt || "A person with a natural, realistic face";
 
+      connectStartMsRef.current = performance.now();
       const realtimeClient = await client.realtime.connect(cameraStreamRef.current, {
         model,
         initialState: {
@@ -435,6 +587,17 @@ export default function StreamPage() {
           const frameTs = performance.now();
           console.info("[Decart] First remote frame at", frameTs.toFixed(1), "ms — stream live");
           setConnectionStatus("connected"); // called ONCE on first frame only
+
+          // ── Auto-sync audio delay to measured video latency ──────────
+          const measured = Math.round(frameTs - connectStartMsRef.current);
+          setDetectedLatencyMs(measured);
+          // Clamp: subtract ~30ms steady-state buffer overhead, keep 50-800ms range
+          const autoDelay = Math.min(Math.max(50, measured - 30), 800);
+          if (audioEnabledRef.current && audioDelayNodeRef.current && audioContextRef.current) {
+            audioDelayNodeRef.current.delayTime.setTargetAtTime(autoDelay / 1000, audioContextRef.current.currentTime, 0.1);
+            audioDelayMsRef.current = autoDelay;
+            setAudioDelayMs(autoDelay);
+          }
 
           // Now start the visible timer — only increments while the live feed is connected
           timerRef.current = setInterval(() => {
@@ -552,6 +715,10 @@ export default function StreamPage() {
       if (tokenRefreshRef.current) clearInterval(tokenRefreshRef.current);
       decartClientRef.current?.disconnect();
       cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+      // Audio pipeline cleanup
+      if (vuAnimFrameRef.current) cancelAnimationFrame(vuAnimFrameRef.current);
+      if (audioContextRef.current) { audioContextRef.current.close().catch(() => {}); audioContextRef.current = null; }
+      micStreamRef.current?.getTracks().forEach(t => t.stop());
       const sid = activeSessionRef.current;
       if (sid) {
         const licKey = localStorage.getItem("fullswap_license_key") ?? "";
@@ -1070,6 +1237,133 @@ export default function StreamPage() {
                 <p className="text-[11px] text-amber-400 mt-2 pl-11">
                   Camera switching is disabled during an active stream. Stop the session first.
                 </p>
+              )}
+            </div>)}
+
+            {/* ── Audio Sync ─────────────────────────────────────────── */}
+            {!isFullscreen && (
+            <div className="p-3 bg-card border border-border rounded-xl space-y-3">
+              {/* Header row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Mic className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-foreground tracking-wide">Audio Sync</p>
+                    <p className="text-[10px] text-muted-foreground">Delay mic to match face-swap video</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleAudioToggle(!audioEnabled)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${audioEnabled ? "bg-primary" : "bg-muted"}`}
+                  role="switch"
+                  aria-checked={audioEnabled}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition-transform ${audioEnabled ? "translate-x-4" : "translate-x-0"}`} />
+                </button>
+              </div>
+
+              {audioEnabled && (
+                <div className="space-y-3 pt-1">
+                  {/* Mic selector */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <select
+                        value={selectedMicId}
+                        onChange={e => handleMicSwitch(e.target.value)}
+                        className="w-full appearance-none text-xs rounded-lg border border-border bg-background text-foreground pl-3 pr-7 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                      >
+                        {microphones.length === 0 && <option value="">No microphones detected</option>}
+                        {microphones.map((m, i) => (
+                          <option key={m.deviceId} value={m.deviceId}>{m.label || `Microphone ${i + 1}`}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                    </div>
+                    <button onClick={enumerateMics} title="Refresh mics" className="text-muted-foreground hover:text-primary transition-colors">
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* VU meter */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground">Mic Level</span>
+                      <span className={`text-[10px] font-medium ${audioPipelineActive ? "text-green-400" : "text-muted-foreground"}`}>
+                        {audioPipelineActive ? "● Active" : "○ Inactive"}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-muted/50 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-75"
+                        style={{
+                          width: `${Math.round(vuLevel * 100)}%`,
+                          background: vuLevel > 0.8 ? "hsl(0 72% 55%)" : vuLevel > 0.5 ? "hsl(38 92% 55%)" : "hsl(187 100% 42%)",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Delay control */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground">Audio Delay</span>
+                      <div className="flex items-center gap-2">
+                        {detectedLatencyMs !== null && (
+                          <span className="text-[10px] text-primary/80">
+                            ⚡ auto-detected {detectedLatencyMs}ms
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono font-bold text-foreground tabular-nums">{audioDelayMs}ms</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={800}
+                      step={5}
+                      value={audioDelayMs}
+                      onChange={e => handleAudioDelayChange(Number(e.target.value))}
+                      className="w-full h-1.5 rounded-full accent-primary cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[9px] text-muted-foreground">
+                      <span>0ms</span>
+                      <span className="text-muted-foreground/60">fine-tune until lips match video</span>
+                      <span>800ms</span>
+                    </div>
+                  </div>
+
+                  {/* Volume + Mute */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleAudioMuteToggle}
+                      title={audioMuted ? "Unmute" : "Mute"}
+                      className={`shrink-0 transition-colors ${audioMuted ? "text-destructive" : "text-muted-foreground hover:text-primary"}`}
+                    >
+                      {audioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={audioGain}
+                      onChange={e => handleAudioGainChange(Number(e.target.value))}
+                      className="flex-1 h-1.5 rounded-full accent-primary cursor-pointer"
+                    />
+                    <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">{Math.round(audioGain * 100)}%</span>
+                  </div>
+
+                  {/* OBS note */}
+                  <div className="flex items-start gap-2 p-2 bg-primary/5 border border-primary/15 rounded-lg">
+                    <Monitor className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                    <div className="text-[10px] text-muted-foreground leading-relaxed">
+                      <span className="text-foreground font-medium">OBS Browser Source</span> — audio captures automatically.<br />
+                      <span className="text-foreground font-medium">OBS Window Capture</span> — enable <span className="text-primary">Desktop Audio</span> or <span className="text-primary">Application Audio Capture</span> in OBS.
+                    </div>
+                  </div>
+                </div>
               )}
             </div>)}
 
