@@ -229,7 +229,11 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // billingStartedAt stays null and deductions never begin on the first stream.
   let billingAnchor = session.billingStartedAt;
   if (!billingAnchor) {
-    billingAnchor = session.startedAt;
+    // output-started was never called (network glitch or client crash before Decart connected).
+    // Anchor billing to NOW (not session.startedAt) to avoid charging for time spent on
+    // the loading screen before the stream actually connected. The next heartbeat will
+    // then debit the proper 10s interval.
+    billingAnchor = now;
     // Persist the anchor so subsequent heartbeats and settleSession use it
     await db.update(sessionsTable)
       .set({ billingStartedAt: billingAnchor, lastDeductedAt: billingAnchor })

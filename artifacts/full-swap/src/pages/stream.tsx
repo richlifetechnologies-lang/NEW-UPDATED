@@ -161,6 +161,11 @@ export default function StreamPage() {
   const streamStartRemRef     = useRef<number>(0);   // remaining secs captured at stream start for smooth countdown
   const activeSessionRef      = useRef<string | null>(null);
   const connectionStatusRef   = useRef<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
+  // Wall-clock start for elapsed timer (avoids setInterval drift when tab is hidden/throttled)
+  const timerStartMsRef       = useRef<number>(0);
+  // Remaining seconds from the most recent validate call — used as fallback when
+  // licenseStatus query hasn't loaded yet for a freshly-entered key.
+  const validatedRemainingRef = useRef<number>(0);
 
   // ── Audio sync refs ──────────────────────────────────────────────────
   const audioContextRef     = useRef<AudioContext | null>(null);
@@ -234,7 +239,9 @@ export default function StreamPage() {
       return res.json();
     },
     enabled: !!licKey,
-    refetchInterval: 5_000,   // poll every 5s — keeps balance in sync with server billing
+    refetchInterval: 5_000,          // poll every 5s — keeps balance in sync with server billing
+    refetchIntervalInBackground: true, // keep polling even when tab is hidden (user in OBS)
+    refetchOnWindowFocus: true,        // re-sync immediately when user tabs back in
     staleTime: 2_000,
   });
 
@@ -551,12 +558,15 @@ export default function StreamPage() {
 
       // Capture remaining seconds from license status at stream start for smooth countdown
       // and server-side kill threshold (2 credits/sec = 120/min → $0.02/sec → $72/hr)
-      const remainingAtStart     = licenseStatus.data?.remainingSeconds ?? 0;
+      // Fall back to validatedRemainingRef when licenseStatus hasn't loaded yet for a
+      // freshly-entered key (prevents countdown from immediately showing 0).
+      const remainingAtStart     = licenseStatus.data?.remainingSeconds ?? validatedRemainingRef.current;
       streamStartRemRef.current  = remainingAtStart;
       trialLimitRef.current      = remainingAtStart > 0 ? remainingAtStart : Infinity;
 
-      // Timer starts only when Decart output actually appears — not here at click time
-      let elapsed = 0;
+      // Timer uses wall-clock time so it stays accurate even when the browser
+      // throttles setInterval in background tabs (e.g. user is in OBS).
+      timerStartMsRef.current = 0; // will be stamped when first frame arrives
 
       const model = models.realtime(LUCY_MODEL);
 
@@ -599,10 +609,15 @@ export default function StreamPage() {
             setAudioDelayMs(autoDelay);
           }
 
-          // Now start the visible timer — only increments while the live feed is connected
+          // Stamp wall-clock start so the elapsed timer is accurate even when the
+          // browser throttles setInterval in background/hidden tabs.
+          timerStartMsRef.current = performance.now();
+
+          // Now start the visible timer — reads wall-clock elapsed each tick so
+          // it never drifts behind when the tab is hidden (e.g. user switched to OBS).
           timerRef.current = setInterval(() => {
             if (connectionStatusRef.current !== "connected") return;
-            elapsed += 1;
+            const elapsed = Math.floor((performance.now() - timerStartMsRef.current) / 1000);
             setElapsedSecs(elapsed);
             elapsedSecsRef.current = elapsed;
             if (elapsed >= trialLimitRef.current) {
@@ -859,6 +874,10 @@ export default function StreamPage() {
       const data = await res.json();
       if (data.valid) {
         localStorage.setItem("fullswap_license_key", trimmedKey);
+        // Seed the remaining-seconds ref immediately so the countdown is correct
+        // even before the new licenseStatus query finishes loading.
+        validatedRemainingRef.current = data.remainingSeconds ?? 0;
+        streamStartRemRef.current     = data.remainingSeconds ?? 0;
         setLicenseExhausted(false); // reset exhaustion state on new license
         setRenewOk(true);
         const remMins = Math.floor((data.remainingSeconds ?? 0) / 60);
@@ -867,7 +886,9 @@ export default function StreamPage() {
           `License activated! ${remMins > 0 ? remMins + " minutes remaining" : allMins + " minutes allocated"}.`
         );
         setRenewKey("");
+        // Invalidate + immediately refetch so the new key's status loads right away
         queryClient.invalidateQueries({ queryKey: ["license-status"] });
+        queryClient.refetchQueries({ queryKey: ["license-status", trimmedKey] }).catch(() => {});
       } else {
         setRenewOk(false);
         setRenewMsg("Invalid license key. " + (data.error ? "(" + data.error + ") " : "") + "Please check your key and try again.");
