@@ -873,7 +873,7 @@ export default function StreamPage() {
       const res = await fetch("/api/license/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: trimmedKey, deviceId: "web-browser" }),
+        body: JSON.stringify({ key: trimmedKey, deviceId: getDeviceId() }),
       });
       const data = await res.json();
       if (data.valid) {

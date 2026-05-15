@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getLicenseKey, setLicenseKey, clearLicenseKey } from "@/lib/auth";
+import { getLicenseKey, setLicenseKey, clearLicenseKey, getDeviceId } from "@/lib/auth";
 
 type ElectronLicenseAPI = {
   check: () => Promise<{ licensed: boolean; key?: string; activatedAt?: string }>;
@@ -61,7 +61,7 @@ export function useLicense(): LicenseState {
         const res = await fetch("/api/license/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: storedKey, deviceId: "web-browser" }),
+          body: JSON.stringify({ key: storedKey, deviceId: getDeviceId() }),
         });
         const data = await res.json();
         if (data.valid) {
@@ -111,7 +111,7 @@ export function useLicense(): LicenseState {
         const res = await fetch("/api/license/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: key.trim().toUpperCase(), deviceId: "web-browser" }),
+          body: JSON.stringify({ key: key.trim().toUpperCase(), deviceId: getDeviceId() }),
         });
         const data = await res.json();
         if (data.valid) {

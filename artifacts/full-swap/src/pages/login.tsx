@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Key, CheckCircle2, AlertCircle, Loader2, Clock, Zap, Monitor, Shield } from "lucide-react";
-import { setLicenseKey, getLicenseKey } from "@/lib/auth";
+import { setLicenseKey, getLicenseKey, getDeviceId } from "@/lib/auth";
 
 function LeftPanel() {
   return (
@@ -157,7 +157,7 @@ export default function LoginPage() {
       const res = await fetch("/api/license/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, deviceId: "web-browser" }),
+        body: JSON.stringify({ key, deviceId: getDeviceId() }),
       });
       const data = await res.json();
       if (data.valid) {
