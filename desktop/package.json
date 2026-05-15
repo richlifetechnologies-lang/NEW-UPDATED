@@ -1,0 +1,23 @@
+{
+  "name": "fullswap-desktop",
+  "version": "1.0.0",
+  "description": "FULL SWAP BY RICH — Desktop App",
+  "main": "src/main.js",
+  "author": "Rich Life Technologies",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --config electron-builder.json",
+    "build:win": "electron-builder --win --config electron-builder.json",
+    "build:mac": "electron-builder --mac --config electron-builder.json",
+    "build:linux": "electron-builder --linux --config electron-builder.json"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.4"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

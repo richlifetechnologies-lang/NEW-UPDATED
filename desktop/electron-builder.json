@@ -1,0 +1,46 @@
+{
+  "appId": "com.richlifetechnologies.fullswap",
+  "productName": "Full Swap By Rich",
+  "copyright": "Copyright © 2025 Rich Life Technologies",
+  "directories": {
+    "output": "dist",
+    "buildResources": "build"
+  },
+  "files": [
+    "src/**/*",
+    "package.json"
+  ],
+  "publish": {
+    "provider": "github",
+    "owner": "richlifetechnologies-lang",
+    "repo": "NEW-UPDATED"
+  },
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] }
+    ],
+    "icon": "build/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Full Swap By Rich"
+  },
+  "mac": {
+    "target": [
+      { "target": "dmg", "arch": ["x64", "arm64"] }
+    ],
+    "icon": "build/icon.icns",
+    "category": "public.app-category.video"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "build/icon.png",
+    "category": "Video"
+  },
+  "extraMetadata": {
+    "main": "src/main.js"
+  }
+}
