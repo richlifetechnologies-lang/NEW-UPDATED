@@ -1,0 +1,28 @@
+# ── Stage 1: install dependencies ────────────────────────────────────────────
+FROM node:24-alpine AS deps
+
+RUN npm install -g pnpm@9
+
+WORKDIR /app
+
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY lib/db/package.json                 ./lib/db/
+COPY lib/api-spec/package.json           ./lib/api-spec/
+COPY lib/api-client-react/package.json   ./lib/api-client-react/
+COPY lib/api-zod/package.json            ./lib/api-zod/
+COPY artifacts/full-swap/package.json    ./artifacts/full-swap/
+COPY scripts/package.json                ./scripts/
+
+RUN pnpm install --frozen-lockfile
+
+# ── Stage 2: build ────────────────────────────────────────────────────────────
+FROM deps AS builder
+
+COPY . .
+
+# Build the Vite frontend
+RUN pnpm --filter @workspace/full-swap run build
+
+# The built output is at artifacts/full-swap/dist/
+# This image is used only for its build artefact — docker-compose copies dist
+# into a shared volume that nginx reads from.

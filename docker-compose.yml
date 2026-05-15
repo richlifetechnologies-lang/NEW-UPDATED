@@ -1,0 +1,102 @@
+version: "3.9"
+
+services:
+  # ─── PostgreSQL ────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fullswap
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: fullswap
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fullswap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ─── DB migrations + admin seed (runs once, then exits) ────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: sh -c "pnpm --filter @workspace/db run push && pnpm --filter @workspace/scripts run seed-admin"
+    environment:
+      DATABASE_URL: postgresql://fullswap:${DB_PASSWORD:-changeme}@db:5432/fullswap
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: "no"
+
+  # ─── API server ────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgresql://fullswap:${DB_PASSWORD:-changeme}@db:5432/fullswap
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ─── Frontend builder (builds once, outputs to shared volume) ─────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    volumes:
+      - frontend_dist:/app/artifacts/full-swap/dist
+    networks:
+      - internal
+    restart: "no"
+
+  # ─── nginx reverse proxy + static frontend ────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - frontend_dist:/usr/share/nginx/html:ro
+      - ./nginx/certs:/etc/nginx/certs:ro   # mount TLS certs here if using HTTPS
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_completed_successfully
+    networks:
+      - internal
+      - public
+
+volumes:
+  postgres_data:
+  frontend_dist:
+
+networks:
+  internal:
+    driver: bridge
+  public:
+    driver: bridge

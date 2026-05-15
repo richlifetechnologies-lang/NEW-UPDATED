@@ -1,0 +1,66 @@
+# ── Stage 1: install dependencies ────────────────────────────────────────────
+FROM node:24-alpine AS deps
+
+RUN npm install -g pnpm@9
+
+WORKDIR /app
+
+# Copy workspace manifests first for layer caching
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY lib/db/package.json                 ./lib/db/
+COPY lib/api-spec/package.json           ./lib/api-spec/
+COPY lib/api-client-react/package.json   ./lib/api-client-react/
+COPY lib/api-zod/package.json            ./lib/api-zod/
+COPY artifacts/api-server/package.json   ./artifacts/api-server/
+COPY scripts/package.json                ./scripts/
+
+RUN pnpm install --frozen-lockfile
+
+# ── Stage 2: build ────────────────────────────────────────────────────────────
+FROM deps AS builder
+
+COPY . .
+
+# Build shared libs (drizzle schema, zod types, etc.)
+RUN pnpm --filter @workspace/db run build 2>/dev/null || true
+RUN pnpm --filter @workspace/api-zod run build 2>/dev/null || true
+
+# Build the API server bundle
+RUN pnpm --filter @workspace/api-server run build
+
+# ── Stage 3: production image ─────────────────────────────────────────────────
+FROM node:24-alpine AS runner
+
+RUN npm install -g pnpm@9
+
+WORKDIR /app
+
+# Copy workspace config and all package.json files for pnpm to resolve workspaces
+COPY --from=builder /app/pnpm-workspace.yaml ./
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/pnpm-lock.yaml ./
+COPY --from=builder /app/lib/db/package.json             ./lib/db/
+COPY --from=builder /app/lib/api-spec/package.json       ./lib/api-spec/
+COPY --from=builder /app/lib/api-client-react/package.json ./lib/api-client-react/
+COPY --from=builder /app/lib/api-zod/package.json        ./lib/api-zod/
+COPY --from=builder /app/artifacts/api-server/package.json ./artifacts/api-server/
+COPY --from=builder /app/scripts/package.json            ./scripts/
+
+# Install only production deps
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy built dist + drizzle schema + scripts source
+COPY --from=builder /app/artifacts/api-server/dist ./artifacts/api-server/dist
+COPY --from=builder /app/lib/db/src               ./lib/db/src
+COPY --from=builder /app/lib/db/drizzle.config.ts  ./lib/db/drizzle.config.ts
+COPY --from=builder /app/scripts/src              ./scripts/src
+
+# Drizzle CLI needs ts-node to run push — copy tsconfig
+COPY --from=builder /app/tsconfig.base.json ./
+COPY --from=builder /app/tsconfig.json      ./
+COPY --from=builder /app/lib/db/tsconfig.json ./lib/db/
+COPY --from=builder /app/scripts/tsconfig.json ./scripts/
+
+EXPOSE 8080
+
+CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
