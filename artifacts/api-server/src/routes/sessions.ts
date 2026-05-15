@@ -38,6 +38,18 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
   const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   if (!session || session.status !== "active") return 0;
 
+  // If decartKeyId is still null (race: stop beat the first heartbeat), link it now
+  // so the credit tracker can count this session against the right API key.
+  if (!session.decartKeyId && session.licenseKeyId) {
+    const [lic] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, session.licenseKeyId));
+    if (lic?.assignedDecartKeyId) {
+      await db.update(sessionsTable)
+        .set({ decartKeyId: lic.assignedDecartKeyId })
+        .where(eq(sessionsTable.id, sessionId));
+      (session as any).decartKeyId = lic.assignedDecartKeyId;
+    }
+  }
+
   const endAt = opts?.endAt ?? new Date();
   const billingStart = session.billingStartedAt ?? session.startedAt;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
@@ -185,6 +197,9 @@ router.post("/", requireLicense, async (req, res) => {
   const [session] = await db.insert(sessionsTable).values({
     id: sessionId, licenseKeyId: license.id, status: "active", style,
     packageLabel: `${license.minutesAllocated ?? 0}min license`,
+    // Link Decart key at creation so credit tracking works even for short sessions
+    // that end before the first heartbeat fires (race condition fix).
+    decartKeyId: license.assignedDecartKeyId ?? null,
   }).returning();
 
   // ── BILLING-FIX: Reserve MINIMUM_RESERVATION_SEC upfront ───────────────
