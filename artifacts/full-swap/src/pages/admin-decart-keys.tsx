@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, Power, PowerOff, KeyRound, Eye, EyeOff,
   Activity, ChevronDown, ChevronUp, RefreshCw, AlertTriangle,
-  AlertCircle, TrendingDown, Clock, Zap, Settings2,
+  AlertCircle, TrendingDown, Clock, Zap, Settings2, Pencil,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ function WarningBadge({ level }: { level: "ok" | "low" | "critical" }) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-950 text-red-400 border border-red-700 animate-pulse">
         <AlertCircle className="w-3 h-3" />
-        CRITICAL — TOP UP REQUIRED
+        CRITICAL — UPDATE BALANCE
       </span>
     );
   }
@@ -286,8 +286,12 @@ export default function AdminDecartKeysPage() {
   useEffect(() => {
     fetchKeys();
     fetchCreditStatus();
-    // Auto-refresh credit status every 15s
-    refreshIntervalRef.current = setInterval(fetchCreditStatus, 15_000);
+    // Auto-refresh both keys list (for live assignedLicenseKeys count) and
+    // credit status every 15s so reassignments and balance changes reflect
+    // without requiring a manual page refresh.
+    refreshIntervalRef.current = setInterval(async () => {
+      await Promise.all([fetchKeys(), fetchCreditStatus()]);
+    }, 15_000);
     return () => { if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current); };
   }, [fetchKeys, fetchCreditStatus]);
 
@@ -530,7 +534,7 @@ export default function AdminDecartKeysPage() {
                   )}
                   {cs && cs.totalCreditsLoaded === 0 && (
                     <div className="text-xs text-slate-500 bg-slate-800/50 rounded px-3 py-2">
-                      No credits loaded. Use Top Up to set the initial balance.
+                      No balance set. Click <strong className="text-slate-300">Set Balance</strong> below, check your Decart account and enter the exact credits shown there.
                     </div>
                   )}
 
@@ -578,10 +582,10 @@ export default function AdminDecartKeysPage() {
 
                   {/* Action Buttons */}
                   <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800">
-                    {/* Top-up */}
+                    {/* Set Balance */}
                     <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 text-emerald-400 border-emerald-800 hover:bg-emerald-950"
                       onClick={() => { setShowTopupFor(showTopupFor === key.id ? null : key.id); setTopupAmount(""); }}>
-                      <Plus className="w-3 h-3" /> Top Up Credits
+                      <Pencil className="w-3 h-3" /> Set Balance
                     </Button>
 
                     {/* Threshold */}
@@ -597,17 +601,23 @@ export default function AdminDecartKeysPage() {
                     </Button>
                   </div>
 
-                  {/* Top-up inline form */}
+                  {/* Set Balance inline form */}
                   {showTopupFor === key.id && (
-                    <div className="flex items-center gap-2 mt-1 bg-emerald-950/30 border border-emerald-800/40 rounded-lg p-3">
-                      <Input
-                        type="number" min={1} placeholder="Credits to add (e.g. 10000)"
-                        value={topupAmount} onChange={(e) => setTopupAmount(e.target.value)}
-                        className="h-8 text-sm w-52"
-                      />
-                      <span className="text-xs text-slate-500">÷ 120 = {topupAmount ? (parseInt(topupAmount) / 120).toFixed(1) : "0"} streaming minutes</span>
-                      <Button size="sm" className="h-8 bg-emerald-700 hover:bg-emerald-600" onClick={() => submitTopup(key.id)}>Confirm Top Up</Button>
-                      <Button variant="ghost" size="sm" className="h-8" onClick={() => setShowTopupFor(null)}>Cancel</Button>
+                    <div className="flex flex-col gap-2 mt-1 bg-emerald-950/30 border border-emerald-800/40 rounded-lg p-3">
+                      <p className="text-xs text-slate-400">
+                        Check your <strong className="text-slate-200">Decart account dashboard</strong> for your current credit balance, then enter that exact number below.
+                        The system will track usage from this point forward.
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Input
+                          type="number" min={1} placeholder="Current Decart credits (e.g. 50000)"
+                          value={topupAmount} onChange={(e) => setTopupAmount(e.target.value)}
+                          className="h-8 text-sm w-56"
+                        />
+                        <span className="text-xs text-slate-500">÷ 120 = {topupAmount ? (parseInt(topupAmount) / 120).toFixed(1) : "0"} streaming min</span>
+                        <Button size="sm" className="h-8 bg-emerald-700 hover:bg-emerald-600" onClick={() => submitTopup(key.id)}>Set Balance</Button>
+                        <Button variant="ghost" size="sm" className="h-8" onClick={() => setShowTopupFor(null)}>Cancel</Button>
+                      </div>
                     </div>
                   )}
 
@@ -630,7 +640,7 @@ export default function AdminDecartKeysPage() {
                   {historyOpen && <UsageHistoryPanel keyId={key.id} />}
 
                   {cs && cs.lastTopupAt && (
-                    <div className="text-xs text-slate-600">Last top-up: {fmtDate(cs.lastTopupAt)}</div>
+                    <div className="text-xs text-slate-600">Balance last set: {fmtDate(cs.lastTopupAt)}</div>
                   )}
                 </div>
               );

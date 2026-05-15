@@ -3,6 +3,8 @@ import { db, licenseKeysTable, decartApiKeysTable, sessionsTable, pricingTable, 
 import { eq, isNull, and } from "drizzle-orm";
 import { requireAdmin, requireLicense } from "../lib/auth";
 import { notifyLicenseActivated } from "../lib/notifications";
+import { invalidateLicenseTokenCache } from "./decart";
+import { decartPool } from "../lib/decart-pool";
 
 const router = Router();
 
@@ -247,6 +249,12 @@ router.patch("/:key/reassign", requireAdmin, async (req, res) => {
     await db.update(licenseKeysTable)
       .set({ assignedDecartKeyId: decartApiKeyId ?? null })
       .where(eq(licenseKeysTable.key, licenseKeyStr));
+
+    // Immediately evict this license's cached Decart token so the very next
+    // stream request fetches a fresh token from the newly assigned API key.
+    // Also force the pool to reload so in-memory state stays consistent.
+    invalidateLicenseTokenCache(licenseKeyStr);
+    decartPool.load().catch(() => {});
 
     return res.json({ success: true, key: licenseKeyStr, assignedDecartKeyId: decartApiKeyId ?? null });
   } catch (err: any) {

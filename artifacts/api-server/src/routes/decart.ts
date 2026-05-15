@@ -187,4 +187,14 @@ export function getDecartKeyIdFromCache(licenseKey: string): number | null {
   return tokenCache.get(licenseKey)?.sourceKeyId ?? null;
 }
 
+/**
+ * Evict the cached token for a license key immediately.
+ * Call this after admin reassigns a license key to a different Decart API key
+ * so the very next stream request fetches a fresh token from the new key
+ * instead of reusing the old key's token for up to 30+ more seconds.
+ */
+export function invalidateLicenseTokenCache(licenseKey: string): void {
+  tokenCache.delete(licenseKey.trim().toUpperCase());
+}
+
 export default router;
