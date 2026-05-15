@@ -4,37 +4,76 @@ const path = require("path");
 
 // ── Server URL ────────────────────────────────────────────────────────────────
 // In production this points at your hosted server.
-// Set the APP_SERVER_URL env var at build time via GitHub Actions, or change
-// the fallback URL below to your live domain.
+// Set APP_SERVER_URL in GitHub Actions vars, or change the fallback below.
 const SERVER_URL = process.env.APP_SERVER_URL || "https://your-domain.com";
 
 let mainWindow = null;
 let splashWindow = null;
+let pendingUpdateVersion = null;
+
+// ── Update notification overlay (injected into the page) ──────────────────────
+// Shows a dismiss-able banner in the top-right corner without touching the server code.
+const UPDATE_BANNER_CSS = `
+  #__fs-update-banner {
+    position: fixed; top: 12px; right: 16px; z-index: 99999;
+    background: #1a1a2e; color: #fff; border: 1px solid #6c63ff;
+    border-radius: 10px; padding: 10px 16px; font-family: sans-serif;
+    font-size: 13px; display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.5); max-width: 320px;
+  }
+  #__fs-update-banner button {
+    border: none; border-radius: 6px; cursor: pointer; font-size: 12px; padding: 5px 10px;
+  }
+  #__fs-update-banner .install-btn { background: #6c63ff; color: #fff; }
+  #__fs-update-banner .dismiss-btn { background: transparent; color: #aaa; }
+`;
+
+function injectUpdateBanner(version, downloaded) {
+  if (!mainWindow) return;
+  const label = downloaded
+    ? `v${version} ready — restart to install`
+    : `v${version} available — downloading…`;
+  const js = `
+    (function() {
+      if (document.getElementById('__fs-update-banner')) return;
+      const s = document.createElement('style'); s.textContent = \`${UPDATE_BANNER_CSS}\`; document.head.appendChild(s);
+      const d = document.createElement('div'); d.id = '__fs-update-banner';
+      d.innerHTML = \`
+        <span>🔄 ${label}</span>
+        ${downloaded ? '<button class="install-btn" onclick="window.__electron?.installUpdate()">Restart</button>' : ''}
+        <button class="dismiss-btn" onclick="this.closest(\\'#__fs-update-banner\\').remove()">✕</button>
+      \`;
+      document.body.appendChild(d);
+    })();
+  `;
+  mainWindow.webContents.executeJavaScript(js).catch(() => {});
+}
 
 // ── Auto-updater (checks GitHub Releases) ────────────────────────────────────
 function setupAutoUpdater() {
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = true;  // download silently in background
 
   autoUpdater.on("update-available", (info) => {
+    pendingUpdateVersion = info.version;
+    injectUpdateBanner(info.version, false);
     mainWindow?.webContents.send("update-available", info.version);
   });
 
   autoUpdater.on("update-downloaded", () => {
+    injectUpdateBanner(pendingUpdateVersion, true);
     mainWindow?.webContents.send("update-downloaded");
   });
+
+  autoUpdater.on("error", () => {});  // suppress to avoid unhandled rejections
 
   ipcMain.on("install-update", () => {
     autoUpdater.quitAndInstall(false, true);
   });
 
-  ipcMain.on("download-update", () => {
-    autoUpdater.downloadUpdate();
-  });
-
-  // Check for updates 5 seconds after launch (non-blocking)
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => {});
-  }, 5_000);
+  // Check on launch, then every 30 minutes
+  const checkUpdate = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(checkUpdate, 5_000);
+  setInterval(checkUpdate, 30 * 60 * 1_000);
 }
 
 // ── Permissions — allow camera + microphone ───────────────────────────────────
@@ -88,7 +127,7 @@ function createMainWindow() {
 
   setupPermissions(mainWindow);
 
-  // Open external links in system browser, not inside the app
+  // Open external links in the system browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (!url.startsWith(SERVER_URL)) {
       shell.openExternal(url);
@@ -108,6 +147,11 @@ function createMainWindow() {
   });
 
   mainWindow.on("closed", () => { mainWindow = null; });
+
+  // Auto-reload on focus so any server-side changes are reflected immediately
+  mainWindow.on("focus", () => {
+    mainWindow?.webContents.reload();
+  });
 
   // Retry if the server is temporarily unavailable
   mainWindow.webContents.on("did-fail-load", (_e, code, desc) => {
