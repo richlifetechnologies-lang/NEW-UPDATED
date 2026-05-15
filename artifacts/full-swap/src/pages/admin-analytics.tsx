@@ -52,14 +52,17 @@ interface PerKeyData {
   };
 }
 
-type SortField = "key" | "minutesAllocated" | "minutesUsed" | "sessionCount" | "totalStreamMinutes" | "revenueUsd";
+type SortField = "key" | "minutesAllocated" | "minutesUsed" | "sessionCount" | "revenueUsd";
 
 function fmtMin(m: number) {
   if (m === 0) return "0m";
-  if (m < 1) return `${Math.round(m * 60)}s`;
-  const h = Math.floor(m / 60);
-  const min = Math.round(m % 60);
-  return h > 0 ? `${h}h ${min}m` : `${min}m`;
+  const totalSec = Math.round(m * 60);
+  if (totalSec < 60) return `${totalSec}s`;
+  const h = Math.floor(totalSec / 3600);
+  const min = Math.floor((totalSec % 3600) / 60);
+  const sec = totalSec % 60;
+  if (h > 0) return sec > 0 ? `${h}h ${min}m ${sec}s` : `${h}h ${min}m`;
+  return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
 }
 
 function fmtKey(k: string) {
@@ -125,7 +128,6 @@ export default function AdminAnalyticsPage() {
       if (sortField === "minutesAllocated") return x.minutesAllocated;
       if (sortField === "minutesUsed") return x.minutesUsed;
       if (sortField === "sessionCount") return x.sessionCount;
-      if (sortField === "totalStreamMinutes") return x.totalStreamMinutes;
       if (sortField === "revenueUsd") return x.revenueUsd;
       return x.createdAt;
     };
@@ -204,7 +206,6 @@ export default function AdminAnalyticsPage() {
                       <Th field="minutesUsed" label="Used" />
                       <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Remaining</th>
                       <Th field="sessionCount" label="Sessions" />
-                      <Th field="totalStreamMinutes" label="Streamed" />
                       <Th field="revenueUsd" label="Revenue" />
                       <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Last Used</th>
                     </tr>
@@ -241,9 +242,6 @@ export default function AdminAnalyticsPage() {
                             {k.sessionCount}
                           </td>
                           <td className="px-3 py-2.5 tabular-nums text-foreground">
-                            {fmtMin(k.totalStreamMinutes)}
-                          </td>
-                          <td className="px-3 py-2.5 tabular-nums text-foreground">
                             {k.revenueUsd > 0 ? `$${k.revenueUsd.toFixed(2)}` : <span className="text-muted-foreground">—</span>}
                           </td>
                           <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
@@ -255,7 +253,7 @@ export default function AdminAnalyticsPage() {
 
                     {sorted.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground text-sm">No license keys yet</td>
+                        <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground text-sm">No license keys yet</td>
                       </tr>
                     )}
                   </tbody>
@@ -270,7 +268,6 @@ export default function AdminAnalyticsPage() {
                         <td className="px-3 py-2.5 text-foreground tabular-nums">{fmtMin(perKey.totals.totalMinutesUsed)}</td>
                         <td className="px-3 py-2.5" />
                         <td className="px-3 py-2.5 text-center text-foreground tabular-nums">{perKey.totals.totalSessions}</td>
-                        <td className="px-3 py-2.5 text-foreground tabular-nums">{fmtMin(perKey.totals.totalStreamMinutes)}</td>
                         <td className="px-3 py-2.5 text-foreground tabular-nums">
                           {perKey.totals.totalRevenueUsd > 0 ? `$${perKey.totals.totalRevenueUsd.toFixed(2)}` : "—"}
                         </td>
