@@ -17,6 +17,7 @@ import AdminChatPage from "@/pages/admin-chat";
 import AdminDecartKeysPage from "@/pages/admin-decart-keys";
 import AdminApiMonitoringPage from "@/pages/admin-api-monitoring";
 import AdminLicenseKeysPage from "@/pages/admin-license-keys";
+import DashboardPage from "@/pages/dashboard";
 import PopoutPage from "@/pages/popout";
 import AdminSubAdminsPage from "@/pages/admin-sub-admins";
 import AdminAnalyticsPage from "@/pages/admin-analytics";
@@ -42,6 +43,7 @@ function Router() {
     <Switch>
       <Route path="/" component={isDesktopApp ? StreamPage : LoginPage} />
       <Route path="/stream" component={StreamPage} />
+      <Route path="/dashboard" component={DashboardPage} />
       <Route path="/admin" component={AdminLoginPage} />
       <Route path="/admin/dashboard" component={AdminDashboardPage} />
       <Route path="/admin/users" component={AdminUsersPage} />
