@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, text, timestamp, boolean, varchar, integer,
+  pgTable, serial, text, timestamp, boolean, varchar, integer, real,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -15,7 +15,7 @@ export const licenseKeysTable = pgTable("license_keys", {
   expiresAt:           timestamp("expires_at"),
   createdAt:           timestamp("created_at").defaultNow().notNull(),
   notes:                text("notes"),
-  minutesAllocated:    integer("minutes_allocated").notNull().default(0),
+  minutesAllocated:    real("minutes_allocated").notNull().default(0),
   usedSeconds:         integer("used_seconds").notNull().default(0),
   creditsAllocated:    integer("credits_allocated").notNull().default(0),
   creditsUsed:         integer("credits_used").notNull().default(0),

@@ -144,7 +144,7 @@ export default function AdminLicenseKeysPage() {
         body: JSON.stringify({
           notes: genNotes || null,
           expiresAt: genExpiry || null,
-          minutesAllocated: parseInt(genMinutes) || 0,
+          minutesAllocated: parseFloat(genMinutes) || 0,
           decartApiKeyId: genApiKeyId || undefined,
           pricingId: genPricingId || undefined,
         }),
@@ -435,9 +435,9 @@ export default function AdminLicenseKeysPage() {
                 <p className="text-xs text-muted-foreground mt-1">Links revenue and costs for analytics. Financial transaction is auto-recorded.</p>
               </div>
               <div>
-                <label className="text-sm text-muted-foreground mb-1.5 block">Minutes to allocate</label>
+                <label className="text-sm text-muted-foreground mb-1.5 block">Minutes to allocate <span className="text-xs opacity-60">(decimals ok, e.g. 0.5 = 30s)</span></label>
                 <div className="flex items-center gap-2">
-                  <Input type="number" min="1" value={genMinutes} onChange={e => setGenMinutes(e.target.value)}
+                  <Input type="number" min="0" step="0.5" value={genMinutes} onChange={e => setGenMinutes(e.target.value)}
                     style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 16%)" }} />
                   <span className="text-sm text-muted-foreground font-mono">min</span>
                 </div>
