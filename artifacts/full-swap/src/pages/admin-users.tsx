@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/admin-layout";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Edit2, Check, X, Trash2, Gift, Copy } from "lucide-react";
+import { Search, Edit2, Check, X, Trash2, Gift, Copy, Unlink, Monitor } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -168,6 +168,31 @@ export default function AdminUsersPage() {
     }
   };
 
+  const unbindDevice = async (licenseKey: string) => {
+    try {
+      const res = await fetch(`/api/license/${encodeURIComponent(licenseKey)}/unbind`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        toast({ title: "Device unbound", description: "The key can now be activated on a new device." });
+        await fetchLicenses();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast({ title: "Unbind failed", description: data.error ?? "Unknown error", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Unbind failed", variant: "destructive" });
+    }
+  };
+
+  // Auto-refresh every 10 s so device bindings appear immediately when a user activates a key
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(fetchLicenses, 10_000);
+    return () => clearInterval(interval);
+  }, [token]);
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: "Copied to clipboard" });
@@ -227,8 +252,7 @@ export default function AdminUsersPage() {
                     <th className="text-left p-4 text-muted-foreground font-medium">Minutes</th>
                     <th className="text-left p-4 text-muted-foreground font-medium">Remaining</th>
                     <th className="text-left p-4 text-muted-foreground font-medium">Used</th>
-                    <th className="text-left p-4 text-muted-foreground font-medium">Activated</th>
-                    <th className="text-left p-4 text-muted-foreground font-medium">Device ID</th>
+                    <th className="text-left p-4 text-muted-foreground font-medium">Device Binding</th>
                     <th className="text-right p-4 text-muted-foreground font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -292,11 +316,38 @@ export default function AdminUsersPage() {
                         </span>
                       </td>
                       <td className="p-4 font-mono text-muted-foreground">{license.minutesUsed.toFixed(1)}</td>
-                      <td className="p-4 text-muted-foreground text-xs">
-                        {license.activatedAt ? new Date(license.activatedAt).toLocaleDateString() : "—"}
-                      </td>
-                      <td className="p-4 text-muted-foreground text-xs font-mono">
-                        {license.deviceId ? license.deviceId.slice(0, 8) : "—"}
+                      <td className="p-4">
+                        {license.deviceId ? (
+                          <div className="flex items-start gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold bg-green-500/15 text-green-400 border border-green-500/20">
+                                  <Monitor className="w-2.5 h-2.5" />
+                                  BOUND
+                                </span>
+                              </div>
+                              <p className="font-mono text-xs text-foreground/70 truncate" title={license.deviceId}>
+                                {license.deviceId.slice(0, 8)}…{license.deviceId.slice(-4)}
+                              </p>
+                              {license.activatedAt && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {new Date(license.activatedAt).toLocaleString()}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              title="Unbind device — admin only"
+                              className="flex-shrink-0 mt-0.5 p-1 rounded text-orange-400 hover:bg-orange-500/15 hover:text-orange-300 transition-colors"
+                              onClick={() => unbindDevice(license.key)}
+                            >
+                              <Unlink className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-muted-foreground bg-muted/40 border border-border">
+                            No device
+                          </span>
+                        )}
                       </td>
                       <td className="p-4 text-right">
                         {editingId === license.id ? (
