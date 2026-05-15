@@ -312,10 +312,10 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="p-4">
                         <span className={`font-mono font-semibold ${license.minutesRemaining > 0 ? "text-green-400" : "text-red-400"}`}>
-                          {Math.max(0, license.minutesRemaining).toFixed(1)}
+                          {license.minutesRemaining.toFixed(2)}
                         </span>
                       </td>
-                      <td className="p-4 font-mono text-muted-foreground">{license.minutesUsed.toFixed(1)}</td>
+                      <td className="p-4 font-mono text-muted-foreground">{license.minutesUsed.toFixed(2)}</td>
                       <td className="p-4">
                         {license.deviceId ? (
                           <div className="flex items-start gap-2">

@@ -58,6 +58,10 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
     totalDuration = Math.floor((endAt.getTime() - billingStart.getTime()) / 1000);
   }
 
+  // Every session has MINIMUM_RESERVATION_SEC debited at creation.
+  // Guarantee duration_seconds reflects at least that so analytics never show 0.
+  totalDuration = Math.max(totalDuration, MINIMUM_RESERVATION_SEC);
+
   // Re-read license to get a fresh usedSeconds value
   const [license] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, session.licenseKeyId!));
   let debited = 0;
@@ -229,11 +233,12 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // billingStartedAt stays null and deductions never begin on the first stream.
   let billingAnchor = session.billingStartedAt;
   if (!billingAnchor) {
-    // output-started was never called (network glitch or client crash before Decart connected).
-    // Anchor billing to NOW (not session.startedAt) to avoid charging for time spent on
-    // the loading screen before the stream actually connected. The next heartbeat will
-    // then debit the proper 10s interval.
-    billingAnchor = now;
+    // output-started was never called. Anchor to session.startedAt so short sessions
+    // capture their real elapsed time (fixes duration_seconds = 0 on quick stop).
+    // Cap loading-screen time at 30s to avoid over-charging slow connections.
+    const MAX_LOADING_SECS = 30;
+    const loadingCapAnchor = new Date(now.getTime() - MAX_LOADING_SECS * 1000);
+    billingAnchor = session.startedAt > loadingCapAnchor ? session.startedAt : loadingCapAnchor;
     // Persist the anchor so subsequent heartbeats and settleSession use it
     await db.update(sessionsTable)
       .set({ billingStartedAt: billingAnchor, lastDeductedAt: billingAnchor })
