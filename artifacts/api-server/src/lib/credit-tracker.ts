@@ -47,31 +47,31 @@ export async function getKeyCreditStatus(
 
   if (!key) return null;
 
-  // Sum completed session durations (status = 'stopped' or 'expired')
+  // Sum completed session durations using wall-clock time (started_at → stopped_at).
+  // Decart bills from the moment connect() is called (started_at), not from
+  // billing_started_at (first remote frame), so we must use the full connection
+  // duration here to match what Decart actually charges.
   const completedResult = await db
     .select({
-      totalSeconds: sql<number>`COALESCE(SUM(duration_seconds), 0)`,
+      totalSeconds: sql<number>`COALESCE(SUM(EXTRACT(EPOCH FROM (stopped_at - started_at))::INTEGER), 0)`,
     })
     .from(sessionsTable)
     .where(
       and(
         eq(sessionsTable.decartKeyId, keyId),
         sql`status IN ('stopped', 'expired')`,
-        isNull(sessionsTable.stoppedAt) === false
-          ? sql`stopped_at IS NOT NULL`
-          : sql`TRUE`
+        sql`stopped_at IS NOT NULL`
       )
     );
 
   const completedSeconds = Number(completedResult[0]?.totalSeconds ?? 0);
 
-  // Sum live session durations (status = 'active')
-  // Use billing_started_at (when Decart output actually began) instead of
-  // started_at (session row creation) for accurate credit computation.
+  // Sum live session durations (status = 'active').
+  // Use started_at (when Decart connect() was called) for accurate credit computation.
   const liveResult = await db
     .select({
       count: sql<number>`COUNT(*)`,
-      liveSeconds: sql<number>`COALESCE(SUM(EXTRACT(EPOCH FROM (NOW() - COALESCE(billing_started_at, started_at)))::INTEGER), 0)`,
+      liveSeconds: sql<number>`COALESCE(SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER), 0)`,
     })
     .from(sessionsTable)
     .where(
@@ -165,11 +165,12 @@ export async function recordTopup(
   if (!key) throw new Error(`Decart API key ${keyId} not found`);
 
   // Calculate current total credits used in sessions (to set as new baseline)
+  // Use wall-clock time to match Decart's actual billing (started_at → stopped_at)
   const usageResult = await db
     .select({
       totalSeconds: sql<number>`
         COALESCE(
-          (SELECT SUM(COALESCE(duration_seconds, 0)) FROM sessions WHERE decart_key_id = ${keyId} AND status IN ('stopped','expired')),
+          (SELECT SUM(EXTRACT(EPOCH FROM (stopped_at - started_at))::INTEGER) FROM sessions WHERE decart_key_id = ${keyId} AND status IN ('stopped','expired') AND stopped_at IS NOT NULL),
           0
         ) + 
         COALESCE(
@@ -227,20 +228,17 @@ export async function getKeyUsageHistory(
     .limit(limit);
 
   return rows.map((r) => {
-    const dur =
-      r.durationSeconds ??
-      (r.stoppedAt
-        ? Math.floor(
-            (r.stoppedAt.getTime() - r.startedAt.getTime()) / 1000
-          )
-        : Math.floor((Date.now() - r.startedAt.getTime()) / 1000));
+    // Wall-clock time matches Decart's actual billing (connect → disconnect)
+    const wallClockSec = r.stoppedAt
+      ? Math.floor((r.stoppedAt.getTime() - r.startedAt.getTime()) / 1000)
+      : Math.floor((Date.now() - r.startedAt.getTime()) / 1000);
     return {
       sessionId: r.id,
       licenseKeyId: r.licenseKeyId,
       startedAt: r.startedAt.toISOString(),
       stoppedAt: r.stoppedAt?.toISOString() ?? null,
-      durationSeconds: dur,
-      creditsConsumed: dur * 2,
+      durationSeconds: wallClockSec,
+      creditsConsumed: wallClockSec * 2,
       status: r.status,
     };
   });
