@@ -4,6 +4,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { requireLicense } from "../lib/auth";
 import { randomUUID } from "crypto";
 import { getDecartKeyIdFromCache } from "./decart";
+import { notifySessionDead } from "../lib/notifications";
 
 const router = Router();
 
@@ -103,30 +104,27 @@ function startOrphanSweeper() {
         ));
       for (const s of orphans) {
         const endAt = s.lastHeartbeatAt ?? s.billingStartedAt ?? s.startedAt;
+        const durationSecs = Math.floor((endAt.getTime() - (s.billingStartedAt ?? s.startedAt).getTime()) / 1000);
         console.log(`[SESSION] orphan_kill sessionId=${s.id} reason=no_heartbeat endAt=${endAt.toISOString()}`);
         await settleSession(s.id, { endAt });
+        notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
       }
 
       // ── Pass 2: Deduction-freeze kill ───────────────────────────────────────
-      // Billing started (billingStartedAt IS NOT NULL) but lastDeductedAt has
-      // not advanced beyond billingStartedAt for DEDUCTION_FREEZE_MS.
-      // This means the heartbeat loop froze or the debit path broke while
-      // Decart kept running — burning credits with nothing tracked.
       const freezeCutoff = new Date(now - DEDUCTION_FREEZE_MS);
       const frozen = await db.select().from(sessionsTable)
         .where(and(
           eq(sessionsTable.status, "active"),
           sql`${sessionsTable.billingStartedAt} IS NOT NULL`,
-          // Either lastDeductedAt is still equal to billingStartedAt (no deduction ever landed)
-          // OR it has not moved for DEDUCTION_FREEZE_MS
           sql`coalesce(${sessionsTable.lastDeductedAt}, ${sessionsTable.billingStartedAt}) <= ${freezeCutoff}`
         ));
       for (const s of frozen) {
-        // Skip any that were already handled by Pass 1
         if (orphans.some((o) => o.id === s.id)) continue;
         const endAt = s.lastDeductedAt ?? s.billingStartedAt ?? s.startedAt;
+        const durationSecs = Math.floor((endAt.getTime() - (s.billingStartedAt ?? s.startedAt).getTime()) / 1000);
         console.log(`[SESSION] freeze_kill sessionId=${s.id} reason=deduction_frozen billingStartedAt=${s.billingStartedAt?.toISOString()} lastDeductedAt=${s.lastDeductedAt?.toISOString()}`);
         await settleSession(s.id, { endAt });
+        notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "freeze", killedAt: endAt }).catch(() => {});
       }
     } catch (err) {
       console.error("[sessions] sweeper failed:", err);
@@ -295,6 +293,8 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
     await db.update(sessionsTable)
       .set({ status: "stopped", stoppedAt: now, durationSeconds: totalDuration })
       .where(eq(sessionsTable.id, sessionId));
+    // Fire Telegram alert: license ran out during active stream
+    notifySessionDead({ sessionId, licenseKey: license?.key ?? null, durationSecs: totalDuration, reason: "out_of_time", killedAt: now }).catch(() => {});
     res.json({ ok: false, reason: "no_time" });
     return;
   }

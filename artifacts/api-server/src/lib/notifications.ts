@@ -28,7 +28,8 @@ async function setSetting(key: string, value: string) {
 }
 
 export async function getNotificationSettings() {
-  const [webhookUrl, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, smtpTo, smtpEnabled, webhookEnabled, userEmailEnabled] =
+  const [webhookUrl, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, smtpTo, smtpEnabled, webhookEnabled, userEmailEnabled,
+         telegramToken, telegramChatId, telegramEnabled] =
     await Promise.all([
       getSetting("notif_webhook_url"),
       getSetting("notif_smtp_host"),
@@ -40,8 +41,12 @@ export async function getNotificationSettings() {
       getSetting("notif_smtp_enabled"),
       getSetting("notif_webhook_enabled"),
       getSetting("notif_user_email_enabled"),
+      getSetting("notif_telegram_token"),
+      getSetting("notif_telegram_chat_id"),
+      getSetting("notif_telegram_enabled"),
     ]);
-  return { webhookUrl, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, smtpTo, smtpEnabled, webhookEnabled, userEmailEnabled };
+  return { webhookUrl, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, smtpTo, smtpEnabled, webhookEnabled, userEmailEnabled,
+           telegramToken, telegramChatId, telegramEnabled };
 }
 
 export async function saveNotificationSettings(settings: {
@@ -55,19 +60,25 @@ export async function saveNotificationSettings(settings: {
   smtpTo?: string;
   smtpEnabled?: boolean;
   userEmailEnabled?: boolean;
+  telegramToken?: string;
+  telegramChatId?: string;
+  telegramEnabled?: boolean;
 }) {
   const ops: Promise<void>[] = [];
   const s = (k: string, v: string) => ops.push(setSetting(k, v));
-  if (settings.webhookUrl     !== undefined) s("notif_webhook_url",      settings.webhookUrl);
-  if (settings.webhookEnabled !== undefined) s("notif_webhook_enabled",  String(settings.webhookEnabled));
-  if (settings.smtpHost       !== undefined) s("notif_smtp_host",        settings.smtpHost);
-  if (settings.smtpPort       !== undefined) s("notif_smtp_port",        settings.smtpPort);
-  if (settings.smtpUser       !== undefined) s("notif_smtp_user",        settings.smtpUser);
-  if (settings.smtpPass       !== undefined) s("notif_smtp_pass",        settings.smtpPass);
-  if (settings.smtpFrom       !== undefined) s("notif_smtp_from",        settings.smtpFrom);
-  if (settings.smtpTo         !== undefined) s("notif_smtp_to",          settings.smtpTo);
-  if (settings.smtpEnabled    !== undefined) s("notif_smtp_enabled",     String(settings.smtpEnabled));
+  if (settings.webhookUrl       !== undefined) s("notif_webhook_url",        settings.webhookUrl);
+  if (settings.webhookEnabled   !== undefined) s("notif_webhook_enabled",    String(settings.webhookEnabled));
+  if (settings.smtpHost         !== undefined) s("notif_smtp_host",          settings.smtpHost);
+  if (settings.smtpPort         !== undefined) s("notif_smtp_port",          settings.smtpPort);
+  if (settings.smtpUser         !== undefined) s("notif_smtp_user",          settings.smtpUser);
+  if (settings.smtpPass         !== undefined) s("notif_smtp_pass",          settings.smtpPass);
+  if (settings.smtpFrom         !== undefined) s("notif_smtp_from",          settings.smtpFrom);
+  if (settings.smtpTo           !== undefined) s("notif_smtp_to",            settings.smtpTo);
+  if (settings.smtpEnabled      !== undefined) s("notif_smtp_enabled",       String(settings.smtpEnabled));
   if (settings.userEmailEnabled !== undefined) s("notif_user_email_enabled", String(settings.userEmailEnabled));
+  if (settings.telegramToken    !== undefined) s("notif_telegram_token",     settings.telegramToken);
+  if (settings.telegramChatId   !== undefined) s("notif_telegram_chat_id",   settings.telegramChatId);
+  if (settings.telegramEnabled  !== undefined) s("notif_telegram_enabled",   String(settings.telegramEnabled));
   await Promise.all(ops);
 }
 
@@ -362,9 +373,103 @@ export async function notifyTrialExpired(payload: TrialExpiredPayload) {
   }
 }
 
+// ─── Telegram ──────────────────────────────────────────────────────────────
+
+async function sendTelegramMessage(token: string, chatId: string, html: string) {
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text: html, parse_mode: "HTML" }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Telegram API ${res.status}: ${body}`);
+  }
+}
+
+async function fireTelegram(settings: Awaited<ReturnType<typeof getNotificationSettings>>, html: string) {
+  if (settings.telegramEnabled !== "true" || !settings.telegramToken || !settings.telegramChatId) return;
+  try {
+    await sendTelegramMessage(settings.telegramToken, settings.telegramChatId, html);
+    logger.info("Telegram notification sent");
+  } catch (err) {
+    logger.warn({ err }, "Telegram delivery failed");
+  }
+}
+
+// ─── License activated notification ────────────────────────────────────────
+
+export interface LicenseActivatedPayload {
+  key: string;
+  minutesAllocated: number;
+  activatedAt: Date;
+  deviceId?: string | null;
+}
+
+export async function notifyLicenseActivated(payload: LicenseActivatedPayload) {
+  try {
+    const settings = await getNotificationSettings();
+    const shortKey = payload.key.slice(0, 5) + "-••••••••••";
+    const msg =
+      `🔑 <b>License Key Activated</b>\n\n` +
+      `<b>Key:</b> <code>${shortKey}</code>\n` +
+      `<b>Minutes:</b> ${payload.minutesAllocated} min\n` +
+      `<b>Device:</b> ${payload.deviceId || "web-browser"}\n` +
+      `<b>Time:</b> ${payload.activatedAt.toUTCString()}`;
+    await fireTelegram(settings, msg);
+  } catch (err) {
+    logger.warn({ err }, "License activated notification dispatch error");
+  }
+}
+
+// ─── Session dead / frozen notification ────────────────────────────────────
+
+export interface SessionDeadPayload {
+  sessionId: string;
+  licenseKey?: string | null;
+  durationSecs: number;
+  reason: "out_of_time" | "orphan" | "freeze" | "stopped";
+  killedAt: Date;
+}
+
+function fmt(secs: number) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}m ${s}s`;
+}
+
+const REASON_LABEL: Record<SessionDeadPayload["reason"], string> = {
+  out_of_time: "⏰ Out of Time",
+  orphan:      "💀 Orphaned (client died)",
+  freeze:      "🧊 Deduction Frozen",
+  stopped:     "✅ Stopped normally",
+};
+
+export async function notifySessionDead(payload: SessionDeadPayload) {
+  // Only alert admin on problematic kills, not normal stops
+  if (payload.reason === "stopped") return;
+  try {
+    const settings = await getNotificationSettings();
+    const shortKey = payload.licenseKey ? payload.licenseKey.slice(0, 5) + "-••••••••••" : "unknown";
+    const emoji = payload.reason === "out_of_time" ? "⏰" : payload.reason === "freeze" ? "🧊" : "💀";
+    const msg =
+      `${emoji} <b>Session Killed — ${REASON_LABEL[payload.reason]}</b>\n\n` +
+      `<b>Session:</b> <code>${payload.sessionId.slice(0, 8)}…</code>\n` +
+      `<b>License:</b> <code>${shortKey}</code>\n` +
+      `<b>Duration:</b> ${fmt(payload.durationSecs)}\n` +
+      `<b>Reason:</b> ${payload.reason}\n` +
+      `<b>At:</b> ${payload.killedAt.toUTCString()}`;
+    await fireTelegram(settings, msg);
+  } catch (err) {
+    logger.warn({ err }, "Session dead notification dispatch error");
+  }
+}
+
 // ─── Test helpers ──────────────────────────────────────────────────────────
 
-export async function testNotifications(type: "webhook" | "email" | "user-email") {
+export async function testNotifications(type: "webhook" | "email" | "user-email" | "telegram") {
   const settings = await getNotificationSettings();
   const testPayload: PaymentNotificationPayload = {
     invoiceId: "test-invoice-" + Date.now(),
@@ -381,4 +486,6 @@ export async function testNotifications(type: "webhook" | "email" | "user-email"
   if (type === "webhook")    await fireWebhook({ ...settings, webhookEnabled: "true" }, testPayload);
   if (type === "email")      await sendAdminEmail({ ...settings, smtpEnabled: "true" }, testPayload);
   if (type === "user-email") await sendUserConfirmationEmail({ ...settings, userEmailEnabled: "true" }, testPayload);
+  if (type === "telegram")   await fireTelegram({ ...settings, telegramEnabled: "true" },
+    `🧪 <b>FULL SWAP — Test Notification</b>\n\nTelegram alerts are working correctly.\n<b>Time:</b> ${new Date().toUTCString()}`);
 }

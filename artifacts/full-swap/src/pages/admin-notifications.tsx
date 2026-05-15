@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Webhook, Mail, FlaskConical, CheckCircle, Send } from "lucide-react";
+import { Save, Webhook, Mail, FlaskConical, CheckCircle, Send, MessageCircle } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 
@@ -25,7 +25,7 @@ export default function AdminNotificationsPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState<"webhook" | "email" | "user-email" | null>(null);
+  const [testing, setTesting] = useState<"webhook" | "email" | "user-email" | "telegram" | null>(null);
 
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEnabled, setWebhookEnabled] = useState(false);
@@ -39,6 +39,11 @@ export default function AdminNotificationsPage() {
   const [smtpEnabled, setSmtpEnabled] = useState(false);
   const [smtpPassSet, setSmtpPassSet] = useState(false);
   const [userEmailEnabled, setUserEmailEnabled] = useState(false);
+
+  const [telegramToken, setTelegramToken] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const [telegramEnabled, setTelegramEnabled] = useState(false);
+  const [telegramTokenSet, setTelegramTokenSet] = useState(false);
 
   useEffect(() => {
     if (!localStorage.getItem("fullswap_admin_token")) {
@@ -57,6 +62,9 @@ export default function AdminNotificationsPage() {
         setSmtpEnabled(d.smtpEnabled || false);
         setSmtpPassSet(d.smtpPassSet || false);
         setUserEmailEnabled(d.userEmailEnabled || false);
+        setTelegramChatId(d.telegramChatId || "");
+        setTelegramEnabled(d.telegramEnabled || false);
+        setTelegramTokenSet(d.telegramTokenSet || false);
       })
       .catch(() => toast({ title: "Failed to load notification settings", variant: "destructive" }))
       .finally(() => setLoading(false));
@@ -73,10 +81,14 @@ export default function AdminNotificationsPage() {
           ...(smtpPass ? { smtpPass } : {}),
           smtpFrom, smtpTo, smtpEnabled,
           userEmailEnabled,
+          ...(telegramToken ? { telegramToken } : {}),
+          telegramChatId,
+          telegramEnabled,
         }),
       });
       toast({ title: "Notification settings saved" });
       if (smtpPass) { setSmtpPass(""); setSmtpPassSet(true); }
+      if (telegramToken) { setTelegramToken(""); setTelegramTokenSet(true); }
     } catch {
       toast({ title: "Failed to save", variant: "destructive" });
     } finally {
@@ -84,13 +96,13 @@ export default function AdminNotificationsPage() {
     }
   };
 
-  const test = async (type: "webhook" | "email" | "user-email") => {
+  const test = async (type: "webhook" | "email" | "user-email" | "telegram") => {
     setTesting(type);
     try {
       const res = await adminFetch("/api/admin/notifications/test", { method: "POST", body: JSON.stringify({ type }) });
       toast({ title: res.message || `Test ${type} sent` });
     } catch {
-      toast({ title: `Test ${type} failed — check SMTP settings`, variant: "destructive" });
+      toast({ title: `Test ${type} failed — check settings`, variant: "destructive" });
     } finally {
       setTesting(null);
     }
@@ -101,7 +113,7 @@ export default function AdminNotificationsPage() {
       <div className="p-6 lg:p-8 space-y-8" data-testid="admin-notifications-page">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Notifications</h1>
-          <p className="text-muted-foreground mt-1">Configure alerts and automated emails for payment events</p>
+          <p className="text-muted-foreground mt-1">Configure alerts for license activations, session events, and payments</p>
         </div>
 
         {loading ? (
@@ -109,7 +121,85 @@ export default function AdminNotificationsPage() {
         ) : (
           <div className="space-y-6">
 
-            {/* SMTP shared config — always shown at top */}
+            {/* ── Telegram Bot ─────────────────────────────────────────── */}
+            <div className="bg-card border border-blue-500/30 rounded-lg p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold text-foreground flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-blue-400" />
+                    Telegram Bot Alerts
+                    <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-normal">Recommended</span>
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Instant messages when a license key is activated, a session runs out of time, or a stream freezes.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{telegramEnabled ? "On" : "Off"}</span>
+                  <Switch checked={telegramEnabled} onCheckedChange={setTelegramEnabled} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-sm font-medium text-foreground block mb-1.5">
+                    Bot Token
+                    {telegramTokenSet && !telegramToken && (
+                      <span className="text-green-400 text-xs inline-flex items-center gap-1 ml-2">
+                        <CheckCircle className="w-3 h-3" />saved
+                      </span>
+                    )}
+                  </label>
+                  <Input
+                    type="password"
+                    value={telegramToken}
+                    onChange={e => setTelegramToken(e.target.value)}
+                    placeholder={telegramTokenSet ? "••••••••••••••••" : "123456789:ABCdef...  (from @BotFather)"}
+                    className="bg-background border-border font-mono text-xs"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Create a bot via <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-400 underline">@BotFather</a> on Telegram, then paste the token here.
+                  </p>
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="text-sm font-medium text-foreground block mb-1.5">Chat ID</label>
+                  <Input
+                    value={telegramChatId}
+                    onChange={e => setTelegramChatId(e.target.value)}
+                    placeholder="-100123456789  or  123456789"
+                    className="bg-background border-border font-mono text-xs"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your personal chat ID or a group/channel ID. Get it from <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-blue-400 underline">@userinfobot</a>.
+                  </p>
+                </div>
+                <div className="sm:col-span-1 flex items-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2 text-xs border-blue-500/30 text-blue-400 hover:bg-blue-950"
+                    disabled={(!telegramTokenSet && !telegramToken) || !telegramChatId || testing === "telegram"}
+                    onClick={() => test("telegram")}
+                  >
+                    {testing === "telegram"
+                      ? <><FlaskConical className="w-3.5 h-3.5 animate-pulse" />Sending...</>
+                      : <><FlaskConical className="w-3.5 h-3.5" />Send Test Message</>}
+                  </Button>
+                </div>
+              </div>
+
+              {telegramEnabled && (
+                <div className="bg-muted/40 rounded-lg border border-border p-3 text-xs font-mono text-muted-foreground space-y-1">
+                  <p className="font-semibold text-foreground mb-1">You will receive alerts for:</p>
+                  <p>🔑 License key first activated</p>
+                  <p>⏰ Session runs out of streaming time</p>
+                  <p>🧊 Session killed due to deduction freeze</p>
+                  <p>💀 Session orphaned (client disconnected)</p>
+                </div>
+              )}
+            </div>
+
+            {/* SMTP shared config */}
             <div className="bg-card border border-border rounded-lg p-6 space-y-5">
               <div>
                 <h2 className="font-semibold text-foreground flex items-center gap-2">
@@ -117,7 +207,7 @@ export default function AdminNotificationsPage() {
                   SMTP Configuration
                 </h2>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Shared credentials used by both admin notifications and user confirmation emails. Works with Gmail, Mailgun, SendGrid, Postmark, etc.
+                  Shared credentials used by admin notifications and user confirmation emails.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -152,7 +242,7 @@ export default function AdminNotificationsPage() {
 
             <div className="grid lg:grid-cols-3 gap-6 items-start">
 
-              {/* Admin email notification */}
+              {/* Admin email */}
               <div className="bg-card border border-border rounded-lg p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -169,9 +259,7 @@ export default function AdminNotificationsPage() {
                 </p>
                 <Button
                   data-testid="button-test-email"
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-2 text-xs"
+                  variant="outline" size="sm" className="w-full gap-2 text-xs"
                   disabled={!smtpHost || !smtpTo || testing === "email"}
                   onClick={() => test("email")}
                 >
@@ -196,8 +284,7 @@ export default function AdminNotificationsPage() {
                 </p>
                 <Button
                   data-testid="button-test-user-email"
-                  variant="outline"
-                  size="sm"
+                  variant="outline" size="sm"
                   className="w-full gap-2 text-xs border-teal-500/30 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950"
                   disabled={!smtpHost || testing === "user-email"}
                   onClick={() => test("user-email")}
@@ -233,9 +320,7 @@ export default function AdminNotificationsPage() {
                 </div>
                 <Button
                   data-testid="button-test-webhook"
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-2 text-xs"
+                  variant="outline" size="sm" className="w-full gap-2 text-xs"
                   disabled={!webhookUrl || testing === "webhook"}
                   onClick={() => test("webhook")}
                 >
@@ -245,7 +330,6 @@ export default function AdminNotificationsPage() {
 
             </div>
 
-            {/* Webhook payload preview */}
             {webhookEnabled && (
               <div className="bg-muted/40 rounded-lg border border-border p-4">
                 <p className="text-xs font-semibold text-muted-foreground mb-2">Webhook payload preview</p>

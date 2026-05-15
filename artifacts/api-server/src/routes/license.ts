@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, licenseKeysTable, decartApiKeysTable, sessionsTable, pricingTable, financialTransactionsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { requireAdmin, requireLicense } from "../lib/auth";
+import { notifyLicenseActivated } from "../lib/notifications";
 
 const router = Router();
 
@@ -28,10 +29,16 @@ router.post("/validate", async (req, res) => {
       return res.json({ valid: false, error: "This license key is already activated on another device" });
     }
     if (deviceId && deviceId !== "web-browser" && !license.deviceId) {
-      await db.update(licenseKeysTable).set({ deviceId, activatedAt: new Date() }).where(eq(licenseKeysTable.key, normalizedKey));
+      const now = new Date();
+      await db.update(licenseKeysTable).set({ deviceId, activatedAt: now }).where(eq(licenseKeysTable.key, normalizedKey));
+      // Fire Telegram alert: first-time device activation
+      notifyLicenseActivated({ key: normalizedKey, minutesAllocated: license.minutesAllocated ?? 0, activatedAt: now, deviceId }).catch(() => {});
     }
     if ((!deviceId || deviceId === "web-browser") && !license.activatedAt) {
-      await db.update(licenseKeysTable).set({ activatedAt: new Date() }).where(eq(licenseKeysTable.key, normalizedKey));
+      const now = new Date();
+      await db.update(licenseKeysTable).set({ activatedAt: now }).where(eq(licenseKeysTable.key, normalizedKey));
+      // Fire Telegram alert: first-time web activation
+      notifyLicenseActivated({ key: normalizedKey, minutesAllocated: license.minutesAllocated ?? 0, activatedAt: now, deviceId: deviceId || null }).catch(() => {});
     }
     await db.update(licenseKeysTable).set({ lastUsedAt: new Date() }).where(eq(licenseKeysTable.key, normalizedKey));
     const allocatedSeconds = (license.minutesAllocated ?? 0) * 60;
