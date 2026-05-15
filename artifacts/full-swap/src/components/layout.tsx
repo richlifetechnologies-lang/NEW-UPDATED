@@ -1,13 +1,12 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Play, Menu, X } from "lucide-react";
+import { Play, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { clearLicenseKey } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { ChatWidget } from "@/components/chat-widget";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/stream",    label: "Stream",    icon: Play },
+  { href: "/stream", label: "Stream", icon: Play },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {

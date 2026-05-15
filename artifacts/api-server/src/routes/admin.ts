@@ -3,11 +3,29 @@ import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTab
 import { eq, desc, sql, and, gte, isNotNull, lte } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth";
 import { hashPassword, generateToken } from "../lib/auth";
-import { LoginBody, AdminUpdateUserBody, AdminUpdateWalletBody, RegisterBody } from "@workspace/api-zod";
+import { AdminUpdateUserBody, AdminUpdateWalletBody } from "@workspace/api-zod";
 import { createDecartClient } from "@decartai/sdk";
 
 import { getAllRates } from "../lib/rates";
 import { getAllKeysCreditStatus, recordTopup, getKeyUsageHistory } from "../lib/credit-tracker";
+
+function parseLoginBody(body: unknown): { email: string; password: string } | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.email !== "string" || !b.email.includes("@")) return null;
+  if (typeof b.password !== "string" || b.password.length < 1) return null;
+  return { email: b.email, password: b.password };
+}
+function parseRegisterBody(body: unknown): { email: string; username: string; password: string } | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.email !== "string" || !b.email.includes("@")) return null;
+  if (typeof b.username !== "string" || b.username.length < 3 || b.username.length > 20) return null;
+  if (typeof b.password !== "string" || b.password.length < 8) return null;
+  return { email: b.email, username: b.username, password: b.password };
+}
+const LoginBody = { safeParse: (body: unknown) => { const data = parseLoginBody(body); return data ? { success: true as const, data } : { success: false as const }; } };
+const RegisterBody = { safeParse: (body: unknown) => { const data = parseRegisterBody(body); return data ? { success: true as const, data } : { success: false as const }; } };
 
 const router = Router();
 
@@ -348,6 +366,23 @@ router.delete("/pricing/:id", requireAdmin, async (req, res) => {
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   await db.delete(pricingTable).where(eq(pricingTable.id, id));
   res.json({ success: true });
+});
+
+router.get("/wallet", requireAdmin, async (req, res) => {
+  const allSettings = await db.select().from(settingsTable);
+  const getSetting = (key: string) => allSettings.find(s => s.key === key)?.value ?? "";
+  const wallets: Array<{ address: string; network: string }> = [];
+  for (let i = 1; i <= 3; i++) {
+    const address = getSetting(`wallet_${i}_address`);
+    if (address) wallets.push({ address, network: getSetting(`wallet_${i}_network`) || "TRC-20 (Tron)" });
+  }
+  // Fallback to legacy key if no numbered wallets exist
+  if (wallets.length === 0) {
+    const addr = getSetting("usdt_wallet");
+    if (addr) wallets.push({ address: addr, network: getSetting("usdt_network") || "TRC-20 (Tron)" });
+  }
+  const first = wallets[0] ?? { address: "", network: "TRC-20 (Tron)" };
+  res.json({ address: first.address, network: first.network, wallets });
 });
 
 router.put("/wallet", requireAdmin, async (req, res) => {

@@ -2,7 +2,6 @@ import nodemailer from "nodemailer";
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
-import { emitToUser } from "./sse";
 
 export interface PaymentNotificationPayload {
   invoiceId: string;
@@ -286,18 +285,10 @@ async function sendUserConfirmationEmail(settings: Awaited<ReturnType<typeof get
 
 export async function notifyPaymentConfirmed(payload: PaymentNotificationPayload) {
   try {
-    await emitToUser(payload.userId, "payment_confirmed", {
-      invoiceId: payload.invoiceId,
-      minutes: payload.minutes,
-      amountUsdt: payload.amountUsdt,
-      txHash: payload.txHash,
-    });
-
     const settings = await getNotificationSettings();
     await Promise.all([
       fireWebhook(settings, payload),
       sendAdminEmail(settings, payload),
-      sendUserConfirmationEmail(settings, payload),
     ]);
   } catch (err) {
     logger.warn({ err }, "Notification dispatch error");

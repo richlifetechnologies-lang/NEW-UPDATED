@@ -298,15 +298,6 @@ export interface UpdateWalletBody {
   wallets?: UpdateWalletBodyWalletsItem[];
 }
 
-export type VerifyEmailBody = {
-  email: string;
-  pin: string;
-};
-
-export type ResendVerificationBody = {
-  email: string;
-};
-
 export type AdminResetUserPasswordBody = {
   /** @minLength 8 */
   newPassword: string;

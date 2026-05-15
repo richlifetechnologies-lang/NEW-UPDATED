@@ -4,9 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
-import DashboardPage from "@/pages/dashboard";
 import StreamPage from "@/pages/stream";
-import BillingPage from "@/pages/billing";
 import AdminLoginPage from "@/pages/admin-login";
 import AdminDashboardPage from "@/pages/admin-dashboard";
 import AdminUsersPage from "@/pages/admin-users";
@@ -25,7 +23,6 @@ import AdminAnalyticsPage from "@/pages/admin-analytics";
 import SubAdminDashboardPage from "@/pages/subadmin-dashboard";
 import SubAdminLoginPage from "@/pages/subadmin-login";
 import SubAdminStreamPage from "@/pages/subadmin-stream";
-import SoftwarePricingPage from "@/pages/pricing";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,10 +41,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={isDesktopApp ? StreamPage : LoginPage} />
-      <Route path="/dashboard" component={DashboardPage} />
       <Route path="/stream" component={StreamPage} />
-      <Route path="/billing" component={BillingPage} />
-      <Route path="/pricing" component={SoftwarePricingPage} />
       <Route path="/admin" component={AdminLoginPage} />
       <Route path="/admin/dashboard" component={AdminDashboardPage} />
       <Route path="/admin/users" component={AdminUsersPage} />

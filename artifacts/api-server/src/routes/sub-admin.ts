@@ -283,24 +283,11 @@ router.post("/topup", requireSubAdmin, async (req, res) => {
   const amountUsd = minutes * pricePerMinuteUsd;
   const amountUsdt = await usdToUsdt(amountUsd);
   const invoiceId = randomUUID();
-  const { createPaymentAddress } = await import("../lib/bcon");
-  const bconResult = await createPaymentAddress({
-    originAmount: amountUsd, originCurrency: "USD",
-    externalId: invoiceId, paymentCurrency: "USDT", chain: "tron",
-  });
-  let walletAddress: string;
-  let walletNetwork = "TRC-20 (Tron)";
-  let exactAmountUsdt = amountUsdt;
-  if (bconResult.success) {
-    walletAddress = bconResult.address;
-    const p = parseFloat(bconResult.paymentAmount);
-    if (!isNaN(p) && p > 0) exactAmountUsdt = p;
-  } else {
-    const allSettings = await db.select().from(settingsTable);
-    const getSetting = (key: string) => allSettings.find(s => s.key === key)?.value ?? null;
-    walletAddress = getSetting("usdt_wallet") || process.env.USDT_WALLET || "";
-    walletNetwork = getSetting("usdt_network") || "TRC-20 (Tron)";
-  }
+  const allSettings = await db.select().from(settingsTable);
+  const getSetting = (key: string) => allSettings.find(s => s.key === key)?.value ?? null;
+  const walletAddress: string = getSetting("usdt_wallet") || process.env.USDT_WALLET || "";
+  const walletNetwork = getSetting("usdt_network") || "TRC-20 (Tron)";
+  const exactAmountUsdt = amountUsdt;
   const [invoice] = await db.insert(invoicesTable).values({
     id: invoiceId, userId: subAdmin.id, minutes,
     amountUsd: amountUsd.toFixed(2), amountUsdt: exactAmountUsdt.toFixed(6),

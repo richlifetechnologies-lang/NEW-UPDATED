@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useGetPaymentWallet, getGetPaymentWalletQueryKey, useAdminUpdateWallet } from "@workspace/api-client-react";
+import { useAdminUpdateWallet } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getAdminToken } from "@/lib/auth";
 import { AdminLayout } from "@/components/admin-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { Save, Wallet, Plus, Trash2, RefreshCw, CheckCircle, Info } from "lucide-react";
 
 const NETWORK_OPTIONS = [
@@ -49,8 +50,17 @@ export default function AdminWalletPage() {
     }
   }, [setLocation]);
 
-  const walletQuery = useGetPaymentWallet({
-    query: { queryKey: getGetPaymentWalletQueryKey(), staleTime: 0 },
+  const walletQuery = useQuery({
+    queryKey: ["admin-wallet"],
+    queryFn: async () => {
+      const token = getAdminToken();
+      const res = await fetch("/api/admin/wallet", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return null;
+      return res.json() as Promise<{ address: string; network: string; wallets: Array<{ address: string; network: string }> }>;
+    },
+    staleTime: 0,
   });
 
   useEffect(() => {
@@ -68,7 +78,7 @@ export default function AdminWalletPage() {
     mutation: {
       onSuccess: () => {
         toast({ title: "Wallets saved", description: "Your payment wallets are now live." });
-        queryClient.invalidateQueries({ queryKey: getGetPaymentWalletQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["admin-wallet"] });
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       },
