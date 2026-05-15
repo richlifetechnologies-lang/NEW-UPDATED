@@ -615,38 +615,58 @@ export default function StreamPage() {
     };
   }, []);
 
-  // Heartbeat — ping the server every 15s while streaming.
+  // Heartbeat — ping the server every 10s while streaming.
   // The server re-checks the user's live balance on each ping.
-  // If it returns { ok: false, reason: 'no_time' }, the stream is killed
-  // immediately client-side — closing the over-streaming loophole.
+  // FREEZE DETECTION: 3 consecutive failures (30s) = stream is frozen →
+  // auto-kill the session immediately to stop wasting Decart credits.
   useEffect(() => {
     if (!isStreaming || !activeSession) return;
-    const licKey = localStorage.getItem("fullswap_license_key") ?? "";
+    let consecutiveFailures = 0;
+    const MAX_FAILURES = 3; // 3 × 10s = 30s of silence → treat as frozen
+
     const id = setInterval(async () => {
       try {
         const res = await fetch(`/api/sessions/${activeSession}/heartbeat`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-License-Key": (localStorage.getItem("fullswap_license_key") ?? "") },
+          signal: AbortSignal.timeout(8_000), // 8s timeout per heartbeat
         });
+
         if (res.ok) {
+          consecutiveFailures = 0; // reset on success
           const data: { ok: boolean; reason?: string } = await res.json();
           if (data.ok === false && data.reason === "no_time") {
-            // Balance exhausted server-side — stop the stream immediately
             toast({
               title: "Streaming time exhausted",
               description: "You have run out of streaming minutes. Please purchase more time to continue.",
               variant: "destructive",
             });
-            // Bug #5: trigger splash screen when minutes reach zero
             setLicenseExhausted(true);
             const sid = activeSessionRef.current;
             if (sid) stopStreamInternally(sid, elapsedSecsRef.current, true);
           }
+        } else {
+          consecutiveFailures++;
         }
       } catch {
-        // Network error on heartbeat — keep streaming; next tick will retry
+        // Network error or timeout counts as a failure
+        consecutiveFailures++;
+        console.warn(`[Stream] heartbeat_fail consecutiveFailures=${consecutiveFailures}/${MAX_FAILURES}`);
       }
-    }, 10_000); // 10s — must be < server HEARTBEAT_GRACE_MS (45s) so a brief network hiccup doesn't trigger orphan-sweep
+
+      // ── Freeze detected — kill stream to save Decart credits ─────────────
+      if (consecutiveFailures >= MAX_FAILURES) {
+        const sid = activeSessionRef.current;
+        console.warn(`[Stream] freeze_detected sessionId=${sid} — killing stream after ${consecutiveFailures} failed heartbeats`);
+        toast({
+          title: "Stream connection lost",
+          description: "The streaming connection froze. Your session has been stopped to protect your credits.",
+          variant: "destructive",
+        });
+        if (sid) stopStreamInternally(sid, elapsedSecsRef.current, false);
+      }
+    }, 10_000); // 10s — well under the server's 20s HEARTBEAT_GRACE_MS
+
     return () => clearInterval(id);
   // elapsedSecs removed from deps — read via elapsedSecsRef.current instead.
   // eslint-disable-next-line react-hooks/exhaustive-deps

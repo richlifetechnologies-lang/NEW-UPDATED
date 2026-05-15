@@ -10,9 +10,10 @@ const router = Router();
 // ───────────────────────────────────────────────────────────────────
 //  Tunables (loophole-fix constants)
 // ───────────────────────────────────────────────────────────────────
-const HEARTBEAT_GRACE_MS = 45_000;   // server marks session orphaned if no heartbeat for >45s
-const SWEEP_INTERVAL_MS  = 30_000;   // sweeper cadence
-const SINGLE_SESSION_GRACE_MS = 5_000; // FIX #3: tighten to 5s to prevent rapid re-clicks from creating multiple sessions
+const HEARTBEAT_GRACE_MS      = 20_000;  // kill orphaned session after 20s of no heartbeat (saves Decart credits)
+const SWEEP_INTERVAL_MS       = 10_000;  // sweeper runs every 10s for fast credit protection
+const SINGLE_SESSION_GRACE_MS = 5_000;   // prevent rapid re-clicks from creating multiple sessions
+const DEDUCTION_FREEZE_MS     = 25_000;  // kill session if billing started but zero deductions landed within 25s
 
 // ── BILLING-FIX: Decart credit-based billing constants ─────────────────────
 const DECART_CREDITS_PER_SEC  = 2;   // Decart billing rate: 2 credits/sec (Lucy 2.1)
@@ -90,17 +91,45 @@ function startOrphanSweeper() {
   sweeperStarted = true;
   setInterval(async () => {
     try {
-      const cutoff = new Date(Date.now() - HEARTBEAT_GRACE_MS);
-      const stale = await db.select().from(sessionsTable)
-        .where(and(eq(sessionsTable.status, "active"), sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${cutoff}`));
-      for (const s of stale) {
+      const now = Date.now();
+
+      // ── Pass 1: Orphaned sessions (no heartbeat for HEARTBEAT_GRACE_MS) ────
+      // Client died or disconnected without calling /stop.
+      const heartbeatCutoff = new Date(now - HEARTBEAT_GRACE_MS);
+      const orphans = await db.select().from(sessionsTable)
+        .where(and(
+          eq(sessionsTable.status, "active"),
+          sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${heartbeatCutoff}`
+        ));
+      for (const s of orphans) {
         const endAt = s.lastHeartbeatAt ?? s.billingStartedAt ?? s.startedAt;
-        console.log(`[SESSION] orphan_sweep sessionId=${s.id} endAt=${endAt.toISOString()}`);
+        console.log(`[SESSION] orphan_kill sessionId=${s.id} reason=no_heartbeat endAt=${endAt.toISOString()}`);
         await settleSession(s.id, { endAt });
-        console.log(`[SESSION] orphan_sweep_complete sessionId=${s.id}`);
+      }
+
+      // ── Pass 2: Deduction-freeze kill ───────────────────────────────────────
+      // Billing started (billingStartedAt IS NOT NULL) but lastDeductedAt has
+      // not advanced beyond billingStartedAt for DEDUCTION_FREEZE_MS.
+      // This means the heartbeat loop froze or the debit path broke while
+      // Decart kept running — burning credits with nothing tracked.
+      const freezeCutoff = new Date(now - DEDUCTION_FREEZE_MS);
+      const frozen = await db.select().from(sessionsTable)
+        .where(and(
+          eq(sessionsTable.status, "active"),
+          sql`${sessionsTable.billingStartedAt} IS NOT NULL`,
+          // Either lastDeductedAt is still equal to billingStartedAt (no deduction ever landed)
+          // OR it has not moved for DEDUCTION_FREEZE_MS
+          sql`coalesce(${sessionsTable.lastDeductedAt}, ${sessionsTable.billingStartedAt}) <= ${freezeCutoff}`
+        ));
+      for (const s of frozen) {
+        // Skip any that were already handled by Pass 1
+        if (orphans.some((o) => o.id === s.id)) continue;
+        const endAt = s.lastDeductedAt ?? s.billingStartedAt ?? s.startedAt;
+        console.log(`[SESSION] freeze_kill sessionId=${s.id} reason=deduction_frozen billingStartedAt=${s.billingStartedAt?.toISOString()} lastDeductedAt=${s.lastDeductedAt?.toISOString()}`);
+        await settleSession(s.id, { endAt });
       }
     } catch (err) {
-      console.error("[sessions] orphan sweep failed:", err);
+      console.error("[sessions] sweeper failed:", err);
     }
   }, SWEEP_INTERVAL_MS).unref?.();
 }
