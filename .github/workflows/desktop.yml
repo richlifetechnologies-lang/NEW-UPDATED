@@ -8,6 +8,10 @@ on:
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
 jobs:
   check-version:
     name: Check if new version needs a release
@@ -104,15 +108,28 @@ jobs:
         with:
           path: dist-all
           merge-multiple: true
-      - name: Create release and upload files
+
+      - name: Show downloaded files
+        run: find dist-all -type f | sort
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          FILES=$(find dist-all -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.yml" \))
           gh release create "v${VERSION}" \
             --repo richlifetechnologies-lang/NEW-UPDATED \
             --title "Full Swap By Rich v${VERSION}" \
             --notes "Desktop app update — auto-released from version bump." \
-            --latest \
-            $FILES
+            --latest
+
+      - name: Upload installers to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          find dist-all -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.yml" \) | while read -r file; do
+            echo "Uploading: $file"
+            gh release upload "v${VERSION}" "$file" --clobber \
+              --repo richlifetechnologies-lang/NEW-UPDATED
+          done
