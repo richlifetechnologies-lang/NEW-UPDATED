@@ -115,6 +115,67 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
 }
 
 // ───────────────────────────────────────────────────────────────────
+//  Helpers shared by sweeper and startup cleanup
+// ───────────────────────────────────────────────────────────────────
+
+/** Ensure a session has decart_key_id set before we settle it.
+ *  Mirrors the 3-tier fallback in POST /sessions so credit tracking
+ *  is never blind even for sessions created before the fix landed. */
+async function ensureDecartKeyLinked(s: { id: string; decartKeyId: number | null; licenseKeyId: number | null }) {
+  if (s.decartKeyId) return; // already set — nothing to do
+  let keyId: number | null = null;
+
+  // Tier 1: explicit assignment on the license key
+  if (s.licenseKeyId) {
+    const [lic] = await db.select({ assignedDecartKeyId: licenseKeysTable.assignedDecartKeyId })
+      .from(licenseKeysTable).where(eq(licenseKeysTable.id, s.licenseKeyId)).limit(1);
+    keyId = lic?.assignedDecartKeyId ?? null;
+  }
+
+  // Tier 2: any active key in the DB (last resort)
+  if (!keyId) {
+    const [fallback] = await db.select({ id: decartApiKeysTable.id })
+      .from(decartApiKeysTable).where(eq(decartApiKeysTable.isActive, true)).limit(1);
+    keyId = fallback?.id ?? null;
+  }
+
+  if (keyId) {
+    await db.update(sessionsTable).set({ decartKeyId: keyId }).where(eq(sessionsTable.id, s.id));
+    logger.info({ sessionId: s.id, decartKeyId: keyId }, "[Session] backfilled decart_key_id before settle");
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+//  Startup cleanup — settle sessions left open from before this
+//  process started (server crash / restart). Runs once, immediately.
+// ───────────────────────────────────────────────────────────────────
+async function settleStartupOrphans() {
+  try {
+    // Any session that is still "active" but started more than
+    // HEARTBEAT_GRACE_MS ago could not have had a heartbeat from this
+    // process — settle it immediately rather than waiting for the sweeper.
+    const cutoff = new Date(Date.now() - HEARTBEAT_GRACE_MS);
+    const stale = await db.select().from(sessionsTable)
+      .where(and(eq(sessionsTable.status, "active"), sql`${sessionsTable.startedAt} < ${cutoff}`));
+
+    for (const s of stale) {
+      await ensureDecartKeyLinked(s);
+      const endAt = new Date();
+      const billingStart = s.billingStartedAt ?? s.startedAt;
+      const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
+      logger.info({ sessionId: s.id, durationSecs }, "[Session] startup_orphan_kill");
+      await settleSession(s.id, { endAt });
+      notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
+    }
+    if (stale.length > 0) {
+      logger.info({ count: stale.length }, "[Session] startup_orphan_cleanup_done");
+    }
+  } catch (err) {
+    logger.error({ err }, "[Session] startup_orphan_cleanup failed");
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
 //  Orphan sweeper — closes sessions whose client died without /stop
 //  Runs once per process. Safe to no-op when no rows match.
 // ───────────────────────────────────────────────────────────────────
@@ -122,6 +183,10 @@ let sweeperStarted = false;
 function startOrphanSweeper() {
   if (sweeperStarted) return;
   sweeperStarted = true;
+
+  // Immediately settle any sessions left from a previous server run
+  settleStartupOrphans();
+
   setInterval(async () => {
     try {
       const now = Date.now();
@@ -135,13 +200,11 @@ function startOrphanSweeper() {
           sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${heartbeatCutoff}`
         ));
       for (const s of orphans) {
-        // Use NOW (not lastHeartbeatAt) so sessions with missing heartbeats are
-        // still billed for the time they actually ran. lastHeartbeatAt equals
-        // billingStartedAt when no heartbeat ever fired, giving 0 duration.
+        await ensureDecartKeyLinked(s);
         const endAt = new Date(now);
         const billingStart = s.billingStartedAt ?? s.startedAt;
         const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
-        console.log(`[SESSION] orphan_kill sessionId=${s.id} reason=no_heartbeat endAt=${endAt.toISOString()} durationSecs=${durationSecs}`);
+        logger.info({ sessionId: s.id, durationSecs }, "[Session] orphan_kill no_heartbeat");
         await settleSession(s.id, { endAt });
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
       }
@@ -156,15 +219,16 @@ function startOrphanSweeper() {
         ));
       for (const s of frozen) {
         if (orphans.some((o) => o.id === s.id)) continue;
+        await ensureDecartKeyLinked(s);
         const endAt = new Date(now);
         const billingStart = s.billingStartedAt ?? s.startedAt;
         const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
-        console.log(`[SESSION] freeze_kill sessionId=${s.id} reason=deduction_frozen billingStartedAt=${s.billingStartedAt?.toISOString()} lastDeductedAt=${s.lastDeductedAt?.toISOString()} durationSecs=${durationSecs}`);
+        logger.info({ sessionId: s.id, durationSecs }, "[Session] freeze_kill deduction_frozen");
         await settleSession(s.id, { endAt });
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "freeze", killedAt: endAt }).catch(() => {});
       }
     } catch (err) {
-      console.error("[sessions] sweeper failed:", err);
+      logger.error({ err }, "[sessions] sweeper failed");
     }
   }, SWEEP_INTERVAL_MS).unref?.();
 }
