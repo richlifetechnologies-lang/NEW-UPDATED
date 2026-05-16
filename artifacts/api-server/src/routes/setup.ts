@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { exec } from "child_process";
 import crypto from "crypto";
-import pg from "pg";
+import { pool } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -37,9 +37,6 @@ router.post("/setup", async (req, res) => {
 
   // Step 2: seed admin user
   try {
-    const { Pool } = pg;
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-
     const hash = crypto
       .createHmac("sha256", SESSION_SECRET)
       .update(ADMIN_PASSWORD)
@@ -68,8 +65,6 @@ router.post("/setup", async (req, res) => {
       );
       log.push(`[seed] Admin user created: ${ADMIN_EMAIL}`);
     }
-
-    await pool.end();
   } catch (err: unknown) {
     log.push(`[seed] ERROR: ${err instanceof Error ? err.message : String(err)}`);
   }
