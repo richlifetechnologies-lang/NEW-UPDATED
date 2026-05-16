@@ -12,7 +12,7 @@ const path = require("path");
 //   Option A (no rebuild): change APP_SERVER_URL in GitHub repo variables, re-run
 //                          the "Build Desktop App" workflow
 //   Option B (permanent):  update the fallback string below and push to GitHub
-const SERVER_URL = process.env.APP_SERVER_URL || "https://workspaceapi-server-production-8f86.up.railway.app";
+const SERVER_URL = process.env.APP_SERVER_URL || "https://fullswapbyrich.xyz";
 
 let mainWindow = null;
 let splashWindow = null;
