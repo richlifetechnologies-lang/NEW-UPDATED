@@ -10,6 +10,7 @@ import { logger } from "../lib/logger";
 // ── All billing/timing constants imported from single source of truth ──────
 import {
   HEARTBEAT_GRACE_MS,
+  ORPHAN_GRACE_MS,
   SWEEP_INTERVAL_MS,
   SINGLE_SESSION_GRACE_MS,
   DEDUCTION_FREEZE_MS,
@@ -151,12 +152,18 @@ async function ensureDecartKeyLinked(s: { id: string; decartKeyId: number | null
 // ───────────────────────────────────────────────────────────────────
 async function settleStartupOrphans() {
   try {
-    // Any session that is still "active" but started more than
-    // HEARTBEAT_GRACE_MS ago could not have had a heartbeat from this
+    // Any session that is still "active" but had no heartbeat in the last
+    // ORPHAN_GRACE_MS (2 min) could not have had a heartbeat from this
     // process — settle it immediately rather than waiting for the sweeper.
-    const cutoff = new Date(Date.now() - HEARTBEAT_GRACE_MS);
+    const cutoff = new Date(Date.now() - ORPHAN_GRACE_MS);
+    // Mirror the periodic sweeper: use the heartbeat timestamp (or startedAt if
+    // no heartbeat was ever received) so sessions with a recent heartbeat before
+    // the restart are NOT prematurely settled.
     const stale = await db.select().from(sessionsTable)
-      .where(and(eq(sessionsTable.status, "active"), sql`${sessionsTable.startedAt} < ${cutoff}`));
+      .where(and(
+        eq(sessionsTable.status, "active"),
+        sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${cutoff}`
+      ));
 
     for (const s of stale) {
       await ensureDecartKeyLinked(s);
@@ -191,13 +198,13 @@ function startOrphanSweeper() {
     try {
       const now = Date.now();
 
-      // ── Pass 1: Orphaned sessions (no heartbeat for HEARTBEAT_GRACE_MS) ────
+      // ── Pass 1: Orphaned sessions (no heartbeat for ORPHAN_GRACE_MS = 2 min) ──
       // Client died or disconnected without calling /stop.
-      const heartbeatCutoff = new Date(now - HEARTBEAT_GRACE_MS);
+      const orphanCutoff = new Date(now - ORPHAN_GRACE_MS);
       const orphans = await db.select().from(sessionsTable)
         .where(and(
           eq(sessionsTable.status, "active"),
-          sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${heartbeatCutoff}`
+          sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${orphanCutoff}`
         ));
       for (const s of orphans) {
         await ensureDecartKeyLinked(s);
@@ -274,7 +281,7 @@ router.post("/", requireLicense, async (req, res) => {
       return;
     }
     // Otherwise it's effectively orphaned --- settle it before continuing.
-    console.log(`[SESSION] settling_orphaned_before_new sessionId=${other.id}`);
+    logger.info({ sessionId: other.id }, "[Session] settling_orphaned_before_new");
     await settleSession(other.id, { endAt: lastBeat });
   }
 
@@ -294,8 +301,15 @@ router.post("/", requireLicense, async (req, res) => {
       .limit(1);
     resolvedDecartKeyId = fallbackKey?.id ?? null;
   }
+  // Guard: refuse to create a session without a Decart key — credit tracking
+  // cannot attribute usage to any key, which would cause billing drift.
+  if (!resolvedDecartKeyId) {
+    res.status(503).json({ error: "No active Decart API key available. Please contact the administrator." });
+    return;
+  }
+
   // Auto-assign the resolved key back to the license so future sessions always have it
-  if (resolvedDecartKeyId && !license.assignedDecartKeyId) {
+  if (!license.assignedDecartKeyId) {
     await db.update(licenseKeysTable)
       .set({ assignedDecartKeyId: resolvedDecartKeyId })
       .where(eq(licenseKeysTable.id, license.id));
@@ -317,7 +331,7 @@ router.post("/", requireLicense, async (req, res) => {
     usedSeconds: (license.usedSeconds ?? 0) + MINIMUM_RESERVATION_SEC,
   }).where(eq(licenseKeysTable.id, license.id));
 
-  console.log(`[SESSION] session_start sessionId=${sessionId} licenseId=${license.id} reserved=${MINIMUM_RESERVATION_SEC}s remaining=${Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC)}s`);
+  logger.info({ sessionId, licenseId: license.id, reservedSec: MINIMUM_RESERVATION_SEC, remainingSec: Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC) }, "[Session] session_start");
 
   res.status(201).json(formatSession(session));
 });
@@ -401,7 +415,7 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
       ?? getDecartKeyIdFromCache(licenseKey)
       ?? null;
     if (decartKeyIdToSet) {
-      console.log(`[SESSION] heartbeat_linked_decart_key sessionId=${sessionId} decartKeyId=${decartKeyIdToSet}`);
+      logger.info({ sessionId, decartKeyId: decartKeyIdToSet }, "[Session] heartbeat_linked_decart_key");
     }
   }
 
@@ -452,7 +466,7 @@ router.post("/:sessionId/stop", requireLicense, async (req, res) => {
     return;
   }
 
-  console.log(`[SESSION] stop_session sessionId=${sessionId} creditsConsumed=${creditsConsumed ?? 'none'} trigger=client_stop`);
+  logger.info({ sessionId, creditsConsumed: creditsConsumed ?? null, trigger: "client_stop" }, "[Session] stop_session");
   await settleSession(sessionId, { creditsConsumed });
   const [updated] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   res.json(formatSession(updated));

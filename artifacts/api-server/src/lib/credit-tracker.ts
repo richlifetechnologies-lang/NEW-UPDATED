@@ -9,6 +9,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
   DECART_CREDITS_PER_SEC,
+  ORPHAN_GRACE_MS,
   calculateCreditsUsedSinceTopup,
   calculateCreditsRemaining,
 } from "./billing-math";
@@ -71,8 +72,10 @@ export async function getKeyCreditStatus(
 
   const completedSeconds = Number(completedResult[0]?.totalSeconds ?? 0);
 
-  // Sum live session durations (status = 'active').
-  // Use started_at (when Decart connect() was called) for accurate credit computation.
+  // Sum live session durations (status = 'active') — but only for sessions that are
+  // genuinely still alive (heartbeat received within ORPHAN_GRACE_MS = 2 min).
+  // Sessions that missed this window are "orphaned" and will be swept shortly;
+  // excluding them prevents stale rows from inflating the admin credit display.
   const liveResult = await db
     .select({
       count: sql<number>`COUNT(*)`,
@@ -82,7 +85,8 @@ export async function getKeyCreditStatus(
     .where(
       and(
         eq(sessionsTable.decartKeyId, keyId),
-        eq(sessionsTable.status, "active")
+        eq(sessionsTable.status, "active"),
+        sql`COALESCE(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) > NOW() - make_interval(secs => ${ORPHAN_GRACE_MS / 1000})`
       )
     );
 

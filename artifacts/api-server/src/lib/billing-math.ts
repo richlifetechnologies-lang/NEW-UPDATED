@@ -8,7 +8,8 @@
  *   DECART_CREDITS_PER_SEC  = 2   (Lucy 2.1 charges 2 credits/second)
  *   DECART_CREDITS_PER_MIN  = 120 (2 × 60)
  *   MINIMUM_RESERVATION_SEC = 1   (reserved at session creation)
- *   HEARTBEAT_GRACE_MS      = 35_000
+ *   HEARTBEAT_GRACE_MS      = 35_000  — max gap before a heartbeat is "late"
+ *   ORPHAN_GRACE_MS         = 120_000 — no heartbeat for 2 min → orphan kill
  *   DEDUCTION_FREEZE_MS     = 45_000
  *
  * DO NOT change these values without updating Decart's actual billing contract.
@@ -18,6 +19,7 @@ export const DECART_CREDITS_PER_SEC  = 2;
 export const DECART_CREDITS_PER_MIN  = DECART_CREDITS_PER_SEC * 60; // 120
 export const MINIMUM_RESERVATION_SEC = 1;
 export const HEARTBEAT_GRACE_MS      = 35_000;
+export const ORPHAN_GRACE_MS         = 120_000; // 2 minutes — orphan kill threshold
 export const SWEEP_INTERVAL_MS       = 10_000;
 export const SINGLE_SESSION_GRACE_MS = 5_000;
 export const DEDUCTION_FREEZE_MS     = 45_000;
