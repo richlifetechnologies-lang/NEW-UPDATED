@@ -624,7 +624,6 @@ export default function StreamPage() {
         model,
         initialState: {
           prompt: { text: prompt, enhance: false },
-          ...(referenceImage ? { image: referenceImage } : {}),
         },
         onRemoteStream: (editedStream) => {
           // Update video element on every frame (lightweight, no React state)
@@ -721,6 +720,20 @@ export default function StreamPage() {
       decartClientRef.current = realtimeClient;
       console.info("[Decart] SDK client connected successfully. Waiting for first remote frame...");
 
+      // Apply reference image after connect — setImage() is the correct post-connect API.
+      // We intentionally do NOT pass image in initialState: passing a File there causes
+      // the SDK's imageToBase64() to run before WebRTC is established, and any failure
+      // (size, format, server rejection) kills the entire connection.  Calling setImage()
+      // here is non-fatal: if it fails the stream still works, just without the reference.
+      if (referenceImage) {
+        try {
+          await realtimeClient.setImage(referenceImage, { prompt });
+          console.info("[Decart] Reference image applied after connect");
+        } catch (imgErr) {
+          console.warn("[Decart] setImage after connect failed (non-fatal):", imgErr);
+        }
+      }
+
       // Count every generationTick — Decart charges 2 credits per tick (1 tick = 1 billed second).
       // This gives us the exact credit count to pass to /stop for perfect billing reconciliation.
       tickCountRef.current = 0;
@@ -742,7 +755,7 @@ export default function StreamPage() {
 
       toast({ title: "Session started", description: "Stream is live — Real Time transformation active" });
     } catch (err: unknown) {
-      setConnectionStatus("error");
+      setConnectionStatus("idle");
       setIsStreaming(false);
       setActiveSession(null);
       setIsStreamStarting(false);
