@@ -38,48 +38,30 @@ jobs:
         working-directory: desktop
         run: npm install
 
-      - name: Build desktop app (macOS — Intel + Apple Silicon universal)
+      - name: Build desktop app (macOS)
         if: matrix.platform == 'mac'
-        shell: bash
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            npm run build:mac -- --publish always
-          else
-            npm run build:mac
-          fi
+        run: npm run build:mac
 
-      - name: Build desktop app (Windows x64)
+      - name: Build desktop app (Windows)
         if: matrix.platform == 'win'
-        shell: bash
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            npm run build:win -- --publish always
-          else
-            npm run build:win
-          fi
+        run: npm run build:win
 
       - name: Build desktop app (Linux)
         if: matrix.platform == 'linux'
-        shell: bash
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            npm run build:linux -- --publish always
-          else
-            npm run build:linux
-          fi
+        run: npm run build:linux
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -90,5 +72,19 @@ jobs:
             desktop/dist/*.dmg
             desktop/dist/*.AppImage
             desktop/dist/*.deb
+            desktop/dist/*.yml
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/*.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
