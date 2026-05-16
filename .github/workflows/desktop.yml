@@ -1,4 +1,4 @@
-name: Build Desktop App
+name: Release Desktop App
 
 on:
   push:
@@ -6,13 +6,37 @@ on:
     paths:
       - "desktop/**"
       - ".github/workflows/desktop.yml"
-  release:
-    types: [published]
   workflow_dispatch:
 
 jobs:
+  check-version:
+    name: Check if new version needs a release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Check if release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v${{ steps.version.outputs.version }}" &>/dev/null 2>&1; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
   build:
     name: Build on ${{ matrix.os }}
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -24,45 +48,33 @@ jobs:
             platform: mac
           - os: ubuntu-latest
             platform: linux
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Install desktop dependencies
+      - name: Install dependencies
         working-directory: desktop
         run: npm install
-
-      - name: Build desktop app (macOS)
+      - name: Build (macOS)
         if: matrix.platform == 'mac'
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
         run: npm run build:mac
-
-      - name: Build desktop app (Windows)
+      - name: Build (Windows)
         if: matrix.platform == 'win'
         working-directory: desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
         run: npm run build:win
-
-      - name: Build desktop app (Linux)
+      - name: Build (Linux)
         if: matrix.platform == 'linux'
         working-directory: desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
         run: npm run build:linux
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -74,17 +86,30 @@ jobs:
             desktop/dist/*.deb
             desktop/dist/*.yml
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 1
 
-      - name: Attach to GitHub Release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+  release:
+    name: Publish release and upload installers
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
         with:
-          files: |
-            desktop/dist/*.exe
-            desktop/dist/*.dmg
-            desktop/dist/*.AppImage
-            desktop/dist/*.deb
-            desktop/dist/*.yml
+          path: dist-all
+          merge-multiple: true
+      - name: Create release and upload files
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          FILES=$(find dist-all -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.yml" \))
+          gh release create "v${VERSION}" \
+            --repo richlifetechnologies-lang/NEW-UPDATED \
+            --title "Full Swap By Rich v${VERSION}" \
+            --notes "Desktop app update — auto-released from version bump." \
+            --latest \
+            $FILES
