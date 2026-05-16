@@ -57,8 +57,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── 2. Deploy to VPS via SSH ─────────────────────────────────────────────────
-  deploy:
+  # ── 2. Deploy to Railway (if configured) ────────────────────────────────────
+  deploy-railway:
+    name: Deploy to Railway
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ secrets.RAILWAY_TOKEN != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          npm install -g @railway/cli
+          railway up --service api --service frontend
+
+  # ── 3. Deploy to VPS via SSH (if configured) ────────────────────────────────
+  deploy-vps:
     name: Deploy to VPS
     needs: build
     runs-on: ubuntu-latest
