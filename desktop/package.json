@@ -4,7 +4,10 @@
   "description": "FULL SWAP BY RICH — Desktop App",
   "main": "src/main.js",
   "homepage": "https://fullswapbyrich.xyz",
-  "author": "Rich Life Technologies",
+  "author": {
+    "name": "Rich Life Technologies",
+    "email": "admin@fullswapbyrich.xyz"
+  },
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
