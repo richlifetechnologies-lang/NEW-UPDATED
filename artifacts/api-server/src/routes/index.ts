@@ -10,10 +10,12 @@ import downloadRouter from "./download";
 import chatRouter from "./chat";
 import subAdminRouter from "./sub-admin";
 import licenseRouter from "./license";
+import setupRouter from "./setup";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(setupRouter);
 router.use("/chat", chatRouter);
 router.use("/sessions", sessionsRouter);
 router.use("/pricing", pricingRouter);
