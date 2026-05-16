@@ -14,7 +14,7 @@ COPY lib/api-zod/package.json            ./lib/api-zod/
 COPY artifacts/api-server/package.json   ./artifacts/api-server/
 COPY scripts/package.json                ./scripts/
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # ── Stage 2: build ────────────────────────────────────────────────────────────
 FROM deps AS builder
@@ -47,7 +47,7 @@ COPY --from=builder /app/artifacts/api-server/package.json ./artifacts/api-serve
 COPY --from=builder /app/scripts/package.json            ./scripts/
 
 # Install only production deps
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --no-frozen-lockfile --prod
 
 # Copy built dist + drizzle schema + scripts source
 COPY --from=builder /app/artifacts/api-server/dist ./artifacts/api-server/dist

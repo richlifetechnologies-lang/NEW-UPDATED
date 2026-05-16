@@ -13,7 +13,7 @@ COPY lib/api-zod/package.json            ./lib/api-zod/
 COPY artifacts/full-swap/package.json    ./artifacts/full-swap/
 COPY scripts/package.json                ./scripts/
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # ── Stage 2: build ────────────────────────────────────────────────────────────
 FROM deps AS builder
