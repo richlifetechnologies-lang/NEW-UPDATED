@@ -157,7 +157,7 @@ function createMainWindow() {
 
   // Auto-reload on focus so any server-side changes are reflected immediately
   mainWindow.on("focus", () => {
-    mainWindow?.webContents.reload();
+    mainWindow?.webContents.reloadIgnoringCache();
   });
 
   // Retry if the server is temporarily unavailable
