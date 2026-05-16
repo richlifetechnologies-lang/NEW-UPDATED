@@ -20,7 +20,9 @@ FROM deps AS builder
 
 COPY . .
 
-# Build the Vite frontend
+# Build the Vite frontend with required environment variables
+ENV PORT=3000
+ENV BASE_PATH=/
 RUN pnpm --filter @workspace/full-swap run build
 
 # The built output is at artifacts/full-swap/dist/
