@@ -242,6 +242,7 @@ export default function AdminDecartKeysPage() {
   const [expandedHistory, setExpandedHistory] = useState<Record<number, boolean>>({});
   const [showThresholdFor, setShowThresholdFor] = useState<number | null>(null);
   const [showTopupFor, setShowTopupFor] = useState<number | null>(null);
+  const [topupMode, setTopupMode] = useState<"set" | "add">("add");
   const [topupAmount, setTopupAmount] = useState("");
   const [newThreshold, setNewThreshold] = useState("");
 
@@ -348,18 +349,34 @@ export default function AdminDecartKeysPage() {
   };
 
   const submitTopup = async (keyId: number) => {
-    const credits = parseInt(topupAmount);
-    if (!credits || credits <= 0) { toast({ title: "Enter a valid credit amount", variant: "destructive" }); return; }
-    const res = await fetch(`/api/admin/decart-keys/${keyId}/topup`, {
+    const amount = parseInt(topupAmount);
+    if (!amount || amount <= 0) { toast({ title: "Enter a valid credit amount", variant: "destructive" }); return; }
+
+    let url: string;
+    let body: Record<string, number>;
+    let successMsg: string;
+
+    if (topupMode === "add") {
+      url = `/api/admin/decart-keys/${keyId}/topup-delta`;
+      body = { deltaCredits: amount };
+      successMsg = `${amount.toLocaleString()} credits added on top of current balance`;
+    } else {
+      url = `/api/admin/decart-keys/${keyId}/topup`;
+      body = { credits: amount };
+      successMsg = `Balance set to ${amount.toLocaleString()} credits`;
+    }
+
+    const res = await fetch(url, {
       method: "POST", headers: getAuthHeaders(),
-      body: JSON.stringify({ credits }),
+      body: JSON.stringify(body),
     });
     if (res.ok) {
-      toast({ title: `${credits.toLocaleString()} credits added` });
+      toast({ title: successMsg });
       setShowTopupFor(null); setTopupAmount("");
       fetchCreditStatus();
     } else {
-      toast({ title: "Top-up failed", variant: "destructive" });
+      const err = await res.json().catch(() => ({}));
+      toast({ title: err.error || "Update failed", variant: "destructive" });
     }
   };
 
@@ -603,20 +620,70 @@ export default function AdminDecartKeysPage() {
 
                   {/* Set Balance inline form */}
                   {showTopupFor === key.id && (
-                    <div className="flex flex-col gap-2 mt-1 bg-emerald-950/30 border border-emerald-800/40 rounded-lg p-3">
-                      <p className="text-xs text-slate-400">
-                        Check your <strong className="text-slate-200">Decart account dashboard</strong> for your current credit balance, then enter that exact number below.
-                        The system will track usage from this point forward.
-                      </p>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Input
-                          type="number" min={1} placeholder="Current Decart credits (e.g. 50000)"
-                          value={topupAmount} onChange={(e) => setTopupAmount(e.target.value)}
-                          className="h-8 text-sm w-56"
-                        />
-                        <span className="text-xs text-slate-500">÷ 120 = {topupAmount ? (parseInt(topupAmount) / 120).toFixed(1) : "0"} streaming min</span>
-                        <Button size="sm" className="h-8 bg-emerald-700 hover:bg-emerald-600" onClick={() => submitTopup(key.id)}>Set Balance</Button>
-                        <Button variant="ghost" size="sm" className="h-8" onClick={() => setShowTopupFor(null)}>Cancel</Button>
+                    <div className="flex flex-col gap-3 mt-1 bg-emerald-950/30 border border-emerald-800/40 rounded-lg p-3">
+                      {/* Mode toggle */}
+                      <div className="flex gap-1 bg-slate-800 rounded-lg p-0.5 w-fit">
+                        <button
+                          onClick={() => { setTopupMode("add"); setTopupAmount(""); }}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${topupMode === "add" ? "bg-emerald-700 text-white" : "text-slate-400 hover:text-slate-200"}`}
+                        >
+                          Add Top-Up Amount
+                        </button>
+                        <button
+                          onClick={() => { setTopupMode("set"); setTopupAmount(""); }}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${topupMode === "set" ? "bg-slate-600 text-white" : "text-slate-400 hover:text-slate-200"}`}
+                        >
+                          Set Exact Total
+                        </button>
+                      </div>
+
+                      {topupMode === "add" ? (
+                        <>
+                          <p className="text-xs text-slate-400">
+                            Enter the number of credits you <strong className="text-slate-200">just purchased</strong> on Decart's platform.
+                            The system will add them on top of your current remaining balance of{" "}
+                            <strong className="text-emerald-400">{cs?.creditsRemaining.toLocaleString() ?? "—"}</strong>.
+                          </p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Input
+                              type="number" min={1} placeholder="Credits purchased (e.g. 100000)"
+                              value={topupAmount} onChange={(e) => setTopupAmount(e.target.value)}
+                              className="h-8 text-sm w-56"
+                            />
+                            {topupAmount && parseInt(topupAmount) > 0 && cs && (
+                              <span className="text-xs text-emerald-400 font-medium">
+                                → New total: {(cs.creditsRemaining + parseInt(topupAmount)).toLocaleString()} credits
+                                ({((cs.creditsRemaining + parseInt(topupAmount)) / 120).toFixed(1)} min)
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs text-slate-400">
+                            Check your <strong className="text-slate-200">Decart account dashboard</strong> for the exact credit balance and enter it below.
+                            Use this if you need to correct a drift between the tracked balance and the real Decart balance.
+                          </p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Input
+                              type="number" min={1} placeholder="Exact Decart balance (e.g. 50000)"
+                              value={topupAmount} onChange={(e) => setTopupAmount(e.target.value)}
+                              className="h-8 text-sm w-56"
+                            />
+                            {topupAmount && parseInt(topupAmount) > 0 && (
+                              <span className="text-xs text-slate-500">
+                                ÷ 120 = {(parseInt(topupAmount) / 120).toFixed(1)} streaming min
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button size="sm" className="h-8 bg-emerald-700 hover:bg-emerald-600" onClick={() => submitTopup(key.id)}>
+                          {topupMode === "add" ? "Add Credits" : "Set Balance"}
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8" onClick={() => { setShowTopupFor(null); setTopupAmount(""); }}>Cancel</Button>
                       </div>
                     </div>
                   )}

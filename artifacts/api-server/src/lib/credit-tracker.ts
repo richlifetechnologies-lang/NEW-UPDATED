@@ -211,6 +211,94 @@ export async function recordTopup(
   return { newTotal, newBaseline };
 }
 
+/**
+ * Record a delta top-up for a key: computes current remaining balance and adds
+ * deltaCredits on top of it, then resets the usage baseline — all within a
+ * single DB transaction to minimise the timing window between the balance read
+ * and the update write.
+ */
+export async function recordTopupDelta(
+  keyId: number,
+  deltaCredits: number
+): Promise<{ newTotal: number; newBaseline: number; deltaCredits: number; previousRemaining: number }> {
+  let newTotal = 0;
+  let newBaseline = 0;
+  let previousRemaining = 0;
+
+  await db.transaction(async (tx) => {
+    // 1. Fetch key within the transaction (row-level read)
+    const [key] = await tx
+      .select()
+      .from(decartApiKeysTable)
+      .where(eq(decartApiKeysTable.id, keyId))
+      .limit(1);
+
+    if (!key) throw new Error(`Decart API key ${keyId} not found`);
+
+    // 2. Compute total seconds consumed by sessions for this key (NOW() is
+    //    evaluated at transaction start, so all reads share one consistent clock)
+    const usageResult = await tx
+      .select({
+        totalSeconds: sql<number>`
+          COALESCE(
+            (SELECT SUM(EXTRACT(EPOCH FROM (stopped_at - started_at))::INTEGER)
+             FROM sessions
+             WHERE decart_key_id = ${keyId}
+               AND status IN ('stopped','expired')
+               AND stopped_at IS NOT NULL),
+            0
+          ) +
+          COALESCE(
+            (SELECT SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER)
+             FROM sessions
+             WHERE decart_key_id = ${keyId}
+               AND status = 'active'),
+            0
+          )
+        `,
+      })
+      .from(decartApiKeysTable)
+      .where(eq(decartApiKeysTable.id, keyId))
+      .limit(1);
+
+    const currentTotalSeconds = Number(usageResult[0]?.totalSeconds ?? 0);
+    newBaseline = currentTotalSeconds * DECART_CREDITS_PER_SEC;
+
+    // creditsUsedSinceTopup = credits burned since last baseline reset
+    const creditsUsedSinceTopup = calculateCreditsUsedSinceTopup(
+      0,
+      0,
+      key.creditsBaseline ?? 0
+    );
+    // remaining = totalLoaded - usedSinceTopup (clamped to 0)
+    previousRemaining = calculateCreditsRemaining(
+      key.totalCreditsLoaded ?? 0,
+      calculateCreditsUsedSinceTopup(currentTotalSeconds, 0, key.creditsBaseline ?? 0)
+    );
+
+    // 3. New absolute total = what's left now + what was just purchased
+    newTotal = previousRemaining + deltaCredits;
+
+    // 4. Persist the new total and baseline in the same transaction
+    await tx
+      .update(decartApiKeysTable)
+      .set({
+        totalCreditsLoaded: newTotal,
+        creditsBaseline: newBaseline,
+        lastTopupAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(decartApiKeysTable.id, keyId));
+  });
+
+  logger.info(
+    { keyId, deltaCredits, previousRemaining, newTotal, newBaseline },
+    "[CreditTracker] Delta top-up recorded, baseline reset"
+  );
+
+  return { newTotal, newBaseline, deltaCredits, previousRemaining };
+}
+
 /** Get session usage history for a specific Decart key */
 export async function getKeyUsageHistory(
   keyId: number,

@@ -7,7 +7,7 @@ import { AdminUpdateUserBody, AdminUpdateWalletBody } from "@workspace/api-zod";
 import { createDecartClient } from "@decartai/sdk";
 
 import { getAllRates } from "../lib/rates";
-import { getAllKeysCreditStatus, recordTopup, getKeyUsageHistory } from "../lib/credit-tracker";
+import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 
 function parseLoginBody(body: unknown): { email: string; password: string } | null {
   if (!body || typeof body !== "object") return null;
@@ -1965,6 +1965,30 @@ router.post("/decart-keys/:id/topup", requireAdmin, async (req, res) => {
     const result = await recordTopup(keyId, credits);
     res.json({ success: true, ...result });
   } catch (err: any) {
+    res.status(500).json({ error: err.message ?? "Failed to record top-up" });
+  }
+});
+
+/** POST /api/admin/decart-keys/:id/topup-delta
+ *  Adds deltaCredits on top of the current tracked remaining balance, then resets
+ *  the baseline. The computation and write are performed inside a single DB
+ *  transaction to minimise timing drift when sessions are actively consuming credits.
+ */
+router.post("/decart-keys/:id/topup-delta", requireAdmin, async (req, res) => {
+  const keyId = parseInt(req.params["id"] as string);
+  const { deltaCredits } = req.body as { deltaCredits: number };
+  if (!deltaCredits || isNaN(deltaCredits) || deltaCredits <= 0) {
+    res.status(400).json({ error: "deltaCredits must be a positive number" });
+    return;
+  }
+  try {
+    const result = await recordTopupDelta(keyId, deltaCredits);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    if (err.message?.includes("not found")) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
     res.status(500).json({ error: err.message ?? "Failed to record top-up" });
   }
 });
