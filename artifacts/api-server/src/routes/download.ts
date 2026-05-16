@@ -2,8 +2,8 @@ import { Router } from "express";
 
 const router = Router();
 
-const GITHUB_OWNER = "davidson2k15";
-const GITHUB_REPO = "FULLSWAPBYRICH";
+const GITHUB_OWNER = "richlifetechnologies-lang";
+const GITHUB_REPO = "NEW-UPDATED";
 
 // ─── In-memory cache for signed S3 URLs ──────────────────────────────────────
 // GitHub signed URLs last ~1 hour; we cache for 45 min to be safe.
