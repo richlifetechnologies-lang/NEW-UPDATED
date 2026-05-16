@@ -3,9 +3,16 @@ const { autoUpdater } = require("electron-updater");
 const path = require("path");
 
 // ── Server URL ────────────────────────────────────────────────────────────────
-// In production this points at your hosted server.
-// Set APP_SERVER_URL in GitHub Actions vars, or change the fallback below.
-const SERVER_URL = process.env.APP_SERVER_URL || "https://your-domain.com";
+// Priority order:
+//   1. APP_SERVER_URL env var — set in GitHub → Settings → Variables → Actions
+//      (change it there and rebuild to switch domains without touching code)
+//   2. Hardcoded fallback below — update this when your primary domain changes
+//
+// To revert to a previous URL:
+//   Option A (no rebuild): change APP_SERVER_URL in GitHub repo variables, re-run
+//                          the "Build Desktop App" workflow
+//   Option B (permanent):  update the fallback string below and push to GitHub
+const SERVER_URL = process.env.APP_SERVER_URL || "https://workspaceapi-server-production.up.railway.app";
 
 let mainWindow = null;
 let splashWindow = null;
