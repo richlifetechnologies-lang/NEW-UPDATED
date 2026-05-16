@@ -44,24 +44,39 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://your-domain.com' }}
-        run: npm run build:mac
+          APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            npm run build:mac -- --publish always
+          else
+            npm run build:mac
+          fi
 
       - name: Build desktop app (Windows x64)
         if: matrix.platform == 'win'
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://your-domain.com' }}
-        run: npm run build:win
+          APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            npm run build:win -- --publish always
+          else
+            npm run build:win
+          fi
 
       - name: Build desktop app (Linux)
         if: matrix.platform == 'linux'
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://your-domain.com' }}
-        run: npm run build:linux
+          APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            npm run build:linux -- --publish always
+          else
+            npm run build:linux
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -74,15 +89,3 @@ jobs:
             desktop/dist/*.deb
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Attach to GitHub Release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            desktop/dist/*.exe
-            desktop/dist/*.dmg
-            desktop/dist/*.AppImage
-            desktop/dist/*.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
