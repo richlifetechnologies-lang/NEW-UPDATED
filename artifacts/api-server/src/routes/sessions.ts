@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, sessionsTable, licenseKeysTable } from "@workspace/db";
+import { db, sessionsTable, licenseKeysTable, decartApiKeysTable } from "@workspace/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireLicense } from "../lib/auth";
 import { randomUUID } from "crypto";
@@ -214,13 +214,34 @@ router.post("/", requireLicense, async (req, res) => {
     await settleSession(other.id, { endAt: lastBeat });
   }
 
+  // Resolve the decart key for this session. Prefer the license's explicit assignment.
+  // If unset, fall back to the cache (from the last token fetch), then to the only
+  // active key in the DB. This ensures credit tracking always has a key to attribute
+  // usage to, even for very short sessions that end before the first heartbeat.
+  let resolvedDecartKeyId: number | null = license.assignedDecartKeyId ?? null;
+  if (!resolvedDecartKeyId) {
+    resolvedDecartKeyId = getDecartKeyIdFromCache(license.key) ?? null;
+  }
+  if (!resolvedDecartKeyId) {
+    const [fallbackKey] = await db
+      .select({ id: decartApiKeysTable.id })
+      .from(decartApiKeysTable)
+      .where(eq(decartApiKeysTable.isActive, true))
+      .limit(1);
+    resolvedDecartKeyId = fallbackKey?.id ?? null;
+  }
+  // Auto-assign the resolved key back to the license so future sessions always have it
+  if (resolvedDecartKeyId && !license.assignedDecartKeyId) {
+    await db.update(licenseKeysTable)
+      .set({ assignedDecartKeyId: resolvedDecartKeyId })
+      .where(eq(licenseKeysTable.id, license.id));
+  }
+
   const sessionId = randomUUID();
   const [session] = await db.insert(sessionsTable).values({
     id: sessionId, licenseKeyId: license.id, status: "active", style,
     packageLabel: `${license.minutesAllocated ?? 0}min license`,
-    // Link Decart key at creation so credit tracking works even for short sessions
-    // that end before the first heartbeat fires (race condition fix).
-    decartKeyId: license.assignedDecartKeyId ?? null,
+    decartKeyId: resolvedDecartKeyId,
   }).returning();
 
   // ── BILLING-FIX: Reserve MINIMUM_RESERVATION_SEC upfront ───────────────

@@ -126,6 +126,7 @@ export default function StreamPage() {
 
   const localVideoRef      = useRef<HTMLVideoElement>(null);
   const remoteVideoRef     = useRef<HTMLVideoElement>(null);
+  const popoutWindowRef    = useRef<Window | null>(null);
   const outputContainerRef = useRef<HTMLDivElement>(null);
   const timerRef              = useRef<NodeJS.Timeout | null>(null);
   // FIX: Ref mirror for elapsedSecs so heartbeat can read latest value
@@ -167,6 +168,7 @@ export default function StreamPage() {
   const [activeSession,     setActiveSession]     = useState<string | null>(null);
   const [selectedStyle,     setSelectedStyle]     = useState("natural");
   const [isStreaming,       setIsStreaming]        = useState(false);
+  const [isPopoutOpen,      setIsPopoutOpen]      = useState(false);
   const [cameraReady,       setCameraReady]        = useState(false);
   const [elapsedSecs,       setElapsedSecs]        = useState(0);
   const [connectionStatus,  setConnectionStatus]   = useState<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
@@ -255,6 +257,13 @@ export default function StreamPage() {
     tokenRefreshRef.current = null;
     decartClientRef.current?.disconnect();
     decartClientRef.current = null;
+    // Clear popout video so OBS shows a black/idle frame — window stays open
+    if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+      try {
+        const v = popoutWindowRef.current.document.getElementById("v") as HTMLVideoElement | null;
+        if (v) v.srcObject = null;
+      } catch { /* cross-origin guard */ }
+    }
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     activeSessionRef.current = null;
 
@@ -271,6 +280,7 @@ export default function StreamPage() {
     if (!trialExpired) {
       toast({ title: "Session stopped", description: `Streamed for ${formatTime(secs)}` });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopSession, queryClient, licKey, toast]);
 
   const enumerateCameras = useCallback(async () => {
@@ -380,6 +390,52 @@ export default function StreamPage() {
       vuAnimFrameRef.current = requestAnimationFrame(tick);
     };
     vuAnimFrameRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  // Open a floating popout window for OBS capture.
+  const openPopout = useCallback(() => {
+    // If already open, just focus it
+    if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+      popoutWindowRef.current.focus();
+      return;
+    }
+    const popWin = window.open(
+      "/popout",
+      "fullswap-popout",
+      "width=1280,height=720,resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no",
+    );
+    if (!popWin) {
+      toast({ title: "Popup blocked", description: "Allow popups for this site in your browser, then try again.", variant: "destructive" });
+      return;
+    }
+    popoutWindowRef.current = popWin;
+    setIsPopoutOpen(true);
+
+    // Pipe the video stream once the popout DOM is ready
+    const pipe = () => {
+      if (!popWin || popWin.closed) return;
+      try {
+        const v = popWin.document.getElementById("v") as HTMLVideoElement | null;
+        if (!v) { setTimeout(pipe, 100); return; }
+        const stream = remoteVideoRef.current?.srcObject as MediaStream | null;
+        if (stream) { v.srcObject = stream; v.play().catch(() => {}); }
+      } catch { /* cross-origin guard */ }
+    };
+    if (popWin.document.readyState === "complete") { pipe(); }
+    else { popWin.addEventListener("load", pipe, { once: true }); }
+
+    // Detect when the user closes the popout via the OS close button
+    const poll = setInterval(() => {
+      if (popWin.closed) { clearInterval(poll); popoutWindowRef.current = null; setIsPopoutOpen(false); }
+    }, 500);
+  }, [toast]);
+
+  const closePopout = useCallback(() => {
+    if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+      popoutWindowRef.current.close();
+    }
+    popoutWindowRef.current = null;
+    setIsPopoutOpen(false);
   }, []);
 
   const stopAudioPipeline = useCallback(() => {
@@ -573,6 +629,13 @@ export default function StreamPage() {
         onRemoteStream: (editedStream) => {
           // Update video element on every frame (lightweight, no React state)
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = editedStream;
+          // Pipe video stream to the popout (OBS source) if open
+          if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+            try {
+              const v = popoutWindowRef.current.document.getElementById("v") as HTMLVideoElement | null;
+              if (v && !v.srcObject) { v.srcObject = editedStream; v.play().catch(() => {}); }
+            } catch { /* cross-origin guard */ }
+          }
 
           // Only run first-frame logic once — skip all state updates after the first frame
           if (timerRef.current) return;
@@ -739,6 +802,7 @@ export default function StreamPage() {
       if (timerRef.current)        clearInterval(timerRef.current);
       if (tokenRefreshRef.current) clearInterval(tokenRefreshRef.current);
       decartClientRef.current?.disconnect();
+      if (popoutWindowRef.current && !popoutWindowRef.current.closed) { popoutWindowRef.current.close(); popoutWindowRef.current = null; }
       cameraStreamRef.current?.getTracks().forEach(t => t.stop());
       // Audio pipeline cleanup
       if (vuAnimFrameRef.current) cancelAnimationFrame(vuAnimFrameRef.current);
@@ -931,14 +995,21 @@ export default function StreamPage() {
     setIsFullscreen(prev => !prev);
   }, []);
 
-  // Keyboard shortcuts: F to enter, Escape to exit (and stop stream if active)
+  // Keyboard shortcuts:
+  //   F          — open OBS popout (or focus if already open); also toggles fullscreen
+  //   Escape     — close OBS popout if open; stop active stream; exit fullscreen
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // Always stop the active stream on Escape — regardless of fullscreen state
+        // Close popout first if it is open
+        if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+          popoutWindowRef.current.close();
+          popoutWindowRef.current = null;
+          setIsPopoutOpen(false);
+        }
+        // Stop the active stream
         const sid = activeSessionRef.current;
         if (sid) {
-          // BILLING-FIX: Log ESC key stop for billing audit trail
           console.info(`[Stream] esc_key_stop sessionId=${sid} elapsed=${elapsedSecsRef.current}s`);
           stopStreamInternally(sid, elapsedSecsRef.current, false);
         }
@@ -949,12 +1020,15 @@ export default function StreamPage() {
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.key === "f" || e.key === "F") {
         e.preventDefault();
+        // Open / focus the OBS popout
+        openPopout();
+        // Also toggle fullscreen so the AI output fills the screen on this side
         setIsFullscreen(prev => !prev);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [stopStreamInternally]);
+  }, [stopStreamInternally, openPopout]);
 
   // Smooth per-second countdown: streamStartRemRef anchors remaining secs at stream start.
   // elapsedSecs ticks every second (client timer). Server polls every 5s recalibrate the ref.
@@ -1096,7 +1170,9 @@ export default function StreamPage() {
               The Decart SDK receives the raw unmirrored camera stream, so its output is
               also raw (unmirrored). Without this transform, a right-hand movement in the
               webcam preview appears as a left-hand movement in the AI output. */}
-              <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" style={{ transform: "scaleX(-1)" }} />
+              <video ref={remoteVideoRef} autoPlay playsInline
+                className="w-full h-full"
+                style={{ display: "block", transform: "scaleX(-1)", objectFit: "cover" }} />
 
               {/* Idle placeholder — z-index 1 so controls above it */}
               {connectionStatus === "idle" && (
@@ -1109,6 +1185,14 @@ export default function StreamPage() {
                     <p className="text-base font-semibold text-foreground">Real Time Output</p>
                     <p className="text-sm text-muted-foreground mt-1">Start streaming to see your transformation here</p>
                   </div>
+                  <button
+                    onClick={handleStartStream}
+                    disabled={startSession.isPending}
+                    className="mt-1 flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
+                  >
+                    {startSession.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    {startSession.isPending ? "Starting..." : "Stream Now"}
+                  </button>
                 </div>
               )}
 
@@ -1151,16 +1235,32 @@ export default function StreamPage() {
                 </div>
               )}
 
-              {/* Fullscreen enter button — top-right, only when NOT in fullscreen */}
+              {/* Top-right controls — OBS popout + fullscreen (hidden in fullscreen) */}
               {!isFullscreen && (
-                <button
-                  onClick={handleFullscreen}
-                  title="Fullscreen"
-                  className="absolute top-3 right-3 flex items-center justify-center w-8 h-8 rounded-full transition-all hover:bg-white/20 cursor-pointer"
-                  style={{ zIndex: 20, background: "rgba(0,0,0,0.55)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="absolute top-3 right-3 flex gap-2" style={{ zIndex: 20 }}>
+                  {/* OBS popout button */}
+                  <button
+                    onClick={isPopoutOpen ? closePopout : openPopout}
+                    title={isPopoutOpen ? "Close OBS popout" : "Float for OBS (opens watermark-free popout)"}
+                    className="flex items-center justify-center w-8 h-8 rounded-full transition-all hover:brightness-125 cursor-pointer"
+                    style={{
+                      background: isPopoutOpen ? "rgba(0,210,211,0.85)" : "rgba(0,0,0,0.55)",
+                      color: "#fff",
+                      border: isPopoutOpen ? "1px solid rgba(0,210,211,0.5)" : "1px solid rgba(255,255,255,0.2)",
+                    }}
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                  </button>
+                  {/* Fullscreen */}
+                  <button
+                    onClick={handleFullscreen}
+                    title="Fullscreen"
+                    className="flex items-center justify-center w-8 h-8 rounded-full transition-all hover:bg-white/20 cursor-pointer"
+                    style={{ background: "rgba(0,0,0,0.55)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               )}
 
               {/* Webcam PiP — hidden in fullscreen so only AI output shows */}

@@ -68,6 +68,7 @@ export default function SubAdminStreamPage() {
 
   const localVideoRef      = useRef<HTMLVideoElement>(null);
   const remoteVideoRef     = useRef<HTMLVideoElement>(null);
+
   const outputContainerRef = useRef<HTMLDivElement>(null);
   const timerRef           = useRef<NodeJS.Timeout | null>(null);
   const tokenRefreshRef    = useRef<NodeJS.Timeout | null>(null);
@@ -150,7 +151,10 @@ export default function SubAdminStreamPage() {
 
   useEffect(() => {
     startCamera();
-    return () => { cameraStreamRef.current?.getTracks().forEach(t => t.stop()); };
+    return () => {
+      cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Stop stream helper
@@ -335,8 +339,9 @@ export default function SubAdminStreamPage() {
               }}
               data-testid="transform-output"
             >
-              {/* FIX: scaleX(-1) mirrors AI output to match local webcam preview orientation */}
-              <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" style={{ transform: "scaleX(-1)" }} />
+              <video ref={remoteVideoRef} autoPlay playsInline
+                className="w-full h-full"
+                style={{ display: "block", transform: "scaleX(-1)", objectFit: "cover" }} />
 
               {/* Idle placeholder */}
               {connectionStatus === "idle" && (
