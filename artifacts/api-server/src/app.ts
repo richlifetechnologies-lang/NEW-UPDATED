@@ -36,11 +36,19 @@ app.use(
     },
   }),
 );
-const productionOrigins = (process.env.REPLIT_DOMAINS ?? "")
-  .split(",")
-  .map((d) => d.trim())
-  .filter(Boolean)
-  .flatMap((d) => [`https://${d}`, `https://www.${d}`]);
+// REPLIT_DOMAINS: comma-separated bare domains (added as https:// + https://www.)
+// ALLOWED_ORIGINS: comma-separated full origin URLs (for Railway, Render, etc.)
+const productionOrigins = [
+  ...(process.env.REPLIT_DOMAINS ?? "")
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .flatMap((d) => [`https://${d}`, `https://www.${d}`]),
+  ...(process.env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
+];
 
 app.use(cors({
   origin: process.env.NODE_ENV === "production"
