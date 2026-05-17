@@ -1,22 +1,28 @@
-<details> <summary>Click to expand — copy ALL of this</summary>
 const { app, BrowserWindow, session, shell, ipcMain, Menu, dialog } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
+
 const SERVER_URL = process.env.APP_SERVER_URL || "https://fullswapbyrich.xyz";
+
 let mainWindow = null;
 let splashWindow = null;
+
+// ── Auto-updater ──────────────────────────────────────────────────────────────
 function setupAutoUpdater() {
   autoUpdater.autoDownload = true;
+
   autoUpdater.on("update-available", function(info) {
     injectStatusBar("Downloading update v" + info.version + "...");
   });
+
   autoUpdater.on("download-progress", function(progress) {
     var pct = Math.round(progress.percent);
-    mainWindow && mainWindow.setProgressBar(progress.percent / 100);
+    if (mainWindow) mainWindow.setProgressBar(progress.percent / 100);
     injectStatusBar("Downloading update... " + pct + "%");
   });
+
   autoUpdater.on("update-downloaded", function(info) {
-    mainWindow && mainWindow.setProgressBar(-1);
+    if (mainWindow) mainWindow.setProgressBar(-1);
     removeStatusBar();
     var rawNotes = "";
     if (typeof info.releaseNotes === "string") {
@@ -35,17 +41,22 @@ function setupAutoUpdater() {
       if (result.response === 0) autoUpdater.quitAndInstall(false, true);
     });
   });
+
   autoUpdater.on("error", function() {
-    mainWindow && mainWindow.setProgressBar(-1);
+    if (mainWindow) mainWindow.setProgressBar(-1);
     removeStatusBar();
   });
+
   ipcMain.on("install-update", function() {
     autoUpdater.quitAndInstall(false, true);
   });
+
   var checkUpdate = function() { autoUpdater.checkForUpdates().catch(function() {}); };
   setTimeout(checkUpdate, 5000);
   setInterval(checkUpdate, 30 * 60 * 1000);
 }
+
+// ── Download status bar (bottom of page) ─────────────────────────────────────
 function injectStatusBar(text) {
   if (!mainWindow) return;
   mainWindow.webContents.executeJavaScript(
@@ -54,47 +65,47 @@ function injectStatusBar(text) {
     "  if (!bar) {" +
     "    bar = document.createElement('div');" +
     "    bar.id = '__fs-status-bar';" +
-    "    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#1a1a2e;border-top:1px solid #6c63ff;padding:8px 16px;font-family:sans-serif;font-size:12px;color:#ccc;';" +
+    "    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;" +
+    "      background:#1a1a2e;border-top:1px solid #6c63ff;padding:8px 16px;" +
+    "      font-family:sans-serif;font-size:12px;color:#ccc;';" +
     "    document.body.appendChild(bar);" +
     "  }" +
     "  bar.textContent = " + JSON.stringify(text) + ";" +
     "})()"
   ).catch(function() {});
 }
+
 function removeStatusBar() {
   if (!mainWindow) return;
   mainWindow.webContents.executeJavaScript(
     "var b = document.getElementById('__fs-status-bar'); if (b) b.remove();"
   ).catch(function() {});
 }
+
+// ── Permissions ───────────────────────────────────────────────────────────────
 function setupPermissions(win) {
-  win.webContents.session.setPermissionRequestHandler(function(_webContents, permission, callback) {
-    var allowed = ["media", "camera", "microphone", "display-capture"];
-    callback(allowed.includes(permission));
+  win.webContents.session.setPermissionRequestHandler(function(_wc, permission, callback) {
+    callback(["media", "camera", "microphone", "display-capture"].includes(permission));
   });
-  win.webContents.session.setPermissionCheckHandler(function(_webContents, permission) {
-    var allowed = ["media", "camera", "microphone", "display-capture"];
-    return allowed.includes(permission);
+  win.webContents.session.setPermissionCheckHandler(function(_wc, permission) {
+    return ["media", "camera", "microphone", "display-capture"].includes(permission);
   });
 }
+
+// ── Splash screen ─────────────────────────────────────────────────────────────
 function createSplash() {
   splashWindow = new BrowserWindow({
-    width: 400,
-    height: 300,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    resizable: false,
+    width: 400, height: 300,
+    frame: false, transparent: true, alwaysOnTop: true, resizable: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   });
   splashWindow.loadFile(path.join(__dirname, "splash.html"));
 }
+
+// ── Main window ───────────────────────────────────────────────────────────────
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 960,
-    minHeight: 600,
+    width: 1280, height: 820, minWidth: 960, minHeight: 600,
     show: false,
     title: "Full Swap By Rich",
     icon: path.join(__dirname, "..", "build", "icon.png"),
@@ -105,7 +116,19 @@ function createMainWindow() {
       webSecurity: true,
     },
   });
+
   setupPermissions(mainWindow);
+
+  // Force no-cache on every request to the server so website fixes always show instantly
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ["https://fullswapbyrich.xyz/*", "https://*.fullswapbyrich.xyz/*"] },
+    function(details, callback) {
+      details.requestHeaders["Cache-Control"] = "no-cache, no-store, must-revalidate";
+      details.requestHeaders["Pragma"] = "no-cache";
+      callback({ requestHeaders: details.requestHeaders });
+    }
+  );
+
   mainWindow.webContents.setWindowOpenHandler(function(details) {
     if (!details.url.startsWith(SERVER_URL)) {
       shell.openExternal(details.url);
@@ -113,20 +136,18 @@ function createMainWindow() {
     }
     return { action: "allow" };
   });
+
   mainWindow.loadURL(SERVER_URL);
+
   mainWindow.once("ready-to-show", function() {
     if (splashWindow) { splashWindow.close(); splashWindow = null; }
     mainWindow.show();
     mainWindow.focus();
     if (!app.isPackaged) mainWindow.webContents.openDevTools();
   });
+
   mainWindow.on("closed", function() { mainWindow = null; });
-  var lastBlurMs = 0;
-  mainWindow.on("blur", function() { lastBlurMs = Date.now(); });
-  mainWindow.on("focus", function() {
-    if (Date.now() - lastBlurMs < 5 * 60 * 1000) return;
-    if (mainWindow) mainWindow.webContents.reloadIgnoringCache();
-  });
+
   mainWindow.webContents.on("did-fail-load", function(_e, code, desc) {
     if (code === -102 || code === -105 || code === -106) {
       setTimeout(function() { if (mainWindow) mainWindow.loadURL(SERVER_URL); }, 3000);
@@ -139,10 +160,13 @@ function createMainWindow() {
       );
     }
   });
+
   return mainWindow;
 }
+
+// ── App menu ──────────────────────────────────────────────────────────────────
 function buildMenu() {
-  var template = [
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
       label: "Full Swap",
       submenu: [
@@ -159,29 +183,30 @@ function buildMenu() {
       submenu: [
         { role: "togglefullscreen" },
         { type: "separator" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { role: "resetZoom" },
+        { role: "zoomIn" }, { role: "zoomOut" }, { role: "resetZoom" },
       ],
     },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  ]));
 }
+
+// ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async function() {
+  // Clear disk cache and service workers on every launch as extra insurance
   await session.defaultSession.clearCache().catch(function() {});
   await session.defaultSession.clearStorageData({
     storages: ["serviceworkers", "cachestorage"],
   }).catch(function() {});
+
   createSplash();
   createMainWindow();
   buildMenu();
   if (app.isPackaged) setupAutoUpdater();
+
   app.on("activate", function() {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
 });
+
 app.on("window-all-closed", function() {
   if (process.platform !== "darwin") app.quit();
 });
-
-</details>
