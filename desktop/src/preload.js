@@ -1,17 +1,32 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Expose safe auto-updater API to the renderer
-contextBridge.exposeInMainWorld('electronUpdater', {
-  onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_e, version) => cb(version)),
-  onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', cb),
-  downloadUpdate: () => ipcRenderer.send('download-update'),
+// Unified API exposed to the renderer
+contextBridge.exposeInMainWorld('electronAPI', {
+  // Auto-updater
   installUpdate: () => ipcRenderer.send('install-update'),
+  onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_e, info) => cb(info)),
+  onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, info) => cb(info)),
+
+  // First-launch
+  markLaunched: () => ipcRenderer.send('mark-launched'),
+
+  // Dark/light mode
+  getTheme: () => ipcRenderer.invoke('get-theme'),
+  onThemeChanged: (cb) => ipcRenderer.on('theme-changed', (_e, theme) => cb(theme)),
 });
 
-// Expose Electron flag so the web app can detect it's running in the desktop
+// Legacy aliases (kept for backward compatibility)
+contextBridge.exposeInMainWorld('electronUpdater', {
+  installUpdate: () => ipcRenderer.send('install-update'),
+  downloadUpdate: () => ipcRenderer.send('download-update'),
+  onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_e, info) => cb(info)),
+  onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, info) => cb(info)),
+});
+
+// Electron detection flag
 contextBridge.exposeInMainWorld('isElectron', true);
 
-// Expose window controls for custom title bar
+// Window controls for custom title bar
 contextBridge.exposeInMainWorld('electronWindow', {
   minimize: () => ipcRenderer.send('window-minimize'),
   maximize: () => ipcRenderer.send('window-maximize'),
