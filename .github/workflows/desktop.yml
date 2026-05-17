@@ -120,7 +120,7 @@ jobs:
           gh release create "v${VERSION}" \
             --repo richlifetechnologies-lang/NEW-UPDATED \
             --title "Full Swap By Rich v${VERSION}" \
-            --notes "Desktop app update — auto-released from version bump." \
+            --generate-notes \
             --latest
 
       - name: Upload installers to release
