@@ -371,6 +371,70 @@ function removeStatusBar() {
   mainWindow.webContents.executeJavaScript('var b=document.getElementById("__fs-status-bar");if(b)b.remove();').catch(function() {});
 }
 
+// ─── Window control buttons (injected overlay) ────────────────────────────────
+
+function injectTitleBar() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  var js = `(function() {
+  if (document.getElementById('__fs-titlebar')) return;
+  var bar = document.createElement('div');
+  bar.id = '__fs-titlebar';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:36px;z-index:2147483647;' +
+    'display:flex;align-items:center;justify-content:space-between;' +
+    '-webkit-app-region:drag;background:transparent;pointer-events:auto;';
+
+  var dragArea = document.createElement('div');
+  dragArea.style.cssText = 'flex:1;height:100%;-webkit-app-region:drag;';
+  bar.appendChild(dragArea);
+
+  var btnGroup = document.createElement('div');
+  btnGroup.style.cssText = 'display:flex;align-items:stretch;height:100%;-webkit-app-region:no-drag;flex-shrink:0;';
+
+  function makeBtn(svgContent, normalColor, hoverBg, hoverColor) {
+    var btn = document.createElement('button');
+    btn.style.cssText = 'width:46px;height:36px;border:none;background:transparent;cursor:pointer;' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'color:' + normalColor + ';transition:background 0.15s ease,color 0.15s ease;outline:none;padding:0;';
+    btn.innerHTML = svgContent;
+    btn.addEventListener('mouseover', function() {
+      btn.style.background = hoverBg;
+      btn.style.color = hoverColor;
+    });
+    btn.addEventListener('mouseout', function() {
+      btn.style.background = 'transparent';
+      btn.style.color = normalColor;
+    });
+    return btn;
+  }
+
+  var minBtn = makeBtn(
+    '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="0" y="5" width="11" height="1.2" rx="0.6" fill="currentColor"/></svg>',
+    '#6b7280', 'rgba(255,255,255,0.1)', '#e2e8f0'
+  );
+  minBtn.title = 'Minimize';
+  minBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    window.electronWindow && window.electronWindow.minimize();
+  });
+
+  var closeBtn = makeBtn(
+    '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 1l9 9M10 1l-9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    '#6b7280', '#dc2626', '#ffffff'
+  );
+  closeBtn.title = 'Close';
+  closeBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    window.electronWindow && window.electronWindow.close();
+  });
+
+  btnGroup.appendChild(minBtn);
+  btnGroup.appendChild(closeBtn);
+  bar.appendChild(btnGroup);
+  document.body.appendChild(bar);
+})()`;
+  mainWindow.webContents.executeJavaScript(js).catch(function() {});
+}
+
 // ─── Connection restored toast ────────────────────────────────────────────────
 
 function injectConnectionRestoredToast() {
@@ -454,7 +518,6 @@ function createMainWindow() {
     winOptions.icon = path.join(__dirname, '..', 'build', 'icon.png');
   } else {
     winOptions.frame = false;
-    winOptions.titleBarOverlay = { color: '#0a0f1a', symbolColor: '#00e5ff', height: 36 };
     winOptions.icon = path.join(__dirname, '..', 'build', 'icon.ico');
   }
 
@@ -499,6 +562,8 @@ function createMainWindow() {
     var url = mainWindow.webContents.getURL();
     // Always apply current theme attribute after load
     applyThemeToWindow(mainWindow);
+    // Always inject window control buttons (close + minimize)
+    if (process.platform !== 'darwin') injectTitleBar();
     // Connection restored toast
     if (wasOffline && url.startsWith(SERVER_URL)) { wasOffline = false; injectConnectionRestoredToast(); }
     // First-launch welcome screen — show once, then never again
@@ -577,8 +642,8 @@ app.whenReady().then(async function() {
     mainWindow.webContents.send('window-maximized-state', mainWindow.isMaximized());
   });
   ipcMain.on('window-close', function() {
-    if (!mainWindow) return;
-    if (process.platform !== 'darwin' && !app.isQuiting) { mainWindow.hide(); } else { mainWindow.close(); }
+    app.isQuiting = true;
+    app.quit();
   });
 
   createSplash();
