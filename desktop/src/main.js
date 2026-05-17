@@ -120,6 +120,34 @@ function removeStatusBar() {
   ).catch(function() {});
 }
 
+// Connection restored toast
+function injectConnectionRestoredToast() {
+  if (!mainWindow) return;
+  mainWindow.webContents.executeJavaScript(
+    '(function() {' +
+    '  var t = document.createElement('div');' +
+    '  t.style.cssText = 'position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);z-index:999999;' +
+    '    background:linear-gradient(135deg,#0a2a1a,#0d3322);border:1px solid rgba(34,197,94,0.5);' +
+    '    border-radius:10px;padding:10px 20px;display:flex;align-items:center;gap:10px;' +
+    '    font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-size:13px;color:#e2e8f0;' +
+    '    box-shadow:0 8px 32px rgba(0,0,0,0.4),0 0 20px rgba(34,197,94,0.1);' +
+    '    opacity:0;transition:opacity 0.3s ease,transform 0.3s ease;pointer-events:none;';' +
+    '  t.innerHTML = '<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e;'></span>' +
+    '    <span><strong style='color:#22c55e;'>Connection restored</strong> &mdash; you&rsquo;re back online</span>';' +
+    '  document.body.appendChild(t);' +
+    '  requestAnimationFrame(function() {' +
+    '    t.style.opacity = '1';' +
+    '    t.style.transform = 'translateX(-50%) translateY(0)';' +
+    '  });' +
+    '  setTimeout(function() {' +
+    '    t.style.opacity = '0';' +
+    '    t.style.transform = 'translateX(-50%) translateY(20px)';' +
+    '    setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 350);' +
+    '  }, 4000);' +
+    '})()'
+  ).catch(function() {});
+}
+
 // Permissions
 function setupPermissions(win) {
   win.webContents.session.setPermissionRequestHandler(function(_wc, permission, callback) {
@@ -171,6 +199,7 @@ function createSplash() {
 // Main window
 function createMainWindow() {
   var state = loadWindowState();
+  var wasOffline = false;
 
   var winOptions = {
     width: state.width,
@@ -194,7 +223,6 @@ function createMainWindow() {
     winOptions.y = state.y;
   }
 
-  // Premium dark title bar
   if (process.platform === 'darwin') {
     winOptions.titleBarStyle = 'hiddenInset';
     winOptions.icon = path.join(__dirname, '..', 'build', 'icon.png');
@@ -208,7 +236,6 @@ function createMainWindow() {
 
   setupPermissions(mainWindow);
 
-  // Force no-cache on every request
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
     { urls: ['https://fullswapbyrich.xyz/*', 'https://*.fullswapbyrich.xyz/*'] },
     function(details, callback) {
@@ -230,7 +257,6 @@ function createMainWindow() {
 
   mainWindow.once('ready-to-show', function() {
     if (splashWindow) { splashWindow.close(); splashWindow = null; }
-    // Smooth fade-in
     mainWindow.show();
     var opacity = 0;
     var fadeTimer = setInterval(function() {
@@ -241,9 +267,17 @@ function createMainWindow() {
     if (!app.isPackaged) mainWindow.webContents.openDevTools();
   });
 
+  mainWindow.webContents.on('did-finish-load', function() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    var url = mainWindow.webContents.getURL();
+    if (wasOffline && url.startsWith(SERVER_URL)) {
+      wasOffline = false;
+      injectConnectionRestoredToast();
+    }
+  });
+
   mainWindow.on('close', function(e) {
     saveWindowState(mainWindow);
-    // Minimize to tray on Windows instead of closing
     if (process.platform !== 'darwin' && !app.isQuiting) {
       e.preventDefault();
       mainWindow.hide();
@@ -259,8 +293,10 @@ function createMainWindow() {
 
   mainWindow.webContents.on('did-fail-load', function(_e, code) {
     if (code === -102 || code === -105 || code === -106) {
+      wasOffline = true;
       setTimeout(function() { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(SERVER_URL); }, 3000);
     } else {
+      wasOffline = true;
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadFile(path.join(__dirname, 'offline.html'));
     }
   });
@@ -295,7 +331,6 @@ function buildMenu() {
 
 // App lifecycle
 app.whenReady().then(async function() {
-  // Clear disk cache and service workers on every launch
   await session.defaultSession.clearCache().catch(function() {});
   await session.defaultSession.clearStorageData({
     storages: ['serviceworkers', 'cachestorage'],
