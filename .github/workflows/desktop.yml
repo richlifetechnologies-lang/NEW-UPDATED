@@ -50,8 +50,6 @@ jobs:
             platform: win
           - os: macos-latest
             platform: mac
-          - os: ubuntu-latest
-            platform: linux
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,13 +73,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
         run: npm run build:win
-      - name: Build (Linux)
-        if: matrix.platform == 'linux'
-        working-directory: desktop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APP_SERVER_URL: ${{ vars.APP_SERVER_URL || 'https://fullswapbyrich.xyz' }}
-        run: npm run build:linux
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -89,8 +80,6 @@ jobs:
           path: |
             desktop/dist/*.exe
             desktop/dist/*.dmg
-            desktop/dist/*.AppImage
-            desktop/dist/*.deb
             desktop/dist/*.yml
           if-no-files-found: warn
           retention-days: 1
@@ -128,8 +117,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          find dist-all -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.yml" \) | while read -r file; do
+          find dist-all -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.yml" \) | while read -r file; do
             echo "Uploading: $file"
             gh release upload "v${VERSION}" "$file" --clobber \
               --repo richlifetechnologies-lang/NEW-UPDATED
           done
+
