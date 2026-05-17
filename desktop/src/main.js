@@ -10,80 +10,83 @@ let splashWindow = null;
 function setupAutoUpdater() {
   autoUpdater.autoDownload = true;
 
-  autoUpdater.on("update-available", (info) => {
-    injectStatusBar(`Downloading update v${info.version}...`);
+  autoUpdater.on("update-available", function(info) {
+    injectStatusBar("Downloading update v" + info.version + "...");
   });
 
-  autoUpdater.on("download-progress", (progress) => {
-    const pct = Math.round(progress.percent);
-    mainWindow?.setProgressBar(progress.percent / 100);
-    injectStatusBar(`Downloading update... ${pct}%`);
+  autoUpdater.on("download-progress", function(progress) {
+    var pct = Math.round(progress.percent);
+    mainWindow && mainWindow.setProgressBar(progress.percent / 100);
+    injectStatusBar("Downloading update... " + pct + "%");
   });
 
-  autoUpdater.on("update-downloaded", (info) => {
-    mainWindow?.setProgressBar(-1);
+  autoUpdater.on("update-downloaded", function(info) {
+    mainWindow && mainWindow.setProgressBar(-1);
     removeStatusBar();
+    var rawNotes = "";
+    if (typeof info.releaseNotes === "string") {
+      rawNotes = info.releaseNotes.replace(/<[^>]*>/g, "").trim();
+    }
+    var whatsNew = rawNotes ? "\n\nWhat's new in v" + info.version + ":\n" + rawNotes : "";
     dialog.showMessageBox(mainWindow, {
       type: "info",
       title: "Update Ready to Install",
-      message: `Full Swap By Rich v${info.version} is ready`,
-      detail: "The update has finished downloading.\n\nClick Install Now to restart and apply it immediately, or Later to install it next time you close the app.",
+      message: "Full Swap By Rich v" + info.version + " is ready",
+      detail: "The update has finished downloading." + whatsNew + "\n\nClick Install Now to restart and apply it immediately, or Later to install it next time you close the app.",
       buttons: ["Install Now", "Later"],
       defaultId: 0,
       cancelId: 1,
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall(false, true);
+    }).then(function(result) {
+      if (result.response === 0) autoUpdater.quitAndInstall(false, true);
     });
   });
 
-  autoUpdater.on("error", () => {
-    mainWindow?.setProgressBar(-1);
+  autoUpdater.on("error", function() {
+    mainWindow && mainWindow.setProgressBar(-1);
     removeStatusBar();
   });
 
-  ipcMain.on("install-update", () => autoUpdater.quitAndInstall(false, true));
+  ipcMain.on("install-update", function() {
+    autoUpdater.quitAndInstall(false, true);
+  });
 
-  const checkUpdate = () => autoUpdater.checkForUpdates().catch(() => {});
+  var checkUpdate = function() { autoUpdater.checkForUpdates().catch(function() {}); };
   setTimeout(checkUpdate, 5000);
   setInterval(checkUpdate, 30 * 60 * 1000);
 }
 
 function injectStatusBar(text) {
   if (!mainWindow) return;
-  mainWindow.webContents.executeJavaScript(`
-    (function() {
-      let bar = document.getElementById('__fs-status-bar');
-      if (!bar) {
-        bar = document.createElement('div');
-        bar.id = '__fs-status-bar';
-        bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#1a1a2e;border-top:1px solid #6c63ff;padding:8px 16px;font-family:sans-serif;font-size:12px;color:#ccc;';
-        document.body.appendChild(bar);
-      }
-      bar.textContent = "${text}";
-    })();
-  `).catch(() => {});
+  mainWindow.webContents.executeJavaScript(
+    "(function() {" +
+    "  var bar = document.getElementById('__fs-status-bar');" +
+    "  if (!bar) {" +
+    "    bar = document.createElement('div');" +
+    "    bar.id = '__fs-status-bar';" +
+    "    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#1a1a2e;border-top:1px solid #6c63ff;padding:8px 16px;font-family:sans-serif;font-size:12px;color:#ccc;';" +
+    "    document.body.appendChild(bar);" +
+    "  }" +
+    "  bar.textContent = " + JSON.stringify(text) + ";" +
+    "})()"
+  ).catch(function() {});
 }
 
 function removeStatusBar() {
   if (!mainWindow) return;
   mainWindow.webContents.executeJavaScript(
-    "const b = document.getElementById('__fs-status-bar'); if (b) b.remove();"
-  ).catch(() => {});
+    "var b = document.getElementById('__fs-status-bar'); if (b) b.remove();"
+  ).catch(function() {});
 }
 
 function setupPermissions(win) {
-  win.webContents.session.setPermissionRequestHandler(
-    (_webContents, permission, callback) => {
-      const allowed = ["media", "camera", "microphone", "display-capture"];
-      callback(allowed.includes(permission));
-    }
-  );
-  win.webContents.session.setPermissionCheckHandler(
-    (_webContents, permission) => {
-      const allowed = ["media", "camera", "microphone", "display-capture"];
-      return allowed.includes(permission);
-    }
-  );
+  win.webContents.session.setPermissionRequestHandler(function(_webContents, permission, callback) {
+    var allowed = ["media", "camera", "microphone", "display-capture"];
+    callback(allowed.includes(permission));
+  });
+  win.webContents.session.setPermissionCheckHandler(function(_webContents, permission) {
+    var allowed = ["media", "camera", "microphone", "display-capture"];
+    return allowed.includes(permission);
+  });
 }
 
 function createSplash() {
@@ -118,9 +121,9 @@ function createMainWindow() {
 
   setupPermissions(mainWindow);
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(SERVER_URL)) {
-      shell.openExternal(url);
+  mainWindow.webContents.setWindowOpenHandler(function(details) {
+    if (!details.url.startsWith(SERVER_URL)) {
+      shell.openExternal(details.url);
       return { action: "deny" };
     }
     return { action: "allow" };
@@ -128,6 +131,79 @@ function createMainWindow() {
 
   mainWindow.loadURL(SERVER_URL);
 
-  mainWindow.once("ready-to-show", () => {
-    splashWindow?.close();
-    splashWindow =
+  mainWindow.once("ready-to-show", function() {
+    if (splashWindow) { splashWindow.close(); splashWindow = null; }
+    mainWindow.show();
+    mainWindow.focus();
+    if (!app.isPackaged) mainWindow.webContents.openDevTools();
+  });
+
+  mainWindow.on("closed", function() { mainWindow = null; });
+
+  var lastBlurMs = 0;
+  mainWindow.on("blur", function() { lastBlurMs = Date.now(); });
+  mainWindow.on("focus", function() {
+    if (Date.now() - lastBlurMs < 5 * 60 * 1000) return;
+    if (mainWindow) mainWindow.webContents.reloadIgnoringCache();
+  });
+
+  mainWindow.webContents.on("did-fail-load", function(_e, code, desc) {
+    if (code === -102 || code === -105 || code === -106) {
+      setTimeout(function() { if (mainWindow) mainWindow.loadURL(SERVER_URL); }, 3000);
+    } else {
+      if (mainWindow) mainWindow.loadURL(
+        "data:text/html,<h2 style=\"font-family:sans-serif;color:#e11;padding:40px\">" +
+        "Could not connect to server (" + code + ").<br>" +
+        "<small>" + desc + "</small><br><br>" +
+        "<button onclick=\"location.reload()\">Retry</button></h2>"
+      );
+    }
+  });
+
+  return mainWindow;
+}
+
+function buildMenu() {
+  var template = [
+    {
+      label: "Full Swap",
+      submenu: [
+        { label: "Reload", accelerator: "CmdOrCtrl+R", click: function() { if (mainWindow) mainWindow.reload(); } },
+        { label: "Back", accelerator: "Alt+Left", click: function() { if (mainWindow) mainWindow.webContents.goBack(); } },
+        { type: "separator" },
+        { label: "Check for Updates", click: function() { autoUpdater.checkForUpdates().catch(function() {}); } },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "togglefullscreen" },
+        { type: "separator" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { role: "resetZoom" },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+app.whenReady().then(async function() {
+  await session.defaultSession.clearCache().catch(function() {});
+  await session.defaultSession.clearStorageData({
+    storages: ["serviceworkers", "cachestorage"],
+  }).catch(function() {});
+  createSplash();
+  createMainWindow();
+  buildMenu();
+  if (app.isPackaged) setupAutoUpdater();
+  app.on("activate", function() {
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  });
+});
+
+app.on("window-all-closed", function() {
+  if (process.platform !== "darwin") app.quit();
+});
