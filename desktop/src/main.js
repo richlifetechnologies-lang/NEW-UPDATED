@@ -180,12 +180,13 @@ function createMainWindow() {
   // Auto-reload on focus so any server-side changes are reflected immediately.
   // Guard: skip reload if a file-input dialog was recently open (Electron fires
   // focus when the OS file picker closes, which would wipe uploaded file state).
-  let lastBlurMs = 0;
+    let lastBlurMs = 0;
   mainWindow.on("blur", () => { lastBlurMs = Date.now(); });
   mainWindow.on("focus", () => {
     const msSinceBlur = Date.now() - lastBlurMs;
-    // If focus returned within 3 seconds, it was likely a file picker — skip reload
-    if (msSinceBlur < 3000) return;
+    // Only reload after 5+ minutes in background — short blur/focus events
+    // (file pickers, dialogs, alt-tab) must never trigger a reload
+    if (msSinceBlur < 5 * 60 * 1000) return;
     mainWindow?.webContents.reloadIgnoringCache();
   });
 
