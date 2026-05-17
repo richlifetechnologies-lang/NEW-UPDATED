@@ -28,10 +28,14 @@
   },
   "nsis": {
     "oneClick": false,
+    "perMachine": true,
     "allowToChangeInstallationDirectory": true,
+    "installerSidebar": "build/installer-sidebar.bmp",
+    "uninstallerSidebar": "build/installer-sidebar.bmp",
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "Full Swap By Rich"
+    "shortcutName": "Full Swap By Rich",
+    "displayLanguageSelector": false
   },
   "mac": {
     "target": [
