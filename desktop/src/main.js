@@ -561,6 +561,18 @@ app.whenReady().then(async function() {
   ipcMain.on('mark-launched', function() { markLaunched(); });
   ipcMain.handle('get-theme', function() { return getThemeLabel(); });
 
+  // Window controls
+  ipcMain.on('window-minimize', function() { if (mainWindow) mainWindow.minimize(); });
+  ipcMain.on('window-maximize', function() {
+    if (!mainWindow) return;
+    if (mainWindow.isMaximized()) { mainWindow.unmaximize(); } else { mainWindow.maximize(); }
+    mainWindow.webContents.send('window-maximized-state', mainWindow.isMaximized());
+  });
+  ipcMain.on('window-close', function() {
+    if (!mainWindow) return;
+    if (process.platform !== 'darwin' && !app.isQuiting) { mainWindow.hide(); } else { mainWindow.close(); }
+  });
+
   createSplash();
   createMainWindow();
   buildMenu();
