@@ -544,6 +544,7 @@ app.whenReady().then(async function() {
 
   // IPC handlers
   ipcMain.on('install-update', function() { autoUpdater.quitAndInstall(false, true); });
+  ipcMain.on('check-for-updates', function() { autoUpdater.checkForUpdates().catch(function() {}); });
   ipcMain.on('mark-launched', function() { markLaunched(); });
   ipcMain.handle('get-theme', function() { return getThemeLabel(); });
 
