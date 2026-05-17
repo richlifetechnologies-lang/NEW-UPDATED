@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Play, Menu, X, LayoutDashboard } from "lucide-react";
+import { Play, Menu, X, LayoutDashboard, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { clearLicenseKey } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,31 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
 ];
 
+declare global {
+  interface Window {
+    isElectron?: boolean;
+    electronAPI?: {
+      checkForUpdates?: () => void;
+      installUpdate?: () => void;
+      [key: string]: unknown;
+    };
+  }
+}
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [location, setLocation] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   const handleLogout = () => { clearLicenseKey(); setLocation("/"); };
+
+  const handleCheckForUpdates = () => {
+    if (!window.electronAPI?.checkForUpdates) return;
+    setChecking(true);
+    window.electronAPI.checkForUpdates();
+    setTimeout(() => setChecking(false), 4000);
+  };
 
   return (
     <div className="min-h-screen flex" style={{ background: "hsl(222 47% 4%)" }}>
@@ -66,8 +85,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* Logout */}
-        <div className="p-4" style={{ borderTop: "1px solid hsl(222 40% 10%)" }}>
+        {/* Sidebar footer */}
+        <div className="p-4 space-y-1" style={{ borderTop: "1px solid hsl(222 40% 10%)" }}>
+          {/* Check for Updates — only shown inside the Electron desktop app */}
+          {window.isElectron && (
+            <button
+              onClick={handleCheckForUpdates}
+              disabled={checking}
+              className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-muted-foreground hover:text-foreground transition-colors text-sm"
+              style={{ background: "transparent", border: "none", width: "100%", cursor: "pointer" }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "hsl(187 100% 52% / 0.07)"}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
+            >
+              <RefreshCw className={`w-4 h-4 shrink-0 ${checking ? "animate-spin" : ""}`} />
+              <span className="font-medium tracking-wide">{checking ? "Checking…" : "Check for Updates"}</span>
+            </button>
+          )}
+
+          {/* Logout */}
           <button
             onClick={handleLogout}
             className="wide-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-muted-foreground hover:text-red hover:text-red-400 transition-colors text-sm"
