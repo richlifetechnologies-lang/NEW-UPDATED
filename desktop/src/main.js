@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, shell, ipcMain, Menu, Tray, nativeTheme } = require('electron');
+const { app, BrowserWindow, session, shell, ipcMain, Menu, Tray, nativeTheme, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -177,6 +177,26 @@ function injectWelcomeScreen() {
   mainWindow.webContents.executeJavaScript(js).catch(function() {});
 }
 
+// ─── Install dialog (native — always works regardless of renderer state) ──────
+
+function showInstallDialog(version) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Update Ready to Install',
+    message: 'Full Swap By Rich v' + version + ' has been downloaded.',
+    detail: 'Click "Restart & Install" to apply the update now, or "Later" to install it the next time you launch the app.',
+    buttons: ['Restart & Install', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+  }).then(function(result) {
+    if (result.response === 0) {
+      autoUpdater.quitAndInstall(false, true);
+    }
+  }).catch(function() {});
+}
+
 // ─── Auto-updater ─────────────────────────────────────────────────────────────
 
 function setupAutoUpdater() {
@@ -187,13 +207,9 @@ function setupAutoUpdater() {
   var isUpdateDownloaded = false;
 
   autoUpdater.on('update-available', function(info) {
-    // If the update is already downloaded, re-show the install banner immediately
-    // instead of showing the progress bar (which would never complete/hide).
+    // If already downloaded, skip progress bar and go straight to install prompt.
     if (isUpdateDownloaded) {
-      var rawNotes = '';
-      if (typeof info.releaseNotes === 'string') rawNotes = info.releaseNotes;
-      else if (Array.isArray(info.releaseNotes)) rawNotes = info.releaseNotes.map(function(r) { return r.note || r; }).join(' ');
-      injectUpdateBanner(info.version, rawNotes);
+      showInstallDialog(info.version);
       return;
     }
     if (isDownloading) return;
@@ -214,10 +230,7 @@ function setupAutoUpdater() {
     currentVersion = null;
     if (mainWindow) mainWindow.setProgressBar(-1);
     removeStatusBar();
-    var rawNotes = '';
-    if (typeof info.releaseNotes === 'string') rawNotes = info.releaseNotes;
-    else if (Array.isArray(info.releaseNotes)) rawNotes = info.releaseNotes.map(function(r) { return r.note || r; }).join(' ');
-    injectUpdateBanner(info.version, rawNotes);
+    showInstallDialog(info.version);
   });
 
   autoUpdater.on('update-not-available', function() {
