@@ -1,25 +1,20 @@
+<details> <summary>Click to expand — copy ALL of this</summary>
 const { app, BrowserWindow, session, shell, ipcMain, Menu, dialog } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
-
 const SERVER_URL = process.env.APP_SERVER_URL || "https://fullswapbyrich.xyz";
-
 let mainWindow = null;
 let splashWindow = null;
-
 function setupAutoUpdater() {
   autoUpdater.autoDownload = true;
-
   autoUpdater.on("update-available", function(info) {
     injectStatusBar("Downloading update v" + info.version + "...");
   });
-
   autoUpdater.on("download-progress", function(progress) {
     var pct = Math.round(progress.percent);
     mainWindow && mainWindow.setProgressBar(progress.percent / 100);
     injectStatusBar("Downloading update... " + pct + "%");
   });
-
   autoUpdater.on("update-downloaded", function(info) {
     mainWindow && mainWindow.setProgressBar(-1);
     removeStatusBar();
@@ -40,21 +35,17 @@ function setupAutoUpdater() {
       if (result.response === 0) autoUpdater.quitAndInstall(false, true);
     });
   });
-
   autoUpdater.on("error", function() {
     mainWindow && mainWindow.setProgressBar(-1);
     removeStatusBar();
   });
-
   ipcMain.on("install-update", function() {
     autoUpdater.quitAndInstall(false, true);
   });
-
   var checkUpdate = function() { autoUpdater.checkForUpdates().catch(function() {}); };
   setTimeout(checkUpdate, 5000);
   setInterval(checkUpdate, 30 * 60 * 1000);
 }
-
 function injectStatusBar(text) {
   if (!mainWindow) return;
   mainWindow.webContents.executeJavaScript(
@@ -70,14 +61,12 @@ function injectStatusBar(text) {
     "})()"
   ).catch(function() {});
 }
-
 function removeStatusBar() {
   if (!mainWindow) return;
   mainWindow.webContents.executeJavaScript(
     "var b = document.getElementById('__fs-status-bar'); if (b) b.remove();"
   ).catch(function() {});
 }
-
 function setupPermissions(win) {
   win.webContents.session.setPermissionRequestHandler(function(_webContents, permission, callback) {
     var allowed = ["media", "camera", "microphone", "display-capture"];
@@ -88,7 +77,6 @@ function setupPermissions(win) {
     return allowed.includes(permission);
   });
 }
-
 function createSplash() {
   splashWindow = new BrowserWindow({
     width: 400,
@@ -101,7 +89,6 @@ function createSplash() {
   });
   splashWindow.loadFile(path.join(__dirname, "splash.html"));
 }
-
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -118,9 +105,7 @@ function createMainWindow() {
       webSecurity: true,
     },
   });
-
   setupPermissions(mainWindow);
-
   mainWindow.webContents.setWindowOpenHandler(function(details) {
     if (!details.url.startsWith(SERVER_URL)) {
       shell.openExternal(details.url);
@@ -128,25 +113,20 @@ function createMainWindow() {
     }
     return { action: "allow" };
   });
-
   mainWindow.loadURL(SERVER_URL);
-
   mainWindow.once("ready-to-show", function() {
     if (splashWindow) { splashWindow.close(); splashWindow = null; }
     mainWindow.show();
     mainWindow.focus();
     if (!app.isPackaged) mainWindow.webContents.openDevTools();
   });
-
   mainWindow.on("closed", function() { mainWindow = null; });
-
   var lastBlurMs = 0;
   mainWindow.on("blur", function() { lastBlurMs = Date.now(); });
   mainWindow.on("focus", function() {
     if (Date.now() - lastBlurMs < 5 * 60 * 1000) return;
     if (mainWindow) mainWindow.webContents.reloadIgnoringCache();
   });
-
   mainWindow.webContents.on("did-fail-load", function(_e, code, desc) {
     if (code === -102 || code === -105 || code === -106) {
       setTimeout(function() { if (mainWindow) mainWindow.loadURL(SERVER_URL); }, 3000);
@@ -159,10 +139,8 @@ function createMainWindow() {
       );
     }
   });
-
   return mainWindow;
 }
-
 function buildMenu() {
   var template = [
     {
@@ -189,7 +167,6 @@ function buildMenu() {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
-
 app.whenReady().then(async function() {
   await session.defaultSession.clearCache().catch(function() {});
   await session.defaultSession.clearStorageData({
@@ -203,7 +180,8 @@ app.whenReady().then(async function() {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
 });
-
 app.on("window-all-closed", function() {
   if (process.platform !== "darwin") app.quit();
 });
+
+</details>
