@@ -20,8 +20,50 @@ jobs:
         working-directory: desktop
         run: npm install
 
-      - name: Build & publish Windows installer
+      - name: Build Windows installer (without auto-publish)
+        working-directory: desktop
+        run: npx electron-builder --win --publish never
+
+      - name: Fix latest.yml — make URL match actual filename
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          $ymlPath = "dist/latest.yml"
+          $content = Get-Content $ymlPath -Raw
+
+          # electron-builder writes dashes in the URL field but uploads dots in the filename.
+          # Fix both the url and path fields to match what's actually on disk.
+          $content = $content -replace '(url:\s*)Full-Swap-By-Rich-Setup-', '${1}Full.Swap.By.Rich.Setup.'
+          $content = $content -replace '(path:\s*)Full-Swap-By-Rich-Setup-', '${1}Full.Swap.By.Rich.Setup.'
+
+          Set-Content $ymlPath $content -NoNewline
+          Write-Host "=== Fixed latest.yml ==="
+          Get-Content $ymlPath
+
+      - name: Create GitHub Release and upload all artifacts
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --publish always
+        shell: pwsh
+        run: |
+          $version = (Get-Content "package.json" | ConvertFrom-Json).version
+          $tag = "v$version"
+
+          # Create the release (ignore error if it already exists)
+          gh release create $tag `
+            --title "Full Swap By Rich $tag" `
+            --notes "Release $tag" 2>&1 | Write-Host
+
+          # Upload every artifact — exe, yml files (skip blockmap and builder-debug)
+          $files = Get-ChildItem "dist" -File | Where-Object {
+            ($_.Extension -in @(".exe", ".yml")) -and
+            ($_.Name -notlike "*blockmap*") -and
+            ($_.Name -ne "builder-debug.yml")
+          }
+
+          foreach ($file in $files) {
+            Write-Host "Uploading: $($file.Name)"
+            gh release upload $tag $file.FullName --clobber
+          }
+
+          Write-Host "Done. Release: https://github.com/${{ github.repository }}/releases/tag/$tag"
