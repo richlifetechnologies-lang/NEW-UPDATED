@@ -182,17 +182,25 @@ function injectWelcomeScreen() {
 function setupAutoUpdater() {
   autoUpdater.autoDownload = true;
 
+  var currentVersion = null;
+  var isDownloading = false;
+
   autoUpdater.on('update-available', function(info) {
+    if (isDownloading) return;
+    isDownloading = true;
+    currentVersion = info.version;
     injectStatusBar('Downloading update v' + info.version + '...', 0);
   });
 
   autoUpdater.on('download-progress', function(progress) {
     var pct = Math.round(progress.percent);
     if (mainWindow) mainWindow.setProgressBar(progress.percent / 100);
-    injectStatusBar('Downloading update v' + progress.version + '...', pct);
+    injectStatusBar('Downloading update v' + (currentVersion || '') + '...', pct);
   });
 
   autoUpdater.on('update-downloaded', function(info) {
+    isDownloading = false;
+    currentVersion = null;
     if (mainWindow) mainWindow.setProgressBar(-1);
     removeStatusBar();
     var rawNotes = '';
@@ -201,7 +209,28 @@ function setupAutoUpdater() {
     injectUpdateBanner(info.version, rawNotes);
   });
 
+  autoUpdater.on('update-not-available', function() {
+    isDownloading = false;
+    currentVersion = null;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.executeJavaScript(`(function(){
+      var t=document.createElement('div');
+      t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);z-index:999999;' +
+        'background:#0d1b2a;border:1px solid rgba(0,229,255,0.2);border-radius:10px;' +
+        'padding:10px 20px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
+        'font-size:13px;color:#94a3b8;opacity:0;transition:opacity 0.3s ease,transform 0.3s ease;pointer-events:none;' +
+        'box-shadow:0 8px 32px rgba(0,0,0,0.4);white-space:nowrap;';
+      t.textContent='\u2713  You are on the latest version';
+      document.body.appendChild(t);
+      requestAnimationFrame(function(){t.style.opacity='1';t.style.transform='translateX(-50%) translateY(0)';});
+      setTimeout(function(){t.style.opacity='0';t.style.transform='translateX(-50%) translateY(20px)';
+        setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},350);},3500);
+    })()`).catch(function(){});
+  });
+
   autoUpdater.on('error', function() {
+    isDownloading = false;
+    currentVersion = null;
     if (mainWindow) mainWindow.setProgressBar(-1);
     removeStatusBar();
   });
