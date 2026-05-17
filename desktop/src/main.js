@@ -207,7 +207,12 @@ function buildMenu() {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Clear cache + service workers on every launch so web fixes always reach users
+  await session.defaultSession.clearCache().catch(() => {});
+  await session.defaultSession.clearStorageData({
+    storages: ["serviceworkers", "cachestorage"],
+  }).catch(() => {});
   createSplash();
   createMainWindow();
   buildMenu();
