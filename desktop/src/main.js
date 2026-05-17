@@ -35,48 +35,70 @@ const UPDATE_BANNER_CSS = `
   #__fs-update-banner .dismiss-btn { background: transparent; color: #aaa; }
 `;
 
-function injectUpdateBanner(version, downloaded) {
-  if (!mainWindow) return;
-  const label = downloaded
-    ? `v${version} ready — restart to install`
-    : `v${version} available — downloading…`;
-  const js = `
-    (function() {
-      if (document.getElementById('__fs-update-banner')) return;
-      const s = document.createElement('style'); s.textContent = \`${UPDATE_BANNER_CSS}\`; document.head.appendChild(s);
-      const d = document.createElement('div'); d.id = '__fs-update-banner';
-      d.innerHTML = \`
-        <span>🔄 ${label}</span>
-        ${downloaded ? '<button class="install-btn" onclick="window.__electron?.installUpdate()">Restart</button>' : ''}
-        <button class="dismiss-btn" onclick="this.closest(\\'#__fs-update-banner\\').remove()">✕</button>
-      \`;
-      document.body.appendChild(d);
-    })();
-  `;
-  mainWindow.webContents.executeJavaScript(js).catch(() => {});
-}
-
 // ── Auto-updater (checks GitHub Releases) ────────────────────────────────────
 function setupAutoUpdater() {
-  autoUpdater.autoDownload = true;  // download silently in background
+  autoUpdater.autoDownload = true;
 
   autoUpdater.on("update-available", (info) => {
-    pendingUpdateVersion = info.version;
-    injectUpdateBanner(info.version, false);
-    mainWindow?.webContents.send("update-available", info.version);
+    injectStatusBar(`⬇ Downloading update v${info.version}…`);
   });
 
-  autoUpdater.on("update-downloaded", () => {
-    injectUpdateBanner(pendingUpdateVersion, true);
-    mainWindow?.webContents.send("update-downloaded");
+  autoUpdater.on("download-progress", (progress) => {
+    const pct = Math.round(progress.percent);
+    mainWindow?.setProgressBar(progress.percent / 100);
+    injectStatusBar(`⬇ Downloading update… ${pct}%`);
   });
 
-  autoUpdater.on("error", () => {});  // suppress to avoid unhandled rejections
-
-  ipcMain.on("install-update", () => {
-    autoUpdater.quitAndInstall(false, true);
+  autoUpdater.on("update-downloaded", (info) => {
+    mainWindow?.setProgressBar(-1);
+    removeStatusBar();
+    dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Update Ready to Install",
+      message: `Full Swap By Rich v${info.version} is ready`,
+      detail: "The update has finished downloading.\n\nClick \"Install Now\" to restart and apply it immediately, or \"Later\" to install it next time you close the app.",
+      buttons: ["Install Now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.quitAndInstall(false, true);
+    });
   });
 
+  autoUpdater.on("error", () => {
+    mainWindow?.setProgressBar(-1);
+    removeStatusBar();
+  });
+
+  ipcMain.on("install-update", () => autoUpdater.quitAndInstall(false, true));
+
+  const checkUpdate = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(checkUpdate, 5_000);
+  setInterval(checkUpdate, 30 * 60 * 1_000);
+}
+
+function injectStatusBar(text) {
+  if (!mainWindow) return;
+  mainWindow.webContents.executeJavaScript(`
+    (function() {
+      let bar = document.getElementById('__fs-status-bar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = '__fs-status-bar';
+        bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#1a1a2e;border-top:1px solid #6c63ff;padding:8px 16px;font-family:sans-serif;font-size:12px;color:#ccc;';
+        document.body.appendChild(bar);
+      }
+      bar.textContent = \`${text}\`;
+    })();
+  `).catch(() => {});
+}
+
+function removeStatusBar() {
+  if (!mainWindow) return;
+  mainWindow.webContents.executeJavaScript(`
+    const b = document.getElementById('__fs-status-bar'); if (b) b.remove();
+  `).catch(() => {});
+}
   // Check on launch, then every 30 minutes
   const checkUpdate = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(checkUpdate, 5_000);
