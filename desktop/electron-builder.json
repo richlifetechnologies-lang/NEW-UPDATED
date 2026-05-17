@@ -16,6 +16,7 @@
     "repo": "NEW-UPDATED"
   },
   "win": {
+    "artifactName": "Full.Swap.By.Rich.Setup.${version}.${ext}",
     "target": [
       {
         "target": "nsis",
