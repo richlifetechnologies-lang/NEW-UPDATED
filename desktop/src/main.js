@@ -36,13 +36,13 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = true;
 
   autoUpdater.on('update-available', function(info) {
-    injectStatusBar('Downloading update v' + info.version + '...');
+    injectStatusBar('Downloading update v' + info.version + '...', 0);
   });
 
   autoUpdater.on('download-progress', function(progress) {
     var pct = Math.round(progress.percent);
     if (mainWindow) mainWindow.setProgressBar(progress.percent / 100);
-    injectStatusBar('Downloading update... ' + pct + '%');
+    injectStatusBar('Downloading update v' + progress.version + '...', pct);
   });
 
   autoUpdater.on('update-downloaded', function(info) {
@@ -69,7 +69,7 @@ function setupAutoUpdater() {
   setInterval(checkUpdate, 30 * 60 * 1000);
 }
 
-// In-app update banner
+// In-app update banner (shown when download is complete)
 function injectUpdateBanner(version, notes) {
   if (!mainWindow) return;
   var whatsNew = notes ? notes.substring(0, 120) : '';
@@ -86,29 +86,58 @@ function injectUpdateBanner(version, notes) {
   ).catch(function() {});
 }
 
-// Download status bar
-function injectStatusBar(text) {
+// Download status bar (top of page, with live progress fill)
+function injectStatusBar(text, pct) {
   if (!mainWindow) return;
+  var safePct = Math.min(100, Math.max(0, pct || 0));
   mainWindow.webContents.executeJavaScript(
     '(function() {' +
     '  var bar = document.getElementById('__fs-status-bar');' +
     '  if (!bar) {' +
     '    bar = document.createElement('div');' +
     '    bar.id = '__fs-status-bar';' +
-    '    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#1a1a2e;border-top:1px solid rgba(0,229,255,0.3);padding:8px 16px;font-family:sans-serif;font-size:12px;color:#ccc;display:flex;align-items:center;gap:8px;';' +
+    '    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999998;' +
+    '      background:#0a0f1a;border-bottom:1px solid rgba(0,229,255,0.2);' +
+    '      font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;overflow:hidden;';' +
+    '    var fill = document.createElement('div');' +
+    '    fill.id = '__fs-status-fill';' +
+    '    fill.style.cssText = 'position:absolute;top:0;left:0;height:100%;' +
+    '      background:linear-gradient(90deg,rgba(0,229,255,0.08),rgba(0,229,255,0.04));' +
+    '      transition:width 0.4s ease;width:0%;';' +
+    '    var inner = document.createElement('div');' +
+    '    inner.style.cssText = 'position:relative;padding:9px 20px;display:flex;align-items:center;gap:10px;';' +
     '    var dot = document.createElement('span');' +
-    '    dot.style.cssText = 'width:6px;height:6px;border-radius:50%;background:#00e5ff;display:inline-block;animation:fspulse 1s infinite;';' +
+    '    dot.style.cssText = 'width:6px;height:6px;border-radius:50%;background:#00e5ff;display:inline-block;flex-shrink:0;animation:fspulse 1s infinite;';' +
     '    if (!document.getElementById('__fs-keyframes')) {' +
     '      var s = document.createElement('style');s.id='__fs-keyframes';' +
     '      s.textContent='@keyframes fspulse{0%,100%{opacity:1}50%{opacity:0.3}}';' +
     '      document.head.appendChild(s);' +
     '    }' +
-    '    bar.appendChild(dot);' +
-    '    var t = document.createElement('span');' +
-    '    bar.appendChild(t);' +
-    '    document.body.appendChild(bar);' +
+    '    var txt = document.createElement('span');' +
+    '    txt.id = '__fs-status-txt';' +
+    '    txt.style.cssText = 'font-size:12px;color:#94a3b8;';' +
+    '    var pctSpan = document.createElement('span');' +
+    '    pctSpan.id = '__fs-status-pct';' +
+    '    pctSpan.style.cssText = 'font-size:12px;color:#00e5ff;font-weight:600;margin-left:auto;';' +
+    '    var track = document.createElement('div');' +
+    '    track.style.cssText = 'position:absolute;bottom:0;left:0;right:0;height:2px;background:rgba(255,255,255,0.04);';' +
+    '    var prog = document.createElement('div');' +
+    '    prog.id = '__fs-status-prog';' +
+    '    prog.style.cssText = 'height:100%;background:linear-gradient(90deg,#00e5ff,#0098b3);transition:width 0.4s ease;width:0%;';' +
+    '    track.appendChild(prog);' +
+    '    inner.appendChild(dot);inner.appendChild(txt);inner.appendChild(pctSpan);' +
+    '    bar.appendChild(fill);bar.appendChild(inner);bar.appendChild(track);' +
+    '    document.body.insertBefore(bar, document.body.firstChild);' +
     '  }' +
-    '  bar.lastChild.textContent = ' + JSON.stringify(text) + ';' +
+    '  var p = ' + safePct + ';' +
+    '  var fillEl = document.getElementById('__fs-status-fill');' +
+    '  if (fillEl) fillEl.style.width = p + '%';' +
+    '  var progEl = document.getElementById('__fs-status-prog');' +
+    '  if (progEl) progEl.style.width = p + '%';' +
+    '  var txtEl = document.getElementById('__fs-status-txt');' +
+    '  if (txtEl) txtEl.textContent = ' + JSON.stringify(text) + ';' +
+    '  var pctEl = document.getElementById('__fs-status-pct');' +
+    '  if (pctEl) pctEl.textContent = p > 0 ? p + '%' : '';' +
     '})()'
   ).catch(function() {});
 }
