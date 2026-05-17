@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   // Auto-updater
   installUpdate: () => ipcRenderer.send('install-update'),
+  checkForUpdates: () => ipcRenderer.send('check-for-updates'),
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_e, info) => cb(info)),
   onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, info) => cb(info)),
 
