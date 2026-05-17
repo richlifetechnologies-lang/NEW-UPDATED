@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Full Swap By Rich — Connection Error</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #070c14;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #e2e8f0;
+      -webkit-app-region: drag;
+    }
+    .card {
+      text-align: center;
+      padding: 56px 72px;
+      background: linear-gradient(145deg, #0a0f1a, #0d1b2a);
+      border: 1px solid rgba(0,229,255,0.15);
+      border-radius: 20px;
+      box-shadow: 0 0 80px rgba(0,0,0,0.6), 0 0 40px rgba(0,229,255,0.04);
+      max-width: 440px;
+    }
+    .icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 2px solid rgba(239,68,68,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      background: rgba(239,68,68,0.08);
+      box-shadow: 0 0 24px rgba(239,68,68,0.15);
+      font-size: 22px;
+    }
+    h2 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    .sub {
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+    .url {
+      font-size: 11px;
+      color: #1e3a4a;
+      margin-bottom: 28px;
+      letter-spacing: 0.5px;
+    }
+    button {
+      -webkit-app-region: no-drag;
+      background: #00e5ff;
+      color: #070c14;
+      border: none;
+      padding: 11px 32px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      transition: opacity 0.2s;
+      display: block;
+      margin: 0 auto 12px;
+      width: 100%;
+    }
+    button:hover { opacity: 0.88; }
+    .brand {
+      margin-top: 28px;
+      font-size: 10px;
+      color: #1e293b;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">⚡</div>
+    <h2>Can't Connect to Server</h2>
+    <p class="sub">Full Swap By Rich couldn't reach the server. Check your internet connection and try again.</p>
+    <p class="url">fullswapbyrich.xyz</p>
+    <button onclick="window.location.reload()">Try Again</button>
+    <div class="brand">Full Swap By Rich &nbsp;·&nbsp; v1.0.15</div>
+  </div>
+</body>
+</html>
