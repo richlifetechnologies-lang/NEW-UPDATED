@@ -3,6 +3,9 @@ name: Build & Publish Desktop App
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -20,5 +23,5 @@ jobs:
       - name: Build & publish Windows installer
         working-directory: desktop
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win --publish always
