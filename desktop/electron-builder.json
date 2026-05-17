@@ -17,7 +17,12 @@
   },
   "win": {
     "target": [
-      { "target": "nsis", "arch": ["x64"] }
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
     ],
     "icon": "build/icon.ico"
   },
@@ -30,7 +35,12 @@
   },
   "mac": {
     "target": [
-      { "target": "dmg", "arch": ["universal"] }
+      {
+        "target": "dmg",
+        "arch": [
+          "universal"
+        ]
+      }
     ],
     "icon": "build/icon.png",
     "category": "public.app-category.video",
@@ -40,11 +50,6 @@
   "dmg": {
     "title": "Full Swap By Rich",
     "icon": "build/icon.png"
-  },
-  "linux": {
-    "target": ["AppImage", "deb"],
-    "icon": "build/icon.png",
-    "category": "Video"
   },
   "extraMetadata": {
     "main": "src/main.js"
