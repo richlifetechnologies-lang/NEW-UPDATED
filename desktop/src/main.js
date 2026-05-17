@@ -184,8 +184,18 @@ function setupAutoUpdater() {
 
   var currentVersion = null;
   var isDownloading = false;
+  var isUpdateDownloaded = false;
 
   autoUpdater.on('update-available', function(info) {
+    // If the update is already downloaded, re-show the install banner immediately
+    // instead of showing the progress bar (which would never complete/hide).
+    if (isUpdateDownloaded) {
+      var rawNotes = '';
+      if (typeof info.releaseNotes === 'string') rawNotes = info.releaseNotes;
+      else if (Array.isArray(info.releaseNotes)) rawNotes = info.releaseNotes.map(function(r) { return r.note || r; }).join(' ');
+      injectUpdateBanner(info.version, rawNotes);
+      return;
+    }
     if (isDownloading) return;
     isDownloading = true;
     currentVersion = info.version;
@@ -200,6 +210,7 @@ function setupAutoUpdater() {
 
   autoUpdater.on('update-downloaded', function(info) {
     isDownloading = false;
+    isUpdateDownloaded = true;
     currentVersion = null;
     if (mainWindow) mainWindow.setProgressBar(-1);
     removeStatusBar();
@@ -212,6 +223,7 @@ function setupAutoUpdater() {
   autoUpdater.on('update-not-available', function() {
     isDownloading = false;
     currentVersion = null;
+    removeStatusBar();
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.executeJavaScript(`(function(){
       var t=document.createElement('div');
