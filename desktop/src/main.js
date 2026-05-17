@@ -216,6 +216,14 @@ function setupAutoUpdater() {
     isDownloading = true;
     currentVersion = info.version;
     injectStatusBar('Downloading update v' + info.version + '...', 0);
+    // Notify via system tray (Windows only — macOS does not support balloons)
+    if (tray && tray.displayBalloon && process.platform === 'win32') {
+      tray.displayBalloon({
+        title: 'Full Swap By Rich — Update Available',
+        content: 'v' + info.version + ' is downloading in the background. You\'ll be notified when it\'s ready to install.',
+        respectQuietTime: true,
+      });
+    }
   });
 
   autoUpdater.on('download-progress', function(progress) {
