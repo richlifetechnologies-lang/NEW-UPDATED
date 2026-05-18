@@ -121,6 +121,13 @@ function TrialLockedOverlay() {
 
 export default function StreamPage() {
   const [, setLocation] = useLocation();
+    const { data: _brData } = useQuery<{ rate: number }>({
+      queryKey: ["/api/admin/billing-rate"],
+      queryFn: () => fetch("/api/admin/billing-rate").then(r => r.ok ? r.json() : { rate: 5 }),
+      staleTime: 60_000,
+      retry: false,
+    });
+    const liveRate = _brData?.rate ?? 5;
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1142,7 +1149,7 @@ export default function StreamPage() {
               <span className="flex items-center gap-2">
                 <span>{Math.round(barPct * 100)}% remaining</span>
                 <span className="text-slate-700">·</span>
-                <span className="text-yellow-500/70 font-mono font-medium">⚡ 5 cr/s · $0.05/s · $180/hr</span>
+                <span className="text-yellow-500/70 font-mono font-medium">⚡ {liveRate} cr/s · ${(liveRate * 0.01).toFixed(2)}/s · ${Math.round(liveRate * 36)}/hr</span>
               </span>
               {barPct <= 0.15 && liveRemainingBarSecs > 0 ? (
                 <span className="text-red-400 font-medium">⚠ Running low — contact admin</span>
