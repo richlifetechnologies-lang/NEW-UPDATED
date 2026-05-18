@@ -1,7 +1,7 @@
 // lib: artifacts/api-server/src/lib/credit-tracker.ts
 // Decart Credit Tracker — calculates real-time credit usage per API key
-// Formula: creditsUsed = SUM(session.durationSeconds * 2) for completed sessions
-//          + FLOOR((NOW - session.startedAt) / 1000) * 2 for each live session
+// Formula: creditsUsed = SUM(session.durationSeconds * 5) for completed sessions
+//          + FLOOR((NOW - session.startedAt) / 1000) * 5 for each live session
 // Remaining = totalCreditsLoaded - (creditsUsed - creditsBaseline)
 
 import { db, decartApiKeysTable, sessionsTable } from "@workspace/db";
@@ -122,8 +122,8 @@ export async function getKeyCreditStatus(
   // Estimated remaining runtime based on current burn rate
   let estimatedRemainingSeconds: number | null = null;
   if (activeSessionCount > 0) {
-    // Each session burns 2 credits/sec, so all sessions burn 2*count credits/sec
-    const burnRatePerSec = 2 * activeSessionCount;
+    // Each session burns 5 credits/sec, so all sessions burn 5*count credits/sec
+    const burnRatePerSec = DECART_CREDITS_PER_SEC * activeSessionCount;
     estimatedRemainingSeconds = Math.floor(creditsRemaining / burnRatePerSec);
   }
 
@@ -190,7 +190,7 @@ export async function recordTopup(
     .limit(1);
 
   const currentTotalSeconds = Number(usageResult[0]?.totalSeconds ?? 0);
-  // Baseline in credits = totalSeconds × DECART_CREDITS_PER_SEC (2)
+  // Baseline in credits = totalSeconds × DECART_CREDITS_PER_SEC (5)
   const newBaseline = currentTotalSeconds * DECART_CREDITS_PER_SEC;
   // FIX (Bug #1): SET the exact value entered - do NOT accumulate with prior balance
   // Old: newTotal = (key.totalCreditsLoaded ?? 0) + creditsToAdd  <- accumulates
@@ -333,7 +333,7 @@ export async function getKeyUsageHistory(
       startedAt: r.startedAt.toISOString(),
       stoppedAt: r.stoppedAt?.toISOString() ?? null,
       durationSeconds: wallClockSec,
-      creditsConsumed: wallClockSec * 2,
+      creditsConsumed: wallClockSec * DECART_CREDITS_PER_SEC,
       status: r.status,
     };
   });

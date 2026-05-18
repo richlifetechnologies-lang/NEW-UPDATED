@@ -147,7 +147,7 @@ export default function StreamPage() {
   // Remaining seconds from the most recent validate call — used as fallback when
   // licenseStatus query hasn't loaded yet for a freshly-entered key.
   const validatedRemainingRef = useRef<number>(0);
-  // Counts Decart generationTick events (1 tick = 1 billed second = 2 credits).
+  // Counts Decart generationTick events (1 tick = 1 billed second = 5 credits).
   // Sent to the server on stop so billing matches Decart's exact charge.
   const tickCountRef          = useRef<number>(0);
 
@@ -210,7 +210,7 @@ export default function StreamPage() {
   // /api/users/dashboard uses requireAuth (JWT only) — license-key users always get 401.
   // /api/license/status uses requireLicense (X-License-Key) and already includes
   // unbilled active-session seconds so remainingSeconds is always real-time accurate.
-  // Rate: 2 credits/sec = 120 credits/min = $0.01/credit → $0.02/sec → $72/hr
+  // Rate: 5 credits/sec = 300 credits/min = $0.01/credit → $0.05/sec → $180/hr
   const licKey = getLicenseKey() ?? "";
   const licenseStatus = useQuery({
     queryKey: ["license-status", licKey],
@@ -268,7 +268,7 @@ export default function StreamPage() {
     activeSessionRef.current = null;
 
     try {
-      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 2 } });
+      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 5 } });
       queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     } catch { /* best effort */ }
 
@@ -596,7 +596,7 @@ export default function StreamPage() {
       setIsStreamStarting(false);
 
       // Capture remaining seconds from license status at stream start for smooth countdown
-      // and server-side kill threshold (2 credits/sec = 120/min → $0.02/sec → $72/hr)
+      // and server-side kill threshold (5 credits/sec = 300/min → $0.05/sec → $180/hr)
       // Fall back to validatedRemainingRef when licenseStatus hasn't loaded yet for a
       // freshly-entered key (prevents countdown from immediately showing 0).
       const remainingAtStart     = licenseStatus.data?.remainingSeconds ?? validatedRemainingRef.current;
@@ -698,7 +698,7 @@ export default function StreamPage() {
               fetch(`/api/sessions/${droppedSid}/stop`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 2 }),
+                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 5 }),
                 keepalive: true,
               }).catch(() => {});
               activeSessionRef.current = null;
@@ -734,7 +734,7 @@ export default function StreamPage() {
         }
       }
 
-      // Count every generationTick — Decart charges 2 credits per tick (1 tick = 1 billed second).
+      // Count every generationTick — Decart charges 5 credits per tick (1 tick = 1 billed second).
       // This gives us the exact credit count to pass to /stop for perfect billing reconciliation.
       tickCountRef.current = 0;
       realtimeClient.on("generationTick", () => {
@@ -1046,7 +1046,7 @@ export default function StreamPage() {
   // Smooth per-second countdown: streamStartRemRef anchors remaining secs at stream start.
   // elapsedSecs ticks every second (client timer). Server polls every 5s recalibrate the ref.
   // Formula: remaining = (remainingAtStart + elapsedAtLastPoll) - elapsedNow
-  //        = initialRemaining - elapsedSecs  ← exact Decart billing: 1s = 2 credits = $0.02
+  //        = initialRemaining - elapsedSecs  ← exact Decart billing: 1s = 5 credits = $0.05
   const paidSecsRemaining = isStreaming
     ? Math.max(0, streamStartRemRef.current - elapsedSecs)
     : remainingSeconds;
@@ -1142,7 +1142,7 @@ export default function StreamPage() {
               <span className="flex items-center gap-2">
                 <span>{Math.round(barPct * 100)}% remaining</span>
                 <span className="text-slate-700">·</span>
-                <span className="text-yellow-500/70 font-mono font-medium">⚡ 2 cr/s · $0.02/s · $72/hr</span>
+                <span className="text-yellow-500/70 font-mono font-medium">⚡ 5 cr/s · $0.05/s · $180/hr</span>
               </span>
               {barPct <= 0.15 && liveRemainingBarSecs > 0 ? (
                 <span className="text-red-400 font-medium">⚠ Running low — contact admin</span>

@@ -8,6 +8,7 @@ import { notifySessionDead } from "../lib/notifications";
 import { logger } from "../lib/logger";
 
 // ── All billing/timing constants imported from single source of truth ──────
+import { getBillingRate } from "../lib/billing-rate-cache";
 import {
   HEARTBEAT_GRACE_MS,
   ORPHAN_GRACE_MS,
@@ -61,7 +62,7 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
 
   // ── BILLING-FIX: Credit-based duration reconciliation ──────────────────
   // If creditsConsumed is provided, use Decart's actual generationTick count
-  // (2 credits/sec) instead of frontend timestamps. Pure billing-math functions
+  // (5 credits/sec) instead of frontend timestamps. Pure billing-math functions
   // handle all the arithmetic — any formula change must go through billing-math.ts
   // so tests catch it immediately.
   let incrementSec: number;
@@ -80,6 +81,9 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
       billingStart.getTime()
     ));
   }
+  // Scale by billingRate/2: licence depletion is runtime-configurable via admin panel.
+  const settleRate = await getBillingRate();
+  incrementSec = Math.round(incrementSec * settleRate / 2);
 
   // Every session has MINIMUM_RESERVATION_SEC debited at creation.
   // Guarantee duration_seconds reflects at least that so analytics never show 0.
@@ -384,7 +388,10 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // streaming goes un-billed --- not the entire session.
   const billingStart = billingAnchor;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
-  const incrementSec = Math.max(0, Math.floor((now.getTime() - lastDebit.getTime()) / 1000));
+  // Dynamic rate factor: admin-configurable via /admin/billing. Cached 60 s server-side.
+  const billingRate     = await getBillingRate();
+  const rawIncrementSec = Math.max(0, Math.floor((now.getTime() - lastDebit.getTime()) / 1000));
+  const incrementSec    = Math.round(rawIncrementSec * billingRate / 2);
 
   const [freshLicense] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, license.id));
   if (!freshLicense) { res.status(404).json({ error: "License missing" }); return; }
@@ -451,8 +458,8 @@ router.post("/:sessionId/stop", requireLicense, async (req, res) => {
   const sessionId = req.params["sessionId"] as string;
 
   // ── BILLING-FIX: Accept creditsConsumed for credit-based billing sync ──
-  // creditsConsumed = actual Decart credits used (2 credits/sec, Lucy 2.1)
-  // actualDurationSec = creditsConsumed / 2 → syncs with real Decart billing
+  // creditsConsumed = actual Decart credits used (5 credits/sec, Lucy 2.1)
+  // actualDurationSec = creditsConsumed / 5 → syncs with real Decart billing
   const creditsConsumed: number | undefined =
     typeof (req.body as any)?.creditsConsumed === "number" && (req.body as any).creditsConsumed >= 0
       ? Math.max(0, (req.body as any).creditsConsumed) : undefined;

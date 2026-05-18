@@ -32,12 +32,12 @@ import {
 // Lucy 2.1 contract — revert the change immediately.
 
 describe("Billing constants (Decart Lucy 2.1 contract)", () => {
-  it("charges exactly 2 credits per second", () => {
-    expect(DECART_CREDITS_PER_SEC).toBe(2);
+  it("charges exactly 5 credits per second", () => {
+    expect(DECART_CREDITS_PER_SEC).toBe(5);
   });
 
-  it("charges exactly 120 credits per minute (2 × 60)", () => {
-    expect(DECART_CREDITS_PER_MIN).toBe(120);
+  it("charges exactly 300 credits per minute (5 × 60)", () => {
+    expect(DECART_CREDITS_PER_MIN).toBe(300);
   });
 
   it("reserves at least 1 second at session creation", () => {
@@ -56,22 +56,22 @@ describe("Billing constants (Decart Lucy 2.1 contract)", () => {
 // ── creditBasedIncrement ──────────────────────────────────────────────────
 
 describe("creditBasedIncrement — tick-exact Decart billing", () => {
-  it("converts 60 ticks (120 credits) to 60 seconds with 0 already billed", () => {
-    const { incrementSec, totalDuration } = creditBasedIncrement(120, 0);
+  it("converts 60 ticks (300 credits) to 60 seconds with 0 already billed", () => {
+    const { incrementSec, totalDuration } = creditBasedIncrement(300, 0);
     expect(totalDuration).toBe(60);
     expect(incrementSec).toBe(60);
   });
 
   it("subtracts already-billed seconds from increment", () => {
-    const { incrementSec, totalDuration } = creditBasedIncrement(120, 30);
+    const { incrementSec, totalDuration } = creditBasedIncrement(300, 30);
     expect(totalDuration).toBe(60);
     expect(incrementSec).toBe(30);
   });
 
   it("rounds UP fractional credit seconds (ceiling)", () => {
-    // 3 credits = 1.5 seconds → ceil = 2 seconds
+    // 3 credits = 0.6 seconds → ceil = 1 second
     const { totalDuration } = creditBasedIncrement(3, 0);
-    expect(totalDuration).toBe(2);
+    expect(totalDuration).toBe(1);
   });
 
   it("never returns negative increment", () => {
@@ -86,8 +86,8 @@ describe("creditBasedIncrement — tick-exact Decart billing", () => {
     expect(incrementSec).toBe(0);
   });
 
-  it("handles 1-minute session: 42 ticks (84 credits)", () => {
-    const { incrementSec, totalDuration } = creditBasedIncrement(84, 0);
+  it("handles 1-minute session: 42 ticks (210 credits)", () => {
+    const { incrementSec, totalDuration } = creditBasedIncrement(210, 0);
     expect(totalDuration).toBe(42);
     expect(incrementSec).toBe(42);
   });
@@ -181,19 +181,19 @@ describe("licenseRemainingSeconds", () => {
 // ── calculateCreditsUsedSinceTopup ───────────────────────────────────────
 
 describe("calculateCreditsUsedSinceTopup — credit tracker formula", () => {
-  it("multiplies total seconds by 2 and subtracts baseline", () => {
-    // 50s completed + 0s live, baseline 0 → 50×2 = 100 credits used
-    expect(calculateCreditsUsedSinceTopup(50, 0, 0)).toBe(100);
+  it("multiplies total seconds by 5 and subtracts baseline", () => {
+    // 50s completed + 0s live, baseline 0 → 50×5 = 250 credits used
+    expect(calculateCreditsUsedSinceTopup(50, 0, 0)).toBe(250);
   });
 
   it("includes live session seconds", () => {
-    // 50s completed + 10s live = 60s × 2 = 120 credits
-    expect(calculateCreditsUsedSinceTopup(50, 10, 0)).toBe(120);
+    // 50s completed + 10s live = 60s × 5 = 300 credits
+    expect(calculateCreditsUsedSinceTopup(50, 10, 0)).toBe(300);
   });
 
   it("subtracts baseline from total", () => {
-    // 50s × 2 = 100, baseline 20 → 80 credits used since topup
-    expect(calculateCreditsUsedSinceTopup(50, 0, 20)).toBe(80);
+    // 50s × 5 = 250, baseline 20 → 230 credits used since topup
+    expect(calculateCreditsUsedSinceTopup(50, 0, 20)).toBe(230);
   });
 
   it("never returns negative credits used", () => {
@@ -201,9 +201,9 @@ describe("calculateCreditsUsedSinceTopup — credit tracker formula", () => {
     expect(calculateCreditsUsedSinceTopup(5, 0, 200)).toBe(0);
   });
 
-  it("matches the real scenario: 3 sessions totaling 98s, baseline 0", () => {
+  it("matches the real scenario: 3 sessions totaling 99s, baseline 0", () => {
     // d1f1ee66 (33s) + 157ca55b (46s) + 9b479787 (20s) = 99s wall-clock
-    expect(calculateCreditsUsedSinceTopup(99, 0, 0)).toBe(198);
+    expect(calculateCreditsUsedSinceTopup(99, 0, 0)).toBe(495);
   });
 });
 
@@ -231,11 +231,11 @@ describe("End-to-end: 1-minute license key with two sessions", () => {
     // Step 1: session creation reserves MINIMUM_RESERVATION_SEC
     let usedSeconds = MINIMUM_RESERVATION_SEC; // 1
 
-    // Step 2: settle session 1 (42 ticks = 84 credits)
+    // Step 2: settle session 1 (42 ticks = 210 credits)
     const billingStartMs = 0;
     const lastDebitMs    = 0; // same as billingStart (no heartbeats)
     const endAtMs        = 42_000;
-    const { incrementSec, totalDuration } = creditBasedIncrement(84, 0);
+    const { incrementSec, totalDuration } = creditBasedIncrement(210, 0);
     const remaining = licenseRemainingSeconds(minutesAllocated, usedSeconds);
     const debited   = calculateDebit(incrementSec, remaining);
     usedSeconds += debited;
@@ -254,8 +254,8 @@ describe("End-to-end: 1-minute license key with two sessions", () => {
     usedSeconds += MINIMUM_RESERVATION_SEC; // 44
     expect(licenseRemainingSeconds(minutesAllocated, usedSeconds)).toBe(16);
 
-    // Step 2: settle session 2 (16 ticks = 32 credits)
-    const { incrementSec, totalDuration } = creditBasedIncrement(32, 0);
+    // Step 2: settle session 2 (16 ticks = 80 credits)
+    const { incrementSec, totalDuration } = creditBasedIncrement(80, 0);
     const remaining = licenseRemainingSeconds(minutesAllocated, usedSeconds);
     const debited   = calculateDebit(incrementSec, remaining);
     usedSeconds += debited;
@@ -317,15 +317,15 @@ describe("fmtMin — duration display (must use floor-based math)", () => {
 // ── Conversion helpers ────────────────────────────────────────────────────
 
 describe("Credit/minute conversion helpers", () => {
-  it("1 minute = 120 credits", () => {
-    expect(minutesToCredits(1)).toBe(120);
+  it("1 minute = 300 credits", () => {
+    expect(minutesToCredits(1)).toBe(300);
   });
 
-  it("120 credits = 1 minute", () => {
-    expect(creditsToMinutes(120)).toBe(1);
+  it("300 credits = 1 minute", () => {
+    expect(creditsToMinutes(300)).toBe(1);
   });
 
-  it("884 credits = 7.367 minutes (to 3 decimal places)", () => {
-    expect(Math.round(creditsToMinutes(884) * 1000) / 1000).toBeCloseTo(7.367, 2);
+  it("884 credits = 2.947 minutes (to 3 decimal places)", () => {
+    expect(Math.round(creditsToMinutes(884) * 1000) / 1000).toBeCloseTo(2.947, 2);
   });
 });

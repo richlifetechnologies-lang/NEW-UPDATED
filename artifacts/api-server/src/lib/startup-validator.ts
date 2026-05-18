@@ -43,15 +43,15 @@ export function validateEnvironment(): ValidationResult {
   // ── Billing constant integrity ───────────────────────────────────────────
   // These match Decart's Lucy 2.1 billing contract.
   // If someone changes these values, the server refuses to start.
-  if (DECART_CREDITS_PER_SEC !== 2) {
+  if (DECART_CREDITS_PER_SEC !== 5) {
     errors.push(
-      `BILLING INVARIANT VIOLATED: DECART_CREDITS_PER_SEC must be 2 (Decart Lucy 2.1 rate). Got: ${DECART_CREDITS_PER_SEC}`
+      `BILLING INVARIANT VIOLATED: DECART_CREDITS_PER_SEC must be 5 (updated deduction rate). Got: ${DECART_CREDITS_PER_SEC}`
     );
   }
 
-  if (DECART_CREDITS_PER_MIN !== 120) {
+  if (DECART_CREDITS_PER_MIN !== 300) {
     errors.push(
-      `BILLING INVARIANT VIOLATED: DECART_CREDITS_PER_MIN must be 120 (2 credits/sec × 60). Got: ${DECART_CREDITS_PER_MIN}`
+      `BILLING INVARIANT VIOLATED: DECART_CREDITS_PER_MIN must be 300 (5 credits/sec × 60). Got: ${DECART_CREDITS_PER_MIN}`
     );
   }
 

@@ -7,6 +7,8 @@ import { AdminUpdateUserBody, AdminUpdateWalletBody } from "@workspace/api-zod";
 import { createDecartClient } from "@decartai/sdk";
 
 import { getAllRates } from "../lib/rates";
+import { DECART_CREDITS_PER_SEC } from "../lib/billing-math";
+import { invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 
 function parseLoginBody(body: unknown): { email: string; password: string } | null {
@@ -951,7 +953,7 @@ router.get("/decart-credits", requireAdmin, async (_req, res) => {
     }
   }
 
-  const creditsConsumed = consumedSeconds * 2; // 2 credits/sec per active stream
+  const creditsConsumed = consumedSeconds * 5; // 5 credits/sec per active stream
   const estimatedRemaining = base !== null ? Math.max(0, base - creditsConsumed) : null;
 
   // ── Hourly consumption rate (last 7 days of completed sessions) ─────────────
@@ -971,10 +973,10 @@ router.get("/decart-credits", requireAdmin, async (_req, res) => {
       isNotNull(sessionsTable.durationSeconds),
     ));
 
-  // Total billing seconds × 2 = credits consumed (Decart LUCY 2.1: 2 credits/sec/stream)
+  // Total billing seconds × 5 = credits consumed (updated rate: 5 credits/sec/stream)
   const totalBillingSecsForRate = rateRows.reduce((s, r) => s + (r.durationSeconds ?? 0), 0);
   const windowHours = Math.max(1, (Date.now() - rateWindowStart.getTime()) / (1_000 * 3_600));
-  const hourlyRateCredits = (totalBillingSecsForRate * 2) / windowHours;
+  const hourlyRateCredits = (totalBillingSecsForRate * 5) / windowHours;
 
   // Estimated days remaining at current burn rate
   const daysRemaining = (estimatedRemaining !== null && hourlyRateCredits > 0)
@@ -2033,6 +2035,42 @@ router.put("/decart-credit-settings", requireAdmin, async (req, res) => {
     }).where(eq(decartCreditSettingsTable.id, 1));
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: "Failed to update global settings" }); }
+});
+
+// ── Billing rate control ──────────────────────────────────────────────────────
+
+/** GET /api/admin/billing-rate */
+router.get("/billing-rate", requireAdmin, async (req, res) => {
+  try {
+    const [row] = await db
+      .select({ value: settingsTable.value })
+      .from(settingsTable)
+      .where(eq(settingsTable.key, "billing_credits_per_sec"));
+    const parsed = row ? parseInt(row.value, 10) : NaN;
+    const rate   = Number.isFinite(parsed) && parsed >= 1 ? parsed : DECART_CREDITS_PER_SEC;
+    res.json({ rate, defaultRate: DECART_CREDITS_PER_SEC });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load billing rate" });
+  }
+});
+
+/** PUT /api/admin/billing-rate */
+router.put("/billing-rate", requireAdmin, async (req, res) => {
+  const raw  = req.body?.rate;
+  const rate = typeof raw === "number" ? raw : parseInt(raw, 10);
+  if (!Number.isFinite(rate) || rate < 1 || rate > 100) {
+    res.status(400).json({ error: "Rate must be a whole number between 1 and 100" });
+    return;
+  }
+  try {
+    await db.insert(settingsTable)
+      .values({ key: "billing_credits_per_sec", value: String(rate) })
+      .onConflictDoUpdate({ target: settingsTable.key, set: { value: String(rate) } });
+    invalidateBillingRateCache();
+    res.json({ ok: true, rate });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to save billing rate" });
+  }
 });
 
 export default router;

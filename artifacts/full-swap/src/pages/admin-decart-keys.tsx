@@ -422,7 +422,7 @@ export default function AdminDecartKeysPage() {
                 </span>
               )}
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">Credit balance tracking · 2 credits/sec billing</p>
+            <p className="text-sm text-slate-500 mt-0.5">Credit balance tracking · 5 credits/sec billing</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
@@ -555,7 +555,7 @@ export default function AdminDecartKeysPage() {
                     </div>
                   )}
 
-                  {/* Stats Row — 2 credits/sec = 120 credits/min → $0.01/credit → $72/hr */}
+                  {/* Stats Row — 5 credits/sec = 300 credits/min → $0.01/credit → $180/hr */}
                   {cs && (
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
@@ -574,16 +574,16 @@ export default function AdminDecartKeysPage() {
                         }`}>
                           {cs.creditsRemaining.toLocaleString()}
                         </div>
-                        <div className="text-xs text-slate-600">÷ 120 = {(cs.creditsRemaining / 120).toFixed(1)} min available</div>
+                        <div className="text-xs text-slate-600">÷ 300 = {(cs.creditsRemaining / 300).toFixed(1)} min available</div>
                       </div>
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                         <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
                           <Clock className="w-3 h-3" /> Est. Stream Time
                         </div>
                         <div className="text-lg font-bold text-slate-100">
-                          {fmtSeconds(Math.floor(cs.creditsRemaining / 2))}
+                          {fmtSeconds(Math.floor(cs.creditsRemaining / 5))}
                         </div>
-                        <div className="text-xs text-slate-600">@ 2 credits/sec</div>
+                        <div className="text-xs text-slate-600">@ 5 credits/sec</div>
                       </div>
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                         <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
@@ -592,7 +592,7 @@ export default function AdminDecartKeysPage() {
                         <div className="text-lg font-bold text-emerald-400">
                           ${(cs.creditsRemaining * 0.01).toFixed(2)}
                         </div>
-                        <div className="text-xs text-slate-600">$0.01/credit · $72/hr</div>
+                        <div className="text-xs text-slate-600">$0.01/credit · $180/hr</div>
                       </div>
                     </div>
                   )}
@@ -653,7 +653,7 @@ export default function AdminDecartKeysPage() {
                             {topupAmount && parseInt(topupAmount) > 0 && cs && (
                               <span className="text-xs text-emerald-400 font-medium">
                                 → New total: {(cs.creditsRemaining + parseInt(topupAmount)).toLocaleString()} credits
-                                ({((cs.creditsRemaining + parseInt(topupAmount)) / 120).toFixed(1)} min)
+                                ({((cs.creditsRemaining + parseInt(topupAmount)) / 300).toFixed(1)} min)
                               </span>
                             )}
                           </div>
@@ -672,7 +672,7 @@ export default function AdminDecartKeysPage() {
                             />
                             {topupAmount && parseInt(topupAmount) > 0 && (
                               <span className="text-xs text-slate-500">
-                                ÷ 120 = {(parseInt(topupAmount) / 120).toFixed(1)} streaming min
+                                ÷ 300 = {(parseInt(topupAmount) / 300).toFixed(1)} streaming min
                               </span>
                             )}
                           </div>

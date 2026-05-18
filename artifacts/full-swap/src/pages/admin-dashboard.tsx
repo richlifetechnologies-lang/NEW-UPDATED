@@ -201,10 +201,10 @@ function useDecartCredits() {
   useEffect(() => {
     load();
     pollRef.current = setInterval(load, 5000);
-    // Tick every second: decrement by active session count × 2 (2 credits/sec/stream)
+    // Tick every second: decrement by active session count × 5 (5 credits/sec/stream)
     tickRef.current = setInterval(() => {
       if (activeRef.current > 0) {
-        setTickExtra(prev => prev + activeRef.current * 2);
+        setTickExtra(prev => prev + activeRef.current * 5);
       }
     }, 1000);
     return () => {
@@ -655,7 +655,7 @@ export default function AdminDashboardPage() {
                     <p className="text-sm font-semibold text-foreground">Decart LUCY 2.1 Credits</p>
                     <p className="text-xs text-muted-foreground">
                       {draining
-                        ? `Live — draining at ${decartCredits.activeSessions * 2} credits/sec (${decartCredits.activeSessions} active stream${decartCredits.activeSessions !== 1 ? "s" : ""} × 2)`
+                        ? `Live — draining at ${decartCredits.activeSessions * 5} credits/sec (${decartCredits.activeSessions} active stream${decartCredits.activeSessions !== 1 ? "s" : ""} × 5)`
                         : "Auto-tracked as streams run"}
                     </p>
                   </div>
@@ -811,7 +811,7 @@ export default function AdminDashboardPage() {
 
               <div className="px-5 pb-4">
                 <p className="text-xs text-muted-foreground/60">
-                  Decart does not expose a balance API. Check <span className="underline underline-offset-2 cursor-pointer" onClick={() => window.open("https://platform.decart.ai/", "_blank")}>platform.decart.ai</span> and enter your balance — the system tracks consumption automatically at 2 credits/sec per active stream.
+                  Decart does not expose a balance API. Check <span className="underline underline-offset-2 cursor-pointer" onClick={() => window.open("https://platform.decart.ai/", "_blank")}>platform.decart.ai</span> and enter your balance — the system tracks consumption automatically at 5 credits/sec per active stream.
                 </p>
               </div>
             </div>

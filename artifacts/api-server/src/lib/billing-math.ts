@@ -5,8 +5,8 @@
  * This makes them trivially testable and portable across hosting platforms.
  *
  * ── Constants ──────────────────────────────────────────────────────────────
- *   DECART_CREDITS_PER_SEC  = 2   (Lucy 2.1 charges 2 credits/second)
- *   DECART_CREDITS_PER_MIN  = 120 (2 × 60)
+ *   DECART_CREDITS_PER_SEC  = 5   (Lucy 2.1 charges 5 credits/second)
+ *   DECART_CREDITS_PER_MIN  = 300 (5 × 60)
  *   MINIMUM_RESERVATION_SEC = 1   (reserved at session creation)
  *   HEARTBEAT_GRACE_MS      = 35_000  — max gap before a heartbeat is "late"
  *   ORPHAN_GRACE_MS         = 120_000 — no heartbeat for 2 min → orphan kill
@@ -15,8 +15,8 @@
  * DO NOT change these values without updating Decart's actual billing contract.
  */
 
-export const DECART_CREDITS_PER_SEC  = 2;
-export const DECART_CREDITS_PER_MIN  = DECART_CREDITS_PER_SEC * 60; // 120
+export const DECART_CREDITS_PER_SEC  = 5;
+export const DECART_CREDITS_PER_MIN  = DECART_CREDITS_PER_SEC * 60; // 300
 export const MINIMUM_RESERVATION_SEC = 1;
 export const HEARTBEAT_GRACE_MS      = 35_000;
 export const ORPHAN_GRACE_MS         = 120_000; // 2 minutes — orphan kill threshold
@@ -30,7 +30,7 @@ export const DEDUCTION_FREEZE_MS     = 45_000;
  * Derive billed seconds from Decart's exact generationTick count.
  * Each tick = 1 Decart-billed second = DECART_CREDITS_PER_SEC credits.
  *
- * @param creditsConsumed   Total credits from generationTick × 2
+ * @param creditsConsumed   Total credits from generationTick × 5
  * @param alreadyBilledSec  Seconds already charged before this settlement
  */
 export function creditBasedIncrement(creditsConsumed: number, alreadyBilledSec: number): {
