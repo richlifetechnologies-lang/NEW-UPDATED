@@ -13,6 +13,7 @@ import {
   calculateCreditsUsedSinceTopup,
   calculateCreditsRemaining,
 } from "./billing-math";
+import { getBillingRate } from "./billing-rate-cache";
 
 export interface KeyCreditStatus {
   id: number;
@@ -25,7 +26,9 @@ export interface KeyCreditStatus {
   thresholdPct: number;
   lastTopupAt: string | null;
   activeSessionCount: number;
-  estimatedRemainingSeconds: number | null; // null if no active sessions
+  estimatedRemainingSeconds: number | null; // null if no active sessions (Decart wall-clock seconds)
+  estimatedEffectiveLicenceSeconds: number | null; // accounting for billing rate drain multiplier
+  activeBillingRate: number; // credits/sec from admin billing rate setting
   warningLevel: "ok" | "low" | "critical";
 }
 
@@ -120,11 +123,18 @@ export async function getKeyCreditStatus(
   }
 
   // Estimated remaining runtime based on current burn rate
+  // activeBillingRate: admin-configurable drain multiplier (cached 60s)
+  const activeBillingRate = await getBillingRate();
   let estimatedRemainingSeconds: number | null = null;
+  let estimatedEffectiveLicenceSeconds: number | null = null;
   if (activeSessionCount > 0) {
-    // Each session burns 5 credits/sec, so all sessions burn 5*count credits/sec
+    // Decart always burns 5 credits/sec regardless of billing rate
     const burnRatePerSec = DECART_CREDITS_PER_SEC * activeSessionCount;
     estimatedRemainingSeconds = Math.floor(creditsRemaining / burnRatePerSec);
+    // Effective licence seconds = how fast licence keys drain at the configured billing rate
+    // formula: licenceDrain = wallClockSec * activeBillingRate / 2
+    // so effectiveLicenceSec = decartSec * 2 / activeBillingRate
+    estimatedEffectiveLicenceSeconds = Math.floor(estimatedRemainingSeconds * 2 / activeBillingRate);
   }
 
   return {
@@ -139,6 +149,8 @@ export async function getKeyCreditStatus(
     lastTopupAt: key.lastTopupAt?.toISOString() ?? null,
     activeSessionCount,
     estimatedRemainingSeconds,
+    estimatedEffectiveLicenceSeconds,
+    activeBillingRate,
     warningLevel,
   };
 }
