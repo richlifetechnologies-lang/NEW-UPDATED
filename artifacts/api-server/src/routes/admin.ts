@@ -2040,7 +2040,7 @@ router.put("/decart-credit-settings", requireAdmin, async (req, res) => {
 // ── Billing rate control ──────────────────────────────────────────────────────
 
 /** GET /api/admin/billing-rate */
-router.get("/billing-rate", requireAdmin, async (req, res) => {
+router.get("/billing-rate", async (req, res) => {
   try {
     const [row] = await db
       .select({ value: settingsTable.value })
