@@ -3,7 +3,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Zap, RefreshCw, TrendingUp, Clock, DollarSign, AlertTriangle, History, ArrowRight } from "lucide-react";
+import { Zap, RefreshCw, TrendingUp, Clock, DollarSign, AlertTriangle, RotateCcw, ArrowRight } from "lucide-react";
 
 const API   = (p: string) => `/api${p}`;
 const token = () => localStorage.getItem("fullswap_admin_token") ?? localStorage.getItem("fullswap_token") ?? "";
@@ -161,7 +161,7 @@ export default function AdminBillingPage() {
                 : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
-            <History className="w-3.5 h-3.5 inline mr-1.5" />
+            <RotateCcw className="w-3.5 h-3.5 inline mr-1.5" />
             Change Audit Log
           </button>
         </div>
@@ -309,7 +309,7 @@ export default function AdminBillingPage() {
           <div className="rounded-xl border border-slate-700 bg-slate-900 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
               <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                <History className="w-4 h-4 text-slate-400" />
+                <RotateCcw className="w-4 h-4 text-slate-400" />
                 Billing Rate Change History
               </h2>
               <Button variant="outline" size="sm" onClick={loadAudit} disabled={auditLoading}>
