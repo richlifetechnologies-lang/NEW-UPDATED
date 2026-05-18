@@ -83,3 +83,40 @@ Real-time AI video face-swap streaming platform powered by Decart Lucy 2.1. User
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+
+## Production Safety Rules
+
+**This is a live, revenue-generating streaming platform. These rules apply to every AI builder and every code change.**
+
+### Before modifying any billing, settlement, heartbeat, websocket, session, or reconciliation logic:
+
+- Analyze the existing live production flow first
+- Preserve all existing execution order
+- Preserve timing-sensitive behavior
+- Preserve async sequencing
+- Preserve all fallback paths
+- Preserve all retry logic
+- Preserve existing cleanup logic
+- Preserve existing session state transitions
+
+### Non-negotiable constraints
+
+- Do NOT simplify or consolidate existing billing flows even if they appear redundant. Existing redundancy may be intentional for production safety.
+- The current production system already works and is financially profitable. The objective is observability and synchronization — NOT billing redesign.
+- All new analytics and reconciliation systems must operate as passive observers first before influencing any calculations.
+- No existing production calculation should be replaced unless the replacement is: (a) mathematically identical, (b) backward-compatible, (c) fully tested against historical sessions, and (d) protected behind feature flags.
+
+### Implementation order — always follow this sequence
+
+1. Add logging
+2. Add observability
+3. Add reconciliation views
+4. Compare old vs new metrics
+5. Validate consistency
+6. Only then allow optional future optimization
+
+### When in doubt
+
+If there is ever uncertainty between **preserving production stability** and **improving code cleanliness** — always choose production stability.
+
+Prevent regressions, timing drift, billing drift, session duplication, accidental double deductions, websocket race conditions, and reconciliation mismatches at all costs.
