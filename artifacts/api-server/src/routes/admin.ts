@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTable, chatMessagesTable, deviceFingerprintsTable, subAdminAuditTable, subAdminPricingTable, decartApiKeysTable, licenseKeysTable, financialTransactionsTable, decartCreditSettingsTable } from "@workspace/db";
+import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTable, chatMessagesTable, deviceFingerprintsTable, subAdminAuditTable, subAdminPricingTable, decartApiKeysTable, licenseKeysTable, financialTransactionsTable, decartCreditSettingsTable, billingRateAuditTable } from "@workspace/db";
 import { eq, desc, sql, and, gte, isNotNull, lte } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth";
 import { hashPassword, generateToken } from "../lib/auth";
@@ -2055,7 +2055,7 @@ router.get("/billing-rate", async (req, res) => {
 });
 
 /** PUT /api/admin/billing-rate */
-router.put("/billing-rate", requireAdmin, async (req, res) => {
+router.put("/billing-rate", requireAdmin, async (req: any, res) => {
   const raw  = req.body?.rate;
   const rate = typeof raw === "number" ? raw : parseInt(raw, 10);
   if (!Number.isFinite(rate) || rate < 1 || rate > 100) {
@@ -2063,13 +2063,55 @@ router.put("/billing-rate", requireAdmin, async (req, res) => {
     return;
   }
   try {
+    // Read current rate for audit log
+    const [prevRow] = await db
+      .select({ value: settingsTable.value })
+      .from(settingsTable)
+      .where(eq(settingsTable.key, "billing_credits_per_sec"));
+    const prevParsed = prevRow ? parseInt(prevRow.value, 10) : NaN;
+    const previousRate = Number.isFinite(prevParsed) && prevParsed >= 1 ? prevParsed : DECART_CREDITS_PER_SEC;
+
     await db.insert(settingsTable)
       .values({ key: "billing_credits_per_sec", value: String(rate) })
       .onConflictDoUpdate({ target: settingsTable.key, set: { value: String(rate) } });
+
     invalidateBillingRateCache();
+
+    // Record audit log (non-fatal if it fails)
+    const actor = req.user as { id?: number; email?: string } | undefined;
+    await db.insert(billingRateAuditTable).values({
+      previousRate,
+      newRate: rate,
+      changedBy: actor?.id ?? null,
+      changedByEmail: actor?.email ?? null,
+      note: `Changed from ${previousRate} to ${rate} cr/s`,
+    }).catch(() => { /* non-fatal */ });
+
     res.json({ ok: true, rate });
   } catch (err) {
     res.status(500).json({ error: "Failed to save billing rate" });
+  }
+});
+
+/** GET /api/admin/billing-rate/audit — billing rate change history */
+router.get("/billing-rate/audit", requireAdmin, async (_req, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(billingRateAuditTable)
+      .orderBy(desc(billingRateAuditTable.createdAt))
+      .limit(200);
+    res.json(rows.map(r => ({
+      id: r.id,
+      previousRate: r.previousRate,
+      newRate: r.newRate,
+      changedBy: r.changedBy,
+      changedByEmail: r.changedByEmail,
+      note: r.note,
+      createdAt: r.createdAt.toISOString(),
+    })));
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load billing rate audit log" });
   }
 });
 
