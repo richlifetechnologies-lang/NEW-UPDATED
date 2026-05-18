@@ -48,6 +48,14 @@ interface DecartUsage {
 
 function useDecartStatus() {
   const [status, setStatus] = useState<DecartStatus | null>(null);
+    const [billingRate, setBillingRate] = useState(5);
+    useEffect(() => {
+      const t = localStorage.getItem("fullswap_admin_token") ?? localStorage.getItem("fullswap_token") ?? "";
+      fetch("/api/admin/billing-rate", { headers: { Authorization: `Bearer ${t}` } })
+        .then(r => r.ok ? r.json() : { rate: 5 })
+        .then(d => setBillingRate(d.rate ?? 5))
+        .catch(() => {});
+    }, []);
   const [loading, setLoading] = useState(false);
 
   const check = async () => {
@@ -811,7 +819,7 @@ export default function AdminDashboardPage() {
 
               <div className="px-5 pb-4">
                 <p className="text-xs text-muted-foreground/60">
-                  Decart does not expose a balance API. Check <span className="underline underline-offset-2 cursor-pointer" onClick={() => window.open("https://platform.decart.ai/", "_blank")}>platform.decart.ai</span> and enter your balance — the system tracks consumption automatically at 5 credits/sec per active stream.
+                  Decart does not expose a balance API. Check <span className="underline underline-offset-2 cursor-pointer" onClick={() => window.open("https://platform.decart.ai/", "_blank")}>platform.decart.ai</span> and enter your balance — the system tracks consumption automatically at {billingRate} credits/sec per active stream.
                 </p>
               </div>
             </div>
