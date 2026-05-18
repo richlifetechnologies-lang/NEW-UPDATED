@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, DollarSign, Wallet, LogOut, Shield, Activity, Bell, ShieldCheck, MessageCircle, Menu, X, UserCog, KeyRound, FileKey, BarChart3, Zap } from "lucide-react";
+import { LayoutDashboard, Users, DollarSign, Wallet, LogOut, Shield, Activity, Bell, ShieldCheck, MessageCircle, Menu, X, UserCog, KeyRound, FileKey, BarChart3, Zap, BrainCircuit } from "lucide-react";
 import { clearAdminToken, clearAdminProfile, getAdminProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/admin/analytics", label: "Financial Analytics", icon: BarChart3 },
   { href: "/admin/pricing", label: "Pricing", icon: DollarSign },
   { href: "/admin/billing", label: "Billing Rate", icon: Zap },
+  { href: "/admin/billing-intelligence", label: "Billing Intelligence", icon: BrainCircuit },
   { href: "/admin/wallet", label: "Wallet", icon: Wallet },
   { href: "/admin/decart-keys", label: "API Keys", icon: KeyRound },
   { href: "/admin/admin-sessions", label: "Admin Audit", icon: ShieldCheck },

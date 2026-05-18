@@ -23,6 +23,7 @@ import PopoutPage from "@/pages/popout";
 import AdminSubAdminsPage from "@/pages/admin-sub-admins";
 import AdminAnalyticsPage from "@/pages/admin-analytics";
 import AdminBillingPage from "@/pages/admin-billing";
+import AdminBillingIntelligencePage from "@/pages/admin-billing-intelligence";
 import SubAdminDashboardPage from "@/pages/subadmin-dashboard";
 import SubAdminLoginPage from "@/pages/subadmin-login";
 import SubAdminStreamPage from "@/pages/subadmin-stream";
@@ -62,6 +63,7 @@ function Router() {
       <Route path="/popout" component={PopoutPage} />
       <Route path="/admin/sub-admins" component={AdminSubAdminsPage} />
       <Route path="/admin/billing" component={AdminBillingPage} />
+      <Route path="/admin/billing-intelligence" component={AdminBillingIntelligencePage} />
       <Route path="/subadmin" component={SubAdminLoginPage} />
       <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
       <Route path="/subadmin/stream" component={SubAdminStreamPage} />
