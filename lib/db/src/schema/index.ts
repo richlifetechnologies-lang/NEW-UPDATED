@@ -10,3 +10,4 @@ export * from "./sub-admin-pricing";
 export * from "./decart-keys";
 export * from "./license-keys";
 export * from "./financial-transactions";
+export * from "./billing-rate-audit";
