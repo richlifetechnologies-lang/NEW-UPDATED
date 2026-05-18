@@ -78,7 +78,7 @@ function useDecartStatus() {
     return () => clearInterval(id);
   }, []);
 
-  return { status, loading, check };
+  return { status, loading, check, billingRate };
 }
 
 function useDecartUsage() {
@@ -402,6 +402,7 @@ export default function AdminDashboardPage() {
   const users = useAdminListUsers({ query: { queryKey: getAdminListUsersQueryKey(), refetchInterval: 15000 } });
   const live = useActiveSessions();
   const decart = useDecartStatus();
+  const billingRate = decart.billingRate;
   const { usage: decartUsage, resetTiers, resetting: tierResetting } = useDecartUsage();
   const { resetCredits, resetting: creditsResetting } = useAdminCreditsReset(() => dashboard.refetch());
   const decartCredits = useDecartCredits();
