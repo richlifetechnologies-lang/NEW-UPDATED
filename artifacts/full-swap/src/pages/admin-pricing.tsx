@@ -48,6 +48,14 @@ function PricingSection({
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState<FormData>(emptyForm);
+    const [billingRate, setBillingRate] = useState(5);
+    useEffect(() => {
+      const t = token();
+      fetch(API("/admin/billing-rate"), { headers: { Authorization: `Bearer ${t}` } })
+        .then(r => r.ok ? r.json() : { rate: 5 })
+        .then(d => setBillingRate(d.rate ?? 5))
+        .catch(() => {});
+    }, []);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -177,7 +185,7 @@ function PricingSection({
 
             {/* Live Calculator Output */}
             <div className="rounded-lg p-3 space-y-2" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}>
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Auto-Calculated (5 credits/sec · $0.01/credit · $180/hr)</p>
+              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Auto-Calculated ({billingRate} credits/sec · $0.01/credit · ${Math.round(billingRate * 36)}/hr)</p>
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
                   <p className="text-lg font-bold text-primary font-mono">{calc.credits.toLocaleString()}</p>
