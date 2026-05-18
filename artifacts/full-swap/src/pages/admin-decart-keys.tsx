@@ -223,6 +223,14 @@ function UsageHistoryPanel({ keyId }: { keyId: number }) {
 
 export default function AdminDecartKeysPage() {
   const { toast } = useToast();
+    const [billingRate, setBillingRate] = useState(5);
+    useEffect(() => {
+      const t = localStorage.getItem("fullswap_admin_token") ?? localStorage.getItem("fullswap_token") ?? "";
+      fetch("/api/admin/billing-rate", { headers: { Authorization: `Bearer ${t}` } })
+        .then(r => r.ok ? r.json() : { rate: 5 })
+        .then(d => setBillingRate(d.rate ?? 5))
+        .catch(() => {});
+    }, []);
   const [keys, setKeys] = useState<DecartKey[]>([]);
   const [creditStatuses, setCreditStatuses] = useState<Record<number, KeyCreditStatus>>({});
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings>({ globalThresholdPct: 15, useGlobalThreshold: false });
@@ -422,7 +430,7 @@ export default function AdminDecartKeysPage() {
                 </span>
               )}
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">Credit balance tracking · 5 credits/sec billing</p>
+            <p className="text-sm text-slate-500 mt-0.5">Credit balance tracking · {billingRate} credits/sec billing</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
@@ -583,7 +591,7 @@ export default function AdminDecartKeysPage() {
                         <div className="text-lg font-bold text-slate-100">
                           {fmtSeconds(Math.floor(cs.creditsRemaining / 5))}
                         </div>
-                        <div className="text-xs text-slate-600">@ 5 credits/sec</div>
+                        <div className="text-xs text-slate-600">@ {billingRate} credits/sec</div>
                       </div>
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                         <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
@@ -592,7 +600,7 @@ export default function AdminDecartKeysPage() {
                         <div className="text-lg font-bold text-emerald-400">
                           ${(cs.creditsRemaining * 0.01).toFixed(2)}
                         </div>
-                        <div className="text-xs text-slate-600">$0.01/credit · $180/hr</div>
+                        <div className="text-xs text-slate-600">$0.01/credit · ${Math.round(billingRate * 36)}/hr</div>
                       </div>
                     </div>
                   )}
