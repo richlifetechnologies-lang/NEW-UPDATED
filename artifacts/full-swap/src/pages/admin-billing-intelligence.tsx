@@ -1545,9 +1545,9 @@ export default function AdminBillingIntelligencePage() {
           <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5 text-indigo-400" />
           <div>
             <span className="font-semibold">Metric synchronization note: </span>
-            Admin dashboard uses raw wall-clock time. This panel shows both actual Decart compute time
-            (wall-clock × 5 credits/sec) and retail stream time (billing window × billingRate ÷ 2),
-            making the two systems directly comparable. Billing rate: <strong>{summary?.billingRate ?? "…"} cr/s</strong>.
+            Admin dashboard uses raw wall-clock time. This panel shows both actual Decart API cost
+            (wallet.used_seconds × 2.3 cr/s fixed rate) and retail stream time (billing window × billingRate ÷ 2),
+            making the two systems directly comparable. Active billing rate: <strong>{summary?.billingRate ?? "…"} cr/s</strong>.
           </div>
         </div>
 
@@ -1618,9 +1618,9 @@ export default function AdminBillingIntelligencePage() {
                           },
                           {
                             metric: "Effective cr/s",
-                            admin: `5 cr/s (fixed Decart)`,
+                            admin: `2.3 cr/s (API cost rate)`,
                             engine: `${summary.totals.averageEffectiveCreditsPerSec.toFixed(2)} cr/s`,
-                            delta: `${Math.abs(5 - summary.totals.averageEffectiveCreditsPerSec).toFixed(2)}`,
+                            delta: `${Math.abs(2.3 - summary.totals.averageEffectiveCreditsPerSec).toFixed(2)}`,
                           },
                           {
                             metric: "Billing denominator",

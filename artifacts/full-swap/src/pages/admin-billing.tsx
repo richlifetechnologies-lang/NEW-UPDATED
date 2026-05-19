@@ -297,7 +297,7 @@ export default function AdminBillingPage() {
               </div>
               <p className="text-xs text-slate-600 pt-1">
                 Formula: licence drain = wall-clock seconds × rate ÷ 2 (baseline).
-                The rate is cached for 60 s server-side; changes take effect within the next heartbeat cycle.
+                Changes apply immediately — the rate is fetched live on every heartbeat with no caching.
                 The Decart credit tracker reflects this rate on the "effective licence time remaining" field.
               </p>
             </div>

@@ -401,7 +401,7 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // streaming goes un-billed --- not the entire session.
   const billingStart = billingAnchor;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
-  // Dynamic rate factor: admin-configurable via /admin/billing. Cached 60 s server-side.
+  // Dynamic rate factor: admin-configurable via /admin/billing. NO cache — fetched live every heartbeat.
   const billingRate     = await getBillingRate();
   const rawIncrementSec = Math.max(0, Math.floor((now.getTime() - lastDebit.getTime()) / 1000));
   const incrementSec    = Math.round(rawIncrementSec * billingRate / 2);

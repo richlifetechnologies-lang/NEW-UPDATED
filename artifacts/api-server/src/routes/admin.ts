@@ -8,7 +8,7 @@ import { createDecartClient } from "@decartai/sdk";
 
 import { getAllRates } from "../lib/rates";
 import { DECART_CREDITS_PER_SEC } from "../lib/billing-math";
-import { invalidateBillingRateCache } from "../lib/billing-rate-cache";
+import { getBillingRate, invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 import { emitBillingRateChanged } from "../lib/billing-ws";
 
@@ -2041,16 +2041,11 @@ router.put("/decart-credit-settings", requireAdmin, async (req, res) => {
 // ── Billing rate control ──────────────────────────────────────────────────────
 
 /** GET /api/admin/billing-rate */
-router.get("/billing-rate", async (req, res) => {
+router.get("/billing-rate", async (_req, res) => {
   try {
-    const [row] = await db
-      .select({ value: settingsTable.value })
-      .from(settingsTable)
-      .where(eq(settingsTable.key, "billing_credits_per_sec"));
-    const parsed = row ? parseInt(row.value, 10) : NaN;
-    const rate   = Number.isFinite(parsed) && parsed >= 1 ? parsed : DECART_CREDITS_PER_SEC;
+    const rate = await getBillingRate();
     res.json({ rate, defaultRate: DECART_CREDITS_PER_SEC });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "Failed to load billing rate" });
   }
 });
