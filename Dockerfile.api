@@ -49,9 +49,10 @@ COPY --from=builder /app/scripts/package.json            ./scripts/
 # Install only production deps
 RUN pnpm install --no-frozen-lockfile --prod
 
-# Copy built dist + drizzle schema + scripts source
+# Copy built dist + drizzle schema + migrations + scripts source
 COPY --from=builder /app/artifacts/api-server/dist ./artifacts/api-server/dist
 COPY --from=builder /app/lib/db/src               ./lib/db/src
+COPY --from=builder /app/lib/db/drizzle            ./lib/db/drizzle
 COPY --from=builder /app/lib/db/drizzle.config.ts  ./lib/db/drizzle.config.ts
 COPY --from=builder /app/scripts/src              ./scripts/src
 

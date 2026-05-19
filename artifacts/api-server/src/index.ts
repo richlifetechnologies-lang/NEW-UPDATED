@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { assertValidEnvironment } from "./lib/startup-validator";
+import { runMigrations } from "@workspace/db";
 
 assertValidEnvironment();
 
@@ -16,6 +17,15 @@ const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+logger.info("Running database migrations…");
+try {
+  await runMigrations();
+  logger.info("Database migrations complete");
+} catch (err) {
+  logger.error({ err }, "Database migration failed — aborting startup");
+  process.exit(1);
 }
 
 app.listen(port, (err) => {
