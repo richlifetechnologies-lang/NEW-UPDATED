@@ -914,7 +914,9 @@ function StreamLedgerPanel() {
                                     ["Stream start", new Date(stream.streamStartTime).toLocaleString()],
                                     ["Stream end", new Date(stream.streamEndTime).toLocaleString()],
                                     ["Wall-clock span (start→end)", fmtDur(stream.streamDurationSeconds)],
-                                    ["Wallet billing seconds ✓", fmtDur(stream.totalBillingSeconds)],
+                                    ["Wallet display seconds ✓", fmtDur(stream.totalBillingSeconds)],
+                                    ["Burn multiplier", `${((stream as any).burnMultiplier ?? 1).toFixed(3)}× (${stream.lastBillingRateUsed} ÷ ${(stream as any).baseRate ?? 4} cr/s)`],
+                                    ["Rate-adjusted consumed", fmtDur((stream as any).actualUsedSeconds ?? stream.totalBillingSeconds)],
                                     ["Retail seconds", `${fmt(stream.totalRetailCreditsCharged / 2)}s`],
                                   ].map(([k, v]) => (
                                     <tr key={k} className="border-b border-slate-800 last:border-0">

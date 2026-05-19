@@ -81,6 +81,43 @@ export const SWEEP_INTERVAL_MS        = 10_000;
 export const SINGLE_SESSION_GRACE_MS  = 5_000;
 export const DEDUCTION_FREEZE_MS      = 45_000;
 
+/**
+ * BASE_BILLING_RATE — System default billing reference rate for burn multiplier.
+ *
+ * Used ONLY to compute burn_multiplier in the analytics layer:
+ *   burn_multiplier = billing_rate / BASE_BILLING_RATE
+ *
+ * Effect on effective stream consumption:
+ *   > 1: faster consumption (higher rate → shorter usable stream time)
+ *   < 1: slower consumption (lower rate → longer usable stream time)
+ *   = 1: neutral (billing_rate exactly equals base_rate)
+ *
+ * - NOT tied to wallet deduction (DECART_CREDITS_PER_SEC = 5)
+ * - NOT tied to API cost (DECART_API_COST_PER_SEC = 2.3)
+ * - NOT editable from admin billing dashboard
+ * - Safe fallback per spec §9: if billing calculation fails, treat base_rate = 4
+ */
+export const BASE_BILLING_RATE = 4; // cr/s — rate-controlled burn system reference
+
+/**
+ * Compute the burn multiplier for rate-controlled license consumption analytics.
+ *
+ * burn_multiplier = billingRate / BASE_BILLING_RATE
+ *
+ * Higher billing rate = faster consumption = shorter usable stream time.
+ * Lower billing rate  = slower consumption = longer usable stream time.
+ *
+ * SAFE FALLBACK: returns 1.0 when billingRate ≤ 0 (prevents division by zero
+ * and avoids breaking streaming engine per spec §9).
+ *
+ * @param billingRate  Live billing rate from getBillingRate() — admin-controlled.
+ *                     Affects revenue and consumption analytics ONLY.
+ */
+export function computeBurnMultiplier(billingRate: number): number {
+  if (billingRate <= 0) return 1.0; // spec §9 safety fallback
+  return Math.round((billingRate / BASE_BILLING_RATE) * 1000) / 1000;
+}
+
 // ── Session settle math ────────────────────────────────────────────────────
 
 /**

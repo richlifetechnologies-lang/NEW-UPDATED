@@ -39,7 +39,9 @@ import {
   DECART_CREDITS_PER_SEC,
   DECART_API_COST_PER_SEC,
   ORPHAN_GRACE_MS,
+  BASE_BILLING_RATE,
   computeNormalisedMetrics,
+  computeBurnMultiplier,
 } from "../lib/billing-math";
 import { getBillingRate } from "../lib/billing-rate-cache";
 import { logger } from "../lib/logger";
@@ -716,6 +718,13 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
   const { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec } =
     computeNormalisedMetrics(totalBillableSeconds, liveBillingRate);
 
+  // Rate-controlled burn system (spec §2-§3)
+  // burn_multiplier = billing_rate / base_rate
+  // actual_used_seconds = display_seconds × burn_multiplier
+  // display_seconds = totalBillableSeconds (wallet.used_seconds — source of truth)
+  const burnMultiplier = computeBurnMultiplier(liveBillingRate);
+  const actualUsedSeconds = Math.round(totalBillableSeconds * burnMultiplier);
+
   return {
     totalBillableSeconds,
     totalApiCreditsUsed: apiCostCredits,
@@ -725,6 +734,8 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
     effectiveCreditsPerSecond: effectiveCreditsPerSec,
     lastBillingRateUsed: liveBillingRate,
     streamDurationSeconds: Math.floor((group.streamEndMs - group.streamStartMs) / 1000),
+    burnMultiplier,
+    actualUsedSeconds,
   };
 }
 
@@ -785,6 +796,8 @@ router.get("/stream-ledger/live", requireAdmin, featureGate, streamLedgerGate, a
         currentBillingRate: billingRate,
         billingRateHistory,
         sessionIds: group.sessions.map(s => s.session_id),
+        // Rate-controlled burn system fields (spec §2-§3)
+        baseRate: BASE_BILLING_RATE,
       };
     });
 
@@ -1012,6 +1025,10 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
       const { apiCostCredits, retailCredits } = computeNormalisedMetrics(sessionBillableSeconds, billingRate);
       const consistencyDelta = sessionBillableSeconds - usedSeconds;
 
+      // Rate-controlled burn system (spec §2-§3)
+      const burnMultiplier = computeBurnMultiplier(billingRate);
+      const actualConsumedSeconds = Math.round(usedSeconds * burnMultiplier);
+
       // Derive wallet consistency status from delta
       const walletConsistencyStatus =
         Math.abs(consistencyDelta) > 10 ? "mismatch" : "ok";
@@ -1045,6 +1062,10 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
         creditsAllocated,
         creditsUsed,
         creditsRemaining,
+        // Rate-controlled burn system fields (spec §2-§3)
+        burnMultiplier,
+        actualConsumedSeconds,
+        baseRate: BASE_BILLING_RATE,
       };
     });
 

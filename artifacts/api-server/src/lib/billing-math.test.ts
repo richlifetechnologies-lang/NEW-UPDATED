@@ -16,6 +16,7 @@ import {
   MINIMUM_RESERVATION_SEC,
   HEARTBEAT_GRACE_MS,
   DEDUCTION_FREEZE_MS,
+  BASE_BILLING_RATE,
   creditBasedIncrement,
   wallClockIncrement,
   applyMinimumDuration,
@@ -24,6 +25,7 @@ import {
   calculateCreditsUsedSinceTopup,
   calculateCreditsRemaining,
   computeNormalisedMetrics,
+  computeBurnMultiplier,
   fmtMin,
   creditsToMinutes,
   minutesToCredits,
@@ -66,6 +68,61 @@ describe("DECART_API_COST_PER_SEC (safe analytics rate — patch spec)", () => {
 
   it("safe analytics rate is less than actual Decart charge (5 cr/s)", () => {
     expect(DECART_API_COST_PER_SEC).toBeLessThan(DECART_CREDITS_PER_SEC);
+  });
+});
+
+// ── BASE_BILLING_RATE guard ───────────────────────────────────────────────
+// If this fails, the burn multiplier denominator has been changed — revert immediately.
+
+describe("BASE_BILLING_RATE (rate-controlled burn system — spec §2)", () => {
+  it("base reference rate is exactly 4 cr/s", () => {
+    expect(BASE_BILLING_RATE).toBe(4);
+  });
+
+  it("is a positive number (required for safe division in burn multiplier)", () => {
+    expect(BASE_BILLING_RATE).toBeGreaterThan(0);
+  });
+});
+
+// ── computeBurnMultiplier ─────────────────────────────────────────────────
+// burn_multiplier = billing_rate / base_rate
+// Spec §3: actual_used_seconds = display_seconds × burn_multiplier
+
+describe("computeBurnMultiplier — rate-controlled license consumption (spec §2-§3)", () => {
+  it("at base rate (4 cr/s): multiplier = 1.0 (neutral burn)", () => {
+    expect(computeBurnMultiplier(4)).toBe(1.0);
+  });
+
+  it("higher rate (8 cr/s): multiplier = 2.0 — faster consumption", () => {
+    expect(computeBurnMultiplier(8)).toBe(2.0);
+  });
+
+  it("lower rate (3 cr/s): multiplier = 0.75 — slower consumption (spec §5 example)", () => {
+    expect(computeBurnMultiplier(3)).toBe(0.75);
+  });
+
+  it("half base rate (2 cr/s): multiplier = 0.5 — half speed consumption", () => {
+    expect(computeBurnMultiplier(2)).toBe(0.5);
+  });
+
+  it("zero billing rate: safe fallback = 1.0 (no division by zero — spec §9)", () => {
+    expect(computeBurnMultiplier(0)).toBe(1.0);
+  });
+
+  it("negative billing rate: safe fallback = 1.0 (spec §9 safety rule)", () => {
+    expect(computeBurnMultiplier(-5)).toBe(1.0);
+  });
+
+  it("higher billing rate produces higher multiplier (monotone)", () => {
+    expect(computeBurnMultiplier(10)).toBeGreaterThan(computeBurnMultiplier(5));
+    expect(computeBurnMultiplier(5)).toBeGreaterThan(computeBurnMultiplier(2));
+  });
+
+  it("spec §5 example: 60min × 0.75 multiplier = 45min actual consumed", () => {
+    const displaySeconds = 60 * 60; // 60 min
+    const multiplier = computeBurnMultiplier(3); // billing_rate=3, base=4 → 0.75
+    expect(multiplier).toBe(0.75);
+    expect(Math.round(displaySeconds * multiplier)).toBe(2700); // 45 min
   });
 });
 
