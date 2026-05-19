@@ -3,8 +3,15 @@
  *
  * Reads the override from the `settings` table (key: `billing_credits_per_sec`).
  * Falls back to DECART_CREDITS_PER_SEC if no override is set or the DB is
- * unreachable.  Cached in memory for 60 seconds to avoid a DB round-trip on
- * every heartbeat.
+ * unreachable.
+ *
+ * PATCH SPEC (DYNAMIC BILLING RATE SYNC — CRITICAL):
+ *   Billing rate MUST be fetched live from the admin Billing Rate Monitor.
+ *   It MUST NOT be cached. Any change MUST instantly reflect in:
+ *     - Stream Ledger (license_key grouped)
+ *     - Wallet Monitor (license_key grouped)
+ *     - Reconciliation engine
+ *     - Profit calculation engine
  *
  * Usage:
  *   const rate = await getBillingRate();
@@ -16,25 +23,23 @@
  *   rate = 2  → 1× (original speed)
  *   rate = 5  → 2.5× faster  ($0.05/sec, $180/hr)
  *   rate = 10 → 5× faster    ($0.10/sec, $360/hr)
+ *
+ * NOTE: billing rate affects REVENUE ONLY — not streaming speed.
+ * Streaming duration is controlled ONLY by wallet allocation.
  */
 
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { DECART_CREDITS_PER_SEC } from "./billing-math";
 
-const SETTING_KEY  = "billing_credits_per_sec";
-const CACHE_TTL_MS = 60_000;
-
-let cached: { rate: number; expiresAt: number } | null = null;
+const SETTING_KEY = "billing_credits_per_sec";
 
 /**
  * Returns the active billing rate (credits/sec).
- * Reads from the DB at most once per minute.
+ * Fetched live from the DB on every call — NO cache.
+ * This ensures billing rate changes reflect instantly across all dashboards.
  */
 export async function getBillingRate(): Promise<number> {
-  const now = Date.now();
-  if (cached && now < cached.expiresAt) return cached.rate;
-
   try {
     const [row] = await db
       .select({ value: settingsTable.value })
@@ -42,19 +47,16 @@ export async function getBillingRate(): Promise<number> {
       .where(eq(settingsTable.key, SETTING_KEY));
 
     const parsed = row ? parseInt(row.value, 10) : NaN;
-    const rate   = Number.isFinite(parsed) && parsed >= 1 ? parsed : DECART_CREDITS_PER_SEC;
-    cached = { rate, expiresAt: now + CACHE_TTL_MS };
-    return rate;
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : DECART_CREDITS_PER_SEC;
   } catch {
-    if (cached) return cached.rate;
     return DECART_CREDITS_PER_SEC;
   }
 }
 
 /**
- * Call after a successful PUT /admin/billing-rate so the next heartbeat
- * picks up the new value immediately without waiting for the cache to expire.
+ * No-op kept for backward compatibility — caching is disabled per patch spec.
+ * Billing rate changes must reflect instantly; no invalidation needed.
  */
 export function invalidateBillingRateCache(): void {
-  cached = null;
+  // No-op: caching removed per patch spec (dynamic billing rate sync)
 }

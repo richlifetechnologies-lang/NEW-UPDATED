@@ -5,27 +5,40 @@
  * This makes them trivially testable and portable across hosting platforms.
  *
  * ── Constants ──────────────────────────────────────────────────────────────
- *   DECART_CREDITS_PER_SEC  = 5   (Lucy 2.1 charges 5 credits/second)
- *   DECART_CREDITS_PER_MIN  = 300 (5 × 60)
- *   MINIMUM_RESERVATION_SEC = 1   (reserved at session creation)
- *   HEARTBEAT_GRACE_MS      = 35_000  — max gap before a heartbeat is "late"
- *   ORPHAN_GRACE_MS         = 120_000 — no heartbeat for 2 min → orphan kill
- *   DEDUCTION_FREEZE_MS     = 45_000
+ *   DECART_CREDITS_PER_SEC       = 5     (Lucy 2.1 charges 5 credits/second)
+ *   DECART_CREDITS_PER_MIN       = 300   (5 × 60)
+ *   DECART_API_COST_PER_SEC      = 2.3   (safe Decart rate for analytics/profit calc)
+ *   MINIMUM_RESERVATION_SEC      = 1     (reserved at session creation)
+ *   HEARTBEAT_GRACE_MS           = 35_000  — max gap before a heartbeat is "late"
+ *   ORPHAN_GRACE_MS              = 120_000 — no heartbeat for 2 min → orphan kill
+ *   DEDUCTION_FREEZE_MS          = 45_000
  *
  * DO NOT change DECART_CREDITS_PER_SEC without updating Decart's actual billing
  * contract. This value represents the FIXED Decart API cost (5 cr/s from Lucy 2.1).
+ *
+ * DECART_API_COST_PER_SEC (2.3 cr/s) is the SAFE rate used for analytics profit
+ * calculations only — it does NOT affect wallet deduction, streaming speed, or
+ * any billing logic. It is used exclusively in computeNormalisedMetrics() for
+ * the admin billing intelligence dashboards.
+ *
  * The admin-configurable billing rate (credits drained from the licence wallet) is
  * stored separately in the `settings` table and retrieved via getBillingRate().
  */
 
-export const DECART_CREDITS_PER_SEC  = 5;
-export const DECART_CREDITS_PER_MIN  = DECART_CREDITS_PER_SEC * 60; // 300
-export const MINIMUM_RESERVATION_SEC = 1;
-export const HEARTBEAT_GRACE_MS      = 35_000;
-export const ORPHAN_GRACE_MS         = 120_000; // 2 minutes — orphan kill threshold
-export const SWEEP_INTERVAL_MS       = 10_000;
-export const SINGLE_SESSION_GRACE_MS = 5_000;
-export const DEDUCTION_FREEZE_MS     = 45_000;
+export const DECART_CREDITS_PER_SEC   = 5;
+export const DECART_CREDITS_PER_MIN   = DECART_CREDITS_PER_SEC * 60; // 300
+/**
+ * Safe Decart API cost rate for analytics/profit calculations only.
+ * MUST NOT be used in wallet deduction, heartbeat, or streaming logic.
+ * Source: patch specification — "SAFE DECART RATE = 2.3 cr/s"
+ */
+export const DECART_API_COST_PER_SEC  = 2.3;
+export const MINIMUM_RESERVATION_SEC  = 1;
+export const HEARTBEAT_GRACE_MS       = 35_000;
+export const ORPHAN_GRACE_MS          = 120_000; // 2 minutes — orphan kill threshold
+export const SWEEP_INTERVAL_MS        = 10_000;
+export const SINGLE_SESSION_GRACE_MS  = 5_000;
+export const DEDUCTION_FREEZE_MS      = 45_000;
 
 // ── Session settle math ────────────────────────────────────────────────────
 
@@ -85,25 +98,44 @@ export function licenseRemainingSeconds(minutesAllocated: number, usedSeconds: n
 
 // ── Normalised analytics billing math ─────────────────────────────────────
 //
-// DESIGN RULE: All analytics (Stream Ledger, Reconciliation, Wallet Monitor)
-// MUST use the SAME source of truth as the wallet deduction engine:
+// DESIGN RULE (LICENSE-KEY BASED ARCHITECTURE):
 //
-//   billableSeconds  = session.duration_seconds  (set by heartbeat & settleSession)
-//   apiCostCredits   = billableSeconds × DECART_CREDITS_PER_SEC
+//   ALL calculations MUST be grouped by license_key — NOT user_id, session_id,
+//   or device_id. license_key is the ONLY billing identity.
+//
+//   SOURCE OF TRUTH: wallet.used_seconds (= session.duration_seconds aggregated
+//   per license_key). NEVER use wall-clock time, compute_seconds, or fragmented
+//   session time.
+//
+//   billableSeconds  = wallet.used_seconds per license_key
+//                    = SUM(session.duration_seconds) per license_key
+//   apiCostCredits   = billableSeconds × DECART_API_COST_PER_SEC  (2.3 cr/s safe rate)
 //   retailCredits    = billableSeconds × dynamicBillingRate / 2
 //   profit           = retailCredits - apiCostCredits
 //
-// This eliminates fake losses that arise from mixing wall-clock time with
-// billable seconds.  The dynamicBillingRate is ALWAYS fetched from the DB via
-// getBillingRate() — never hardcoded in any caller.
+//   BILLING RATE MODEL:
+//   - Higher rate = more revenue per second (economic value only)
+//   - Lower rate  = less revenue per second
+//   - Stream duration is NOT controlled by billing rate
+//   - Streaming duration is controlled ONLY by wallet allocation
+//
+//   The dynamicBillingRate is ALWAYS fetched live from the DB via getBillingRate()
+//   — NEVER hardcoded, NEVER cached stale. Any change MUST reflect instantly in:
+//     Stream Ledger, Wallet Monitor, Reconciliation engine, Profit calculation.
 
 /**
  * Convert wallet billable seconds to normalised analytics metrics.
- * Both API cost and retail revenue use the SAME billableSeconds denominator
- * so the two sides are always comparable (no fake negative profit).
  *
- * @param billableSeconds  session.duration_seconds — the wallet source of truth
- * @param dynamicRate      live billing rate from getBillingRate() — admin-controlled
+ * SOURCE OF TRUTH: billableSeconds = wallet.used_seconds per license_key.
+ * NEVER pass wall-clock duration, compute_seconds, or fragmented session time.
+ *
+ * API cost uses DECART_API_COST_PER_SEC (2.3 cr/s safe rate) — NOT billing rate.
+ * Retail revenue uses dynamicRate (live from admin billing rate monitor).
+ * Both use the SAME billableSeconds denominator → no fake negative profit.
+ *
+ * @param billableSeconds  wallet.used_seconds — the license-key source of truth
+ * @param dynamicRate      live billing rate from getBillingRate() — admin-controlled,
+ *                         affects revenue ONLY, not streaming speed or wallet deduction
  */
 export function computeNormalisedMetrics(billableSeconds: number, dynamicRate: number): {
   apiCostCredits: number;
@@ -112,13 +144,22 @@ export function computeNormalisedMetrics(billableSeconds: number, dynamicRate: n
   profitCredits: number;
   effectiveCreditsPerSec: number;
 } {
-  const apiCostCredits  = billableSeconds * DECART_CREDITS_PER_SEC;
+  // API cost: billableSeconds × 2.3 cr/s (safe Decart rate — analytics only)
+  // NEVER use billing rate for API cost; NEVER use session duration or compute_seconds
+  const apiCostCredits  = Math.round(billableSeconds * DECART_API_COST_PER_SEC * 100) / 100;
+
+  // Retail revenue: billableSeconds × billingRate ÷ 2 (admin-controlled rate)
+  // billing rate affects revenue ONLY — stream duration is controlled by wallet
   const retailSeconds   = Math.round(billableSeconds * dynamicRate / 2);
   const retailCredits   = retailSeconds * 2;
-  const profitCredits   = retailCredits - apiCostCredits;
+
+  // Profit per license_key: retail - api_cost (both use identical time source)
+  const profitCredits   = Math.round((retailCredits - apiCostCredits) * 100) / 100;
+
   const effectiveCreditsPerSec = billableSeconds > 0
     ? Math.round((retailCredits / billableSeconds) * 100) / 100
     : 0;
+
   return { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec };
 }
 

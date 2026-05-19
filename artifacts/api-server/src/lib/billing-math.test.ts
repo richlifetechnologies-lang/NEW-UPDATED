@@ -12,6 +12,7 @@ import { describe, it, expect } from "vitest";
 import {
   DECART_CREDITS_PER_SEC,
   DECART_CREDITS_PER_MIN,
+  DECART_API_COST_PER_SEC,
   MINIMUM_RESERVATION_SEC,
   HEARTBEAT_GRACE_MS,
   DEDUCTION_FREEZE_MS,
@@ -22,6 +23,7 @@ import {
   licenseRemainingSeconds,
   calculateCreditsUsedSinceTopup,
   calculateCreditsRemaining,
+  computeNormalisedMetrics,
   fmtMin,
   creditsToMinutes,
   minutesToCredits,
@@ -50,6 +52,20 @@ describe("Billing constants (Decart Lucy 2.1 contract)", () => {
 
   it("deduction freeze is strictly greater than heartbeat grace", () => {
     expect(DEDUCTION_FREEZE_MS).toBeGreaterThan(HEARTBEAT_GRACE_MS);
+  });
+});
+
+// ── DECART_API_COST_PER_SEC guard ─────────────────────────────────────────
+// This is the safe analytics rate used for profit calculations only.
+// It MUST NOT be used in wallet deduction or streaming logic.
+
+describe("DECART_API_COST_PER_SEC (safe analytics rate — patch spec)", () => {
+  it("safe analytics rate is exactly 2.3 cr/s (patch specification)", () => {
+    expect(DECART_API_COST_PER_SEC).toBe(2.3);
+  });
+
+  it("safe analytics rate is less than actual Decart charge (5 cr/s)", () => {
+    expect(DECART_API_COST_PER_SEC).toBeLessThan(DECART_CREDITS_PER_SEC);
   });
 });
 
@@ -223,6 +239,75 @@ describe("calculateCreditsRemaining — admin API key display", () => {
   });
 });
 
+// ── computeNormalisedMetrics ──────────────────────────────────────────────
+//
+// PATCH SPEC: ALL analytics MUST use wallet.used_seconds per license_key as
+// source of truth. API cost = 2.3 cr/s (safe rate). Retail = billingRate.
+// profit = retail - api_cost. Both sides use IDENTICAL billableSeconds.
+
+describe("computeNormalisedMetrics — license-key analytics (patch spec)", () => {
+  it("0 seconds → all zeros (no fake losses)", () => {
+    const result = computeNormalisedMetrics(0, 5);
+    expect(result.apiCostCredits).toBe(0);
+    expect(result.retailCredits).toBe(0);
+    expect(result.profitCredits).toBe(0);
+    expect(result.effectiveCreditsPerSec).toBe(0);
+  });
+
+  it("API cost uses 2.3 cr/s (DECART_API_COST_PER_SEC) — not billing rate", () => {
+    // 100s at 2.3 cr/s = 230 api cost credits
+    const result = computeNormalisedMetrics(100, 5);
+    expect(result.apiCostCredits).toBe(230);
+  });
+
+  it("retail uses billing rate from admin (dynamic, live — never hardcoded)", () => {
+    // 100s, billing rate 10 → retail seconds = round(100 × 10 / 2) = 500
+    // retail credits = 500 × 2 = 1000
+    const result = computeNormalisedMetrics(100, 10);
+    expect(result.retailSeconds).toBe(500);
+    expect(result.retailCredits).toBe(1000);
+  });
+
+  it("profit = retail - api_cost (both use identical billableSeconds — no fake -639 loss)", () => {
+    // 100s, billing rate 5: retail=250 credits, api=230 → profit = 20
+    const result = computeNormalisedMetrics(100, 5);
+    expect(result.profitCredits).toBeGreaterThan(0);
+  });
+
+  it("higher billing rate = more revenue per second (rate controls economics only)", () => {
+    const low  = computeNormalisedMetrics(100, 2);
+    const high = computeNormalisedMetrics(100, 10);
+    expect(high.retailCredits).toBeGreaterThan(low.retailCredits);
+    // API cost is identical regardless of billing rate
+    expect(high.apiCostCredits).toBe(low.apiCostCredits);
+  });
+
+  it("billing rate change does not affect API cost (streaming speed unchanged)", () => {
+    const rateA = computeNormalisedMetrics(60, 2);
+    const rateB = computeNormalisedMetrics(60, 8);
+    // API cost is always billableSeconds × 2.3 — billing rate has NO effect
+    expect(rateA.apiCostCredits).toBe(rateB.apiCostCredits);
+  });
+
+  it("same denominator: no profit calculation can produce fake loss when rate is reasonable", () => {
+    // billing rate = 5 (default), 622s (the real session that triggered -639 bug)
+    // With 2.3 cr/s api cost and same denominator, profit should be positive
+    const result = computeNormalisedMetrics(622, 5);
+    expect(result.profitCredits).toBeGreaterThanOrEqual(0);
+  });
+
+  it("effectiveCreditsPerSec is 0 when no billable seconds (safe fallback)", () => {
+    const result = computeNormalisedMetrics(0, 5);
+    expect(result.effectiveCreditsPerSec).toBe(0);
+  });
+
+  it("effectiveCreditsPerSec = retailCredits / billableSeconds", () => {
+    const result = computeNormalisedMetrics(100, 5);
+    const expected = Math.round((result.retailCredits / 100) * 100) / 100;
+    expect(result.effectiveCreditsPerSec).toBe(expected);
+  });
+});
+
 // ── End-to-end billing scenario ───────────────────────────────────────────
 
 describe("End-to-end: 1-minute license key with two sessions", () => {
@@ -232,9 +317,6 @@ describe("End-to-end: 1-minute license key with two sessions", () => {
     let usedSeconds = MINIMUM_RESERVATION_SEC; // 1
 
     // Step 2: settle session 1 (42 ticks = 210 credits)
-    const billingStartMs = 0;
-    const lastDebitMs    = 0; // same as billingStart (no heartbeats)
-    const endAtMs        = 42_000;
     const { incrementSec, totalDuration } = creditBasedIncrement(210, 0);
     const remaining = licenseRemainingSeconds(minutesAllocated, usedSeconds);
     const debited   = calculateDebit(incrementSec, remaining);
@@ -264,6 +346,42 @@ describe("End-to-end: 1-minute license key with two sessions", () => {
     expect(debited).toBe(16);
     expect(usedSeconds).toBe(60);
     expect(licenseRemainingSeconds(minutesAllocated, usedSeconds)).toBe(0);
+  });
+});
+
+// ── End-to-end analytics scenario (license-key based) ────────────────────
+
+describe("End-to-end analytics: license-key based profit calculation (patch spec)", () => {
+  it("aggregates 3 reconnect sessions under one license_key — no fragmentation loss", () => {
+    // Simulates the -639 fake loss bug: 3 sessions totaling 622s wallet billable seconds
+    // Old (broken): each session computed separately using wall-clock → inflated API cost
+    // New (correct): sum wallet.used_seconds per license_key → single computation
+    const totalWalletSeconds = 200 + 200 + 222; // 622s aggregated per license_key
+    const billingRate = 5;
+    const result = computeNormalisedMetrics(totalWalletSeconds, billingRate);
+
+    // API cost: 622 × 2.3 = 1430.6
+    expect(result.apiCostCredits).toBeCloseTo(1430.6, 1);
+    // retailCredits: round(622 × 5 / 2) × 2 = 1555 × 2 = 3110 (approximately)
+    expect(result.retailCredits).toBeGreaterThan(0);
+    // Profit must be positive (eliminates -639 fake loss)
+    expect(result.profitCredits).toBeGreaterThan(0);
+  });
+
+  it("billing rate change instantly reflects in profit — no stale cache allowed", () => {
+    const billableSeconds = 100;
+    const oldRate = 5;
+    const newRate = 10;
+
+    const oldResult = computeNormalisedMetrics(billableSeconds, oldRate);
+    const newResult = computeNormalisedMetrics(billableSeconds, newRate);
+
+    // API cost unchanged (rate only affects revenue)
+    expect(newResult.apiCostCredits).toBe(oldResult.apiCostCredits);
+    // Revenue doubled because rate doubled
+    expect(newResult.retailCredits).toBeGreaterThan(oldResult.retailCredits);
+    // Profit increased
+    expect(newResult.profitCredits).toBeGreaterThan(oldResult.profitCredits);
   });
 });
 
