@@ -7,7 +7,7 @@ import { AdminUpdateUserBody, AdminUpdateWalletBody } from "@workspace/api-zod";
 import { createDecartClient } from "@decartai/sdk";
 
 import { getAllRates } from "../lib/rates";
-import { DECART_CREDITS_PER_SEC, BASE_BILLING_RATE } from "../lib/billing-math";
+import { DECART_CREDITS_PER_SEC, DECART_API_COST_PER_SEC, BASE_BILLING_RATE } from "../lib/billing-math";
 import { getBillingRate, invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 import { emitBillingRateChanged } from "../lib/billing-ws";
@@ -2061,8 +2061,10 @@ router.get("/billing-rate", async (_req, res) => {
 
     res.json({
       rate,
-      defaultRate:      DECART_CREDITS_PER_SEC,
+      // Spec §6: no "defaultRate" constant emitted — billing rate is always DB-driven.
+      // baseRate is for display (burn_multiplier UI) only, NOT for billing (spec §5).
       baseRate:         BASE_BILLING_RATE,
+      apiCostRate:      DECART_API_COST_PER_SEC,
       burnMultiplier,
       liveBurnSpeed,
       realStreamMinutesPerLicenseHour: realStreamMinutes,
@@ -2087,8 +2089,10 @@ router.put("/billing-rate", requireAdmin, async (req: any, res) => {
       .select({ value: settingsTable.value })
       .from(settingsTable)
       .where(eq(settingsTable.key, "billing_credits_per_sec"));
-    const prevParsed = prevRow ? parseInt(prevRow.value, 10) : NaN;
-    const previousRate = Number.isFinite(prevParsed) && prevParsed >= 1 ? prevParsed : DECART_CREDITS_PER_SEC;
+    const prevParsed = prevRow ? parseFloat(prevRow.value) : NaN;
+    // Spec §6: DO NOT use DECART_CREDITS_PER_SEC (infrastructure constant) as billing rate fallback.
+    // If no previous rate exists in DB, record 0 to indicate "no prior rate set" (schema is notNull).
+    const previousRate = Number.isFinite(prevParsed) && prevParsed >= 0.1 ? prevParsed : 0;
 
     await db.insert(settingsTable)
       .values({ key: "billing_credits_per_sec", value: String(rate) })

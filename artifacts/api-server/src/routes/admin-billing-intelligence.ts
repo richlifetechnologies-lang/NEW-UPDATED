@@ -718,15 +718,17 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
   const { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec } =
     computeNormalisedMetrics(totalBillableSeconds, liveBillingRate);
 
-  // Rate-controlled burn system (spec §2-§3)
-  // burn_multiplier = billing_rate / base_rate
-  // actual_used_seconds = display_seconds × burn_multiplier
-  // display_seconds = totalBillableSeconds (wallet.used_seconds — source of truth)
+  // Spec §5 (BASE RATE RULE — VISUAL ONLY):
+  // burn_multiplier = effective_rate / base_rate — display metric only, NEVER affects billing.
+  // Spec §4 (ANALYTICS RULE): all analytics MUST derive from wallet.used_seconds directly.
+  // DO NOT multiply totalBillableSeconds by burnMultiplier — that recomputes time incorrectly.
   const burnMultiplier = computeBurnMultiplier(liveBillingRate);
-  const actualUsedSeconds = Math.round(totalBillableSeconds * burnMultiplier);
+  // actualUsedSeconds IS wallet.used_seconds — the authoritative source (spec §4).
+  // It is NOT multiplied by burnMultiplier (that would violate spec §4/§5).
+  const actualUsedSeconds = totalBillableSeconds;
 
-  // Live burn monitor (spec §3): seconds of licence consumed per real second
-  const liveBurnSpeed = liveBillingRate / 2;
+  // Live burn speed is a display metric only — shows effective_rate for rate monitor UI.
+  const liveBurnSpeed = liveBillingRate;
 
   return {
     totalBillableSeconds,
@@ -740,7 +742,7 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
     burnMultiplier,
     actualUsedSeconds,
     liveBurnSpeed,
-    secondsConsumedPerRealSecond: liveBurnSpeed,
+    secondsConsumedPerRealSecond: liveBillingRate,
   };
 }
 
@@ -1030,9 +1032,12 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
       const { apiCostCredits, retailCredits } = computeNormalisedMetrics(sessionBillableSeconds, billingRate);
       const consistencyDelta = sessionBillableSeconds - usedSeconds;
 
-      // Rate-controlled burn system (spec §2-§3)
+      // Spec §5 (BASE RATE RULE — VISUAL ONLY): burn_multiplier is display-only.
+      // Spec §4 (ANALYTICS RULE): analytics MUST use wallet.used_seconds directly.
+      // DO NOT multiply usedSeconds by burnMultiplier — wallet IS the truth source.
       const burnMultiplier = computeBurnMultiplier(billingRate);
-      const actualConsumedSeconds = Math.round(usedSeconds * burnMultiplier);
+      // actualConsumedSeconds = wallet.used_seconds (authoritative, spec §4).
+      const actualConsumedSeconds = usedSeconds;
 
       // Derive wallet consistency status from delta
       const walletConsistencyStatus =

@@ -9,7 +9,10 @@ import { logger } from "../lib/logger";
 import { emitSessionStarted, emitSessionSettled, emitWalletUpdated } from "../lib/billing-ws";
 
 // ── All billing/timing constants imported from single source of truth ──────
-import { getBillingRate } from "../lib/billing-rate-cache";
+// Billing rate is NOT needed in session deduction paths:
+// spec §2: wallet.used_seconds += real_stream_active_seconds (no rate scaling)
+// spec §3: revenue = used_seconds × effective_rate is computed in analytics endpoints only
+// import { getBillingRate, getBillingRateForLicense } from "../lib/billing-rate-cache"; -- intentionally unused here
 import {
   HEARTBEAT_GRACE_MS,
   ORPHAN_GRACE_MS,
@@ -82,9 +85,11 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
       billingStart.getTime()
     ));
   }
-  // Scale by billingRate/2: licence depletion is runtime-configurable via admin panel.
-  const settleRate = await getBillingRate();
-  incrementSec = Math.round(incrementSec * settleRate / 2);
+  // Spec §2 (WALLET DEDUCTION RULE): wallet.used_seconds += real_stream_active_seconds.
+  // Billing rate affects REVENUE only — NOT wallet deduction speed.
+  // The incremented seconds here are the actual elapsed stream seconds (heartbeat-based time).
+  // Revenue is computed elsewhere as: revenue = used_seconds × effective_rate.
+  // DO NOT scale by billing rate — that would violate the single truth model.
 
   // Every session has MINIMUM_RESERVATION_SEC debited at creation.
   // Guarantee duration_seconds reflects at least that so analytics never show 0.
@@ -401,10 +406,11 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // streaming goes un-billed --- not the entire session.
   const billingStart = billingAnchor;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
-  // Dynamic rate factor: admin-configurable via /admin/billing. NO cache — fetched live every heartbeat.
-  const billingRate     = await getBillingRate();
+  // Spec §2 (WALLET DEDUCTION RULE): wallet.used_seconds += real_stream_active_seconds.
+  // Billing rate affects REVENUE calculation only (computed in analytics endpoints).
+  // DO NOT scale by billing rate here — wallet deduction is pure elapsed time.
   const rawIncrementSec = Math.max(0, Math.floor((now.getTime() - lastDebit.getTime()) / 1000));
-  const incrementSec    = Math.round(rawIncrementSec * billingRate / 2);
+  const incrementSec    = rawIncrementSec;
 
   const [freshLicense] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, license.id));
   if (!freshLicense) { res.status(404).json({ error: "License missing" }); return; }
