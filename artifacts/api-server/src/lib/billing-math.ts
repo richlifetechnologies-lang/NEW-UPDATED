@@ -12,7 +12,10 @@
  *   ORPHAN_GRACE_MS         = 120_000 — no heartbeat for 2 min → orphan kill
  *   DEDUCTION_FREEZE_MS     = 45_000
  *
- * DO NOT change these values without updating Decart's actual billing contract.
+ * DO NOT change DECART_CREDITS_PER_SEC without updating Decart's actual billing
+ * contract. This value represents the FIXED Decart API cost (5 cr/s from Lucy 2.1).
+ * The admin-configurable billing rate (credits drained from the licence wallet) is
+ * stored separately in the `settings` table and retrieved via getBillingRate().
  */
 
 export const DECART_CREDITS_PER_SEC  = 5;
@@ -78,6 +81,45 @@ export function calculateDebit(incrementSec: number, remainingSec: number): numb
  */
 export function licenseRemainingSeconds(minutesAllocated: number, usedSeconds: number): number {
   return Math.max(0, Math.round(minutesAllocated * 60) - usedSeconds);
+}
+
+// ── Normalised analytics billing math ─────────────────────────────────────
+//
+// DESIGN RULE: All analytics (Stream Ledger, Reconciliation, Wallet Monitor)
+// MUST use the SAME source of truth as the wallet deduction engine:
+//
+//   billableSeconds  = session.duration_seconds  (set by heartbeat & settleSession)
+//   apiCostCredits   = billableSeconds × DECART_CREDITS_PER_SEC
+//   retailCredits    = billableSeconds × dynamicBillingRate / 2
+//   profit           = retailCredits - apiCostCredits
+//
+// This eliminates fake losses that arise from mixing wall-clock time with
+// billable seconds.  The dynamicBillingRate is ALWAYS fetched from the DB via
+// getBillingRate() — never hardcoded in any caller.
+
+/**
+ * Convert wallet billable seconds to normalised analytics metrics.
+ * Both API cost and retail revenue use the SAME billableSeconds denominator
+ * so the two sides are always comparable (no fake negative profit).
+ *
+ * @param billableSeconds  session.duration_seconds — the wallet source of truth
+ * @param dynamicRate      live billing rate from getBillingRate() — admin-controlled
+ */
+export function computeNormalisedMetrics(billableSeconds: number, dynamicRate: number): {
+  apiCostCredits: number;
+  retailCredits: number;
+  retailSeconds: number;
+  profitCredits: number;
+  effectiveCreditsPerSec: number;
+} {
+  const apiCostCredits  = billableSeconds * DECART_CREDITS_PER_SEC;
+  const retailSeconds   = Math.round(billableSeconds * dynamicRate / 2);
+  const retailCredits   = retailSeconds * 2;
+  const profitCredits   = retailCredits - apiCostCredits;
+  const effectiveCreditsPerSec = billableSeconds > 0
+    ? Math.round((retailCredits / billableSeconds) * 100) / 100
+    : 0;
+  return { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec };
 }
 
 // ── Credit tracker math ───────────────────────────────────────────────────

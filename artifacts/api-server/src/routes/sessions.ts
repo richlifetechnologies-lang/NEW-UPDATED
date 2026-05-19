@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { getDecartKeyIdFromCache } from "./decart";
 import { notifySessionDead } from "../lib/notifications";
 import { logger } from "../lib/logger";
+import { emitSessionStarted, emitSessionSettled, emitWalletUpdated } from "../lib/billing-ws";
 
 // ── All billing/timing constants imported from single source of truth ──────
 import { getBillingRate } from "../lib/billing-rate-cache";
@@ -115,6 +116,14 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
   await db.update(sessionsTable)
     .set({ status: "stopped", stoppedAt: endAt, durationSeconds: totalDuration, lastDeductedAt: endAt })
     .where(eq(sessionsTable.id, sessionId));
+
+  // Observability push — does NOT affect billing (non-fatal)
+  emitSessionSettled(sessionId, session.licenseKeyId ?? undefined, totalDuration, debited);
+  if (license) {
+    const newUsed = (license.usedSeconds ?? 0) + debited;
+    const remaining = Math.max(0, licenseRemainingSeconds(license.minutesAllocated ?? 0, newUsed));
+    emitWalletUpdated(session.licenseKeyId!, newUsed, remaining);
+  }
 
   return debited;
 }
@@ -336,6 +345,10 @@ router.post("/", requireLicense, async (req, res) => {
   }).where(eq(licenseKeysTable.id, license.id));
 
   logger.info({ sessionId, licenseId: license.id, reservedSec: MINIMUM_RESERVATION_SEC, remainingSec: Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC) }, "[Session] session_start");
+
+  // Observability push — does NOT affect billing (non-fatal)
+  emitSessionStarted(sessionId, license.id);
+  emitWalletUpdated(license.id, (license.usedSeconds ?? 0) + MINIMUM_RESERVATION_SEC, Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC));
 
   res.status(201).json(formatSession(session));
 });

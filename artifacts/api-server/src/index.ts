@@ -2,6 +2,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { assertValidEnvironment } from "./lib/startup-validator";
 import { runMigrations } from "@workspace/db";
+import { attachBillingWebSocket } from "./lib/billing-ws";
+import http from "http";
 
 assertValidEnvironment();
 
@@ -28,11 +30,18 @@ try {
   process.exit(1);
 }
 
-app.listen(port, (err) => {
+// Create an HTTP server so we can attach both Express and the billing WebSocket
+const httpServer = http.createServer(app);
+
+// Attach read-only billing observability WebSocket
+// SAFETY: This is purely observational — it does NOT control billing or wallet logic.
+// Path: /api/admin/billing-intelligence/ws
+attachBillingWebSocket(httpServer);
+
+httpServer.listen(port, (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
-
   logger.info({ port }, "Server listening");
 });

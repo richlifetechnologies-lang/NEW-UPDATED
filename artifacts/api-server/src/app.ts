@@ -8,12 +8,10 @@ import { logger } from "./lib/logger";
 import { pool } from "@workspace/db";
 
 // ─── Database connection pool configuration ────────────────────────────────
-// The pool is created in @workspace/db; we tune it here at startup so the
-// settings are applied before any request arrives.
-pool.options.max = 10;  // maximum concurrent connections
-pool.options.min = 2;   // keep at least 2 warm connections alive
-pool.options.idleTimeoutMillis = 30_000;  // release idle connections after 30s
-pool.options.connectionTimeoutMillis = 5_000;  // fail fast if pool is exhausted
+pool.options.max = 10;
+pool.options.min = 2;
+pool.options.idleTimeoutMillis = 30_000;
+pool.options.connectionTimeoutMillis = 5_000;
 
 const app: Express = express();
 
@@ -36,6 +34,7 @@ app.use(
     },
   }),
 );
+
 // REPLIT_DOMAINS: comma-separated bare domains (added as https:// + https://www.)
 // ALLOWED_ORIGINS: comma-separated full origin URLs (for Railway, Render, etc.)
 const productionOrigins = [
@@ -73,7 +72,6 @@ if (process.env.NODE_ENV === "production") {
   if (existsSync(frontendDist)) {
     logger.info({ frontendDist }, "Serving frontend static files");
     app.use(express.static(frontendDist));
-    // Catch-all: serve index.html for any non-API route (SPA routing)
     app.use((_req, res) => {
       res.sendFile(path.join(frontendDist, "index.html"));
     });

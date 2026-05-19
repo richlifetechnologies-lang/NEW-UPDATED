@@ -10,6 +10,7 @@ import { getAllRates } from "../lib/rates";
 import { DECART_CREDITS_PER_SEC } from "../lib/billing-math";
 import { invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
+import { emitBillingRateChanged } from "../lib/billing-ws";
 
 function parseLoginBody(body: unknown): { email: string; password: string } | null {
   if (!body || typeof body !== "object") return null;
@@ -2086,6 +2087,9 @@ router.put("/billing-rate", requireAdmin, async (req: any, res) => {
       changedByEmail: actor?.email ?? null,
       note: `Changed from ${previousRate} to ${rate} cr/s`,
     }).catch(() => { /* non-fatal */ });
+
+    // Push live update to all connected admin dashboard clients (read-only observability)
+    emitBillingRateChanged(previousRate, rate, actor?.email ?? null);
 
     res.json({ ok: true, rate });
   } catch (err) {
