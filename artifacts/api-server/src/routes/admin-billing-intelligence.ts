@@ -107,15 +107,9 @@ function deriveMetrics(
   },
   billingRate: number
 ) {
-  // Wallet billable seconds = the heartbeat engine's written value.
-  // For active sessions durationSeconds is updated every heartbeat; for stopped
-  // sessions it is the final settled value.  Fall back to billing-anchor delta
-  // only when the column is null (pre-migration rows).
-  const endMs = s.stoppedAt?.getTime() ?? Date.now();
-  const billingAnchor = s.billingStartedAt ?? s.startedAt;
-  const billableSeconds = s.durationSeconds != null
-    ? Number(s.durationSeconds)
-    : Math.max(0, Math.floor((endMs - billingAnchor.getTime()) / 1000));
+  // SOURCE OF TRUTH: wallet billable seconds = duration_seconds (written by heartbeat engine).
+  // SPEC RULE: if duration_seconds is null, return 0 — DO NOT fall back to wall-clock.
+  const billableSeconds = s.durationSeconds != null ? Number(s.durationSeconds) : 0;
 
   // Normalised: both API cost and retail use the SAME billableSeconds
   const { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec } =
@@ -275,14 +269,9 @@ router.get("/sessions", requireAdmin, featureGate, async (req, res) => {
     `);
 
     const sessions = ((rows as any).rows as any[]).map((row: any) => {
-      // SOURCE OF TRUTH: wallet billable seconds = duration_seconds
-      const endMs = row.stopped_at ? new Date(row.stopped_at).getTime() : Date.now();
-      const billingAnchor = row.billing_started_at
-        ? new Date(row.billing_started_at).getTime()
-        : new Date(row.started_at).getTime();
-      const billableSeconds = row.duration_seconds != null
-        ? Number(row.duration_seconds)
-        : Math.max(0, Math.floor((endMs - billingAnchor) / 1000));
+      // SOURCE OF TRUTH: wallet billable seconds = duration_seconds (written by heartbeat engine).
+      // SPEC RULE: if duration_seconds is null, return 0 — DO NOT fall back to wall-clock.
+      const billableSeconds = row.duration_seconds != null ? Number(row.duration_seconds) : 0;
 
       const { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec } =
         computeNormalisedMetrics(billableSeconds, billingRate);
@@ -457,14 +446,9 @@ router.get("/session/:sessionId", requireAdmin, featureGate, async (req, res) =>
 
     const row = (rows as any).rows[0];
 
-    // SOURCE OF TRUTH: wallet billable seconds
-    const endMs = row.stopped_at ? new Date(row.stopped_at).getTime() : Date.now();
-    const billingAnchorMs = row.billing_started_at
-      ? new Date(row.billing_started_at).getTime()
-      : new Date(row.started_at).getTime();
-    const billableSeconds = row.duration_seconds != null
-      ? Number(row.duration_seconds)
-      : Math.max(0, Math.floor((endMs - billingAnchorMs) / 1000));
+    // SOURCE OF TRUTH: wallet billable seconds = duration_seconds (written by heartbeat engine).
+    // SPEC RULE: if duration_seconds is null, return 0 — DO NOT fall back to wall-clock.
+    const billableSeconds = row.duration_seconds != null ? Number(row.duration_seconds) : 0;
 
     const { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec } =
       computeNormalisedMetrics(billableSeconds, billingRate);
@@ -723,14 +707,9 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
   let totalBillableSeconds = 0;
 
   for (const s of group.sessions) {
-    const endMs = s.stopped_at ? new Date(s.stopped_at).getTime() : Date.now();
-    const billingAnchor = s.billing_started_at
-      ? new Date(s.billing_started_at).getTime()
-      : new Date(s.started_at).getTime();
-    // Wallet source of truth: duration_seconds if available
-    const billable = s.duration_seconds != null
-      ? Number(s.duration_seconds)
-      : Math.max(0, Math.floor((endMs - billingAnchor) / 1000));
+    // SOURCE OF TRUTH: wallet.used_seconds (duration_seconds written by heartbeat engine).
+    // SPEC RULE: if duration_seconds is null → 0. NEVER fall back to wall-clock time.
+    const billable = s.duration_seconds != null ? Number(s.duration_seconds) : 0;
     totalBillableSeconds += billable;
   }
 

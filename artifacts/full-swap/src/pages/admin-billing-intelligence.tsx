@@ -862,7 +862,7 @@ function StreamLedgerPanel() {
                       </td>
                       <td className="px-3 py-2.5 text-right text-slate-300">{stream.totalSessions}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-slate-300">
-                        {fmtDur(stream.streamDurationSeconds)}
+                        {fmtDur(stream.totalBillingSeconds)}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-blue-400">
                         {fmt(stream.totalApiCreditsUsed)}
@@ -913,9 +913,8 @@ function StreamLedgerPanel() {
                                   {[
                                     ["Stream start", new Date(stream.streamStartTime).toLocaleString()],
                                     ["Stream end", new Date(stream.streamEndTime).toLocaleString()],
-                                    ["Wall-clock duration", fmtDur(stream.streamDurationSeconds)],
-                                    ["Compute seconds", `${fmt(stream.totalComputeSeconds)}s`],
-                                    ["Billing seconds", `${fmt(stream.totalBillingSeconds)}s`],
+                                    ["Wall-clock span (start→end)", fmtDur(stream.streamDurationSeconds)],
+                                    ["Wallet billing seconds ✓", fmtDur(stream.totalBillingSeconds)],
                                     ["Retail seconds", `${fmt(stream.totalRetailCreditsCharged / 2)}s`],
                                   ].map(([k, v]) => (
                                     <tr key={k} className="border-b border-slate-800 last:border-0">
@@ -967,7 +966,7 @@ function StreamLedgerPanel() {
                               </p>
                               <div className="grid grid-cols-3 gap-2">
                                 {[
-                                  { label: "Decart API cost", value: fmt(stream.totalApiCreditsUsed), color: "text-blue-400", sub: `${stream.totalComputeSeconds}s × 5 cr/s` },
+                                  { label: "Decart API cost", value: fmt(stream.totalApiCreditsUsed), color: "text-blue-400", sub: `${stream.totalBillingSeconds}s × 2.3 cr/s (API cost)` },
                                   { label: "Retail charged", value: fmt(stream.totalRetailCreditsCharged), color: "text-yellow-400", sub: `rate: ${stream.lastBillingRateUsed} cr/s` },
                                   { label: "Net profit", value: `${stream.profitInCredits >= 0 ? "+" : ""}${fmt(stream.profitInCredits)}`, color: stream.profitInCredits >= 0 ? "text-emerald-400" : "text-red-400", sub: `${stream.effectiveCreditsPerSecond.toFixed(2)} effective cr/s` },
                                 ].map(c => (
