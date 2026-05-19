@@ -57,18 +57,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── 2. Deploy to Railway (if configured) ────────────────────────────────────
+  # ── 2. Deploy to Railway (if RAILWAY_TOKEN secret is configured) ─────────────
   deploy-railway:
     name: Deploy to Railway
     needs: build
     runs-on: ubuntu-latest
-    if: ${{ secrets.RAILWAY_TOKEN != '' }}
+    # Use env var to check secret presence — secrets context is not available in if:
+    env:
+      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' && 'true' || 'false' }}
+    if: ${{ always() && needs.build.result == 'success' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Deploy to Railway
+        if: ${{ env.HAS_RAILWAY_TOKEN == 'true' }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -76,13 +80,16 @@ jobs:
           npm install -g @railway/cli
           railway up --service api --service frontend
 
-  # ── 3. Deploy to VPS via SSH (if configured) ────────────────────────────────
+      - name: Skip (RAILWAY_TOKEN not configured)
+        if: ${{ env.HAS_RAILWAY_TOKEN != 'true' }}
+        run: echo "RAILWAY_TOKEN secret not set — skipping Railway deploy."
+
+  # ── 3. Deploy to VPS via SSH (if VPS_HOST variable is configured) ────────────
   deploy-vps:
     name: Deploy to VPS
     needs: build
     runs-on: ubuntu-latest
-    # Skip this job if VPS_HOST secret is not set (e.g. no VPS yet)
-    if: ${{ vars.VPS_HOST != '' }}
+    if: ${{ always() && needs.build.result == 'success' && vars.VPS_HOST != '' }}
 
     steps:
       - name: Checkout (for docker-compose.yml + nginx config)
@@ -121,4 +128,4 @@ jobs:
             # Clean up old images
             docker image prune -f
 
-            echo "✅ Deployed commit ${{ github.sha }}"
+            echo "Deployed commit ${{ github.sha }}"
