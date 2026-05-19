@@ -553,8 +553,9 @@ function GhostSessionsPanel() {
     </div>
   );
 
-  const SimpleTable = ({ rows, cols }: { rows: any[]; cols: string[] }) =>
-    rows.length === 0 ? (
+  const SimpleTable = ({ rows, cols }: { rows: any[]; cols: string[] }) => {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    return safeRows.length === 0 ? (
       <p className="text-xs text-slate-600 text-center py-4">No entries detected.</p>
     ) : (
       <div className="overflow-x-auto">
@@ -569,7 +570,7 @@ function GhostSessionsPanel() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
+            {safeRows.map((row, i) => (
               <tr key={i} className="border-b border-slate-800 last:border-0">
                 {cols.map((c) => (
                   <td key={c} className="px-3 py-2 font-mono text-slate-400 whitespace-nowrap">
@@ -586,6 +587,7 @@ function GhostSessionsPanel() {
         </table>
       </div>
     );
+  };
 
   return (
     <div className="space-y-3">
@@ -931,11 +933,11 @@ function StreamLedgerPanel() {
                                 <TrendingUp className="w-3 h-3" />
                                 Billing Rate History (per session)
                               </p>
-                              {stream.billingRateHistory.length === 0 ? (
+                              {(!Array.isArray(stream.billingRateHistory) || stream.billingRateHistory.length === 0) ? (
                                 <p className="text-xs text-slate-600">No rate history available.</p>
                               ) : (
                                 <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-                                  {stream.billingRateHistory.map((h, i) => (
+                                  {(stream.billingRateHistory as any[]).map((h, i) => (
                                     <div key={i} className="flex items-center justify-between text-xs rounded px-2 py-1 bg-slate-800/60">
                                       <span className="font-mono text-slate-500 truncate max-w-[120px]">
                                         {h.sessionId.slice(0, 12)}…
@@ -1409,7 +1411,7 @@ function BillingRatePanel() {
           </div>
 
           {/* Per-rate stats */}
-          {data.rateStats.length > 0 && (
+          {Array.isArray(data.rateStats) && data.rateStats.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-slate-300 mb-3">Usage by Billing Rate</h3>
               <div className="overflow-x-auto rounded-xl border border-slate-800">
@@ -1423,7 +1425,7 @@ function BillingRatePanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.rateStats.map((r, i) => (
+                    {(data.rateStats as any[]).map((r, i) => (
                       <tr key={i} className={`border-b border-slate-800 last:border-0 ${Number(r.rate) === data.currentRate ? "bg-blue-950/20" : ""}`}>
                         <td className="px-4 py-2.5">
                           <span className="font-mono text-blue-400 font-bold">{r.rate} cr/s</span>
@@ -1449,13 +1451,13 @@ function BillingRatePanel() {
           {/* Change history */}
           <div>
             <h3 className="text-sm font-semibold text-slate-300 mb-3">Rate Change History</h3>
-            {data.history.length === 0 ? (
+            {(!Array.isArray(data.history) || data.history.length === 0) ? (
               <div className="rounded-xl border border-slate-800 p-6 text-center text-sm text-slate-500">
                 No rate changes recorded yet.
               </div>
             ) : (
               <div className="space-y-2">
-                {data.history.map(h => (
+                {(Array.isArray(data.history) ? data.history : []).map(h => (
                   <div key={h.id} className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 flex items-center gap-4">
                     <div className="flex items-center gap-2 text-sm">
                       <span className="font-mono text-slate-500">{h.previousRate} cr/s</span>
