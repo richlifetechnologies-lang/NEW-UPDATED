@@ -1231,14 +1231,14 @@ router.get("/billing-rate", requireAdmin, featureGate, billingMonitorGate, async
     `);
 
     // Active sessions using current rate vs stale rate (from session_accounting_log)
-    const propagationCheck = await db.execute(sql`
+    const propagationCheck = (await db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE ABS(billing_rate_at_settle - ${currentRate}) < 0.01) AS synced_sessions,
         COUNT(*) FILTER (WHERE ABS(billing_rate_at_settle - ${currentRate}) >= 0.01) AS stale_sessions,
         COUNT(*) AS total_sessions
       FROM session_accounting_log
       WHERE billing_rate_at_settle IS NOT NULL
-    `).rows;
+    `)).rows;
 
     const propagation = propagationCheck[0] ?? { synced_sessions: 0, stale_sessions: 0, total_sessions: 0 };
 
@@ -1257,7 +1257,7 @@ router.get("/billing-rate", requireAdmin, featureGate, billingMonitorGate, async
         note: h.note,
         changedAt: h.createdAt,
       })),
-      (rateStats as any).rows,
+      rateStats: (rateStats as any).rows,
       propagation: {
         syncedSessions: Number(propagation.synced_sessions),
         staleSessions: Number(propagation.stale_sessions),
