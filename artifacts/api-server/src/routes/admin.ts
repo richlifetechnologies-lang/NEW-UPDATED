@@ -2086,7 +2086,10 @@ router.put("/billing-rate", requireAdmin, async (req: any, res) => {
     // Push live update to all connected admin dashboard clients (read-only observability)
     emitBillingRateChanged(previousRate, rate, actor?.email ?? null);
 
-    res.json({ ok: true, rate });
+    // SPEC §4 MANDATORY: Re-fetch from DB to confirm the saved value matches.
+    // Never return the input rate — return the DB-verified rate only.
+    const confirmedRate = await getBillingRate();
+    res.json({ ok: true, rate: confirmedRate });
   } catch (err) {
     res.status(500).json({ error: "Failed to save billing rate" });
   }
