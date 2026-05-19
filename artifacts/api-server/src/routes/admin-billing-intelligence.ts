@@ -778,6 +778,16 @@ router.get("/stream-ledger/live", requireAdmin, featureGate, streamLedgerGate, a
 
     const result = groups.map(group => {
       const agg = aggregateStream(group, billingRate);
+
+      // billingRateHistory — per-session rate snapshots (all use live rate now)
+      const billingRateHistory = group.sessions.map(s => ({
+        sessionId: s.session_id,
+        billingRate,
+        snapshotAt: s.started_at instanceof Date
+          ? (s.started_at as Date).toISOString()
+          : String(s.started_at),
+      }));
+
       return {
         streamGroupId: group.streamGroupId,
         licenseKey: group.licenseKey,
@@ -792,6 +802,7 @@ router.get("/stream-ledger/live", requireAdmin, featureGate, streamLedgerGate, a
         totalComputeSeconds: agg.totalBillableSeconds,
         totalBillingSeconds: agg.totalBillableSeconds,
         currentBillingRate: billingRate,
+        billingRateHistory,
         sessionIds: group.sessions.map(s => s.session_id),
       };
     });
@@ -1020,6 +1031,15 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
       const { apiCostCredits, retailCredits } = computeNormalisedMetrics(sessionBillableSeconds, billingRate);
       const consistencyDelta = sessionBillableSeconds - usedSeconds;
 
+      // Derive wallet consistency status from delta
+      const walletConsistencyStatus =
+        Math.abs(consistencyDelta) > 10 ? "mismatch" : "ok";
+
+      // Credit-denominated values (backward-compat with old frontend)
+      const creditsAllocated = Math.round(allocatedSeconds * billingRate);
+      const creditsUsed      = Math.round(usedSeconds      * billingRate);
+      const creditsRemaining = Math.max(0, creditsAllocated - creditsUsed);
+
       return {
         licenseKeyId: Number(lk.id),
         licenseKey: String(lk.key),
@@ -1039,6 +1059,11 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
         sessionApiCostCredits: apiCostCredits,
         sessionRetailCredits: retailCredits,
         consistencyDeltaSeconds: consistencyDelta,
+        // backward-compat fields the frontend expects
+        walletConsistencyStatus,
+        creditsAllocated,
+        creditsUsed,
+        creditsRemaining,
       };
     });
 
