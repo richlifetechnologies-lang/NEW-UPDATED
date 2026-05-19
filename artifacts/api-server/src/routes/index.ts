@@ -11,6 +11,7 @@ import chatRouter from "./chat";
 import subAdminRouter from "./sub-admin";
 import licenseRouter from "./license";
 import billingIntelligenceRouter from "./admin-billing-intelligence";
+import railwayRouter from "./admin-railway";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -22,6 +23,7 @@ router.use("/admin", adminRouter);
 router.use("/admin/notifications", adminNotificationsRouter);
 router.use("/admin/api-monitoring", adminMonitoringRouter);
 router.use("/admin/billing-intelligence", billingIntelligenceRouter);
+router.use("/admin/railway", railwayRouter);
 router.use(downloadRouter);
 router.use("/subadmin", subAdminRouter);
 router.use("/license", licenseRouter);
