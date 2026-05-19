@@ -7,7 +7,7 @@ import { AdminUpdateUserBody, AdminUpdateWalletBody } from "@workspace/api-zod";
 import { createDecartClient } from "@decartai/sdk";
 
 import { getAllRates } from "../lib/rates";
-import { DECART_CREDITS_PER_SEC } from "../lib/billing-math";
+import { DECART_CREDITS_PER_SEC, BASE_BILLING_RATE } from "../lib/billing-math";
 import { getBillingRate, invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 import { emitBillingRateChanged } from "../lib/billing-ws";
@@ -2044,7 +2044,30 @@ router.put("/decart-credit-settings", requireAdmin, async (req, res) => {
 router.get("/billing-rate", async (_req, res) => {
   try {
     const rate = await getBillingRate();
-    res.json({ rate, defaultRate: DECART_CREDITS_PER_SEC });
+
+    // Live burn monitor fields (spec §3, §4 — read-only, no billing logic)
+    const burnMultiplier     = Math.round((rate / BASE_BILLING_RATE) * 1000) / 1000;
+    const liveBurnSpeed      = rate / 2;            // seconds consumed per real second (heartbeat formula)
+    const realStreamMinutes  = Math.round((120 / rate) * 10) / 10; // real streaming mins per licence hour
+
+    let burnPreviewText: string;
+    if (liveBurnSpeed === 1) {
+      burnPreviewText = `At rate ${rate}: licence depletes 1:1 with real time (60 min licence = 60 min streaming)`;
+    } else if (liveBurnSpeed > 1) {
+      burnPreviewText = `At rate ${rate}: 60 min licence lasts ~${realStreamMinutes} min of real streaming (${liveBurnSpeed}× depletion)`;
+    } else {
+      burnPreviewText = `At rate ${rate}: 60 min licence lasts ~${realStreamMinutes} min of real streaming (slower than real-time)`;
+    }
+
+    res.json({
+      rate,
+      defaultRate:      DECART_CREDITS_PER_SEC,
+      baseRate:         BASE_BILLING_RATE,
+      burnMultiplier,
+      liveBurnSpeed,
+      realStreamMinutesPerLicenseHour: realStreamMinutes,
+      burnPreview:      burnPreviewText,
+    });
   } catch {
     res.status(500).json({ error: "Failed to load billing rate" });
   }

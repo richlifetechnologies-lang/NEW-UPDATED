@@ -725,6 +725,9 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
   const burnMultiplier = computeBurnMultiplier(liveBillingRate);
   const actualUsedSeconds = Math.round(totalBillableSeconds * burnMultiplier);
 
+  // Live burn monitor (spec §3): seconds of licence consumed per real second
+  const liveBurnSpeed = liveBillingRate / 2;
+
   return {
     totalBillableSeconds,
     totalApiCreditsUsed: apiCostCredits,
@@ -736,6 +739,8 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
     streamDurationSeconds: Math.floor((group.streamEndMs - group.streamStartMs) / 1000),
     burnMultiplier,
     actualUsedSeconds,
+    liveBurnSpeed,
+    secondsConsumedPerRealSecond: liveBurnSpeed,
   };
 }
 
@@ -1066,6 +1071,9 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
         burnMultiplier,
         actualConsumedSeconds,
         baseRate: BASE_BILLING_RATE,
+        // Live burn monitor (spec §3): seconds of licence consumed per real second
+        liveBurnSpeed: billingRate / 2,
+        secondsConsumedPerRealSecond: billingRate / 2,
       };
     });
 
