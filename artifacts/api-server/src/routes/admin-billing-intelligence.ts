@@ -220,7 +220,11 @@ router.get("/summary", requireAdmin, featureGate, async (_req, res) => {
       totals: {
         totalSessions,
         totalBillableSeconds: totalBillableSec,
+        // backward-compat aliases — old frontend field names
+        totalBillingSeconds: totalBillableSec,
+        totalComputeSeconds: totalBillableSec,
         totalApiCostCredits,
+        totalActualApiCredits: totalApiCostCredits,
         totalRetailCredits,
         totalRetailSeconds,
         totalProfitMarginCredits: totalProfitMargin,
@@ -310,7 +314,11 @@ router.get("/sessions", requireAdmin, featureGate, async (req, res) => {
         packageLabel:           row.package_label ?? null,
         // ── Normalised billing metrics (same denominator for both sides) ───
         billableSeconds,
+        // backward-compat aliases
+        computeSeconds:         billableSeconds,
+        billingSeconds:         billableSeconds,
         apiCostCredits,
+        actualApiCredits:       apiCostCredits,
         retailSeconds,
         retailCreditsCharged:   retailCredits,
         billingRateAtQuery:     billingRate,
@@ -515,14 +523,18 @@ router.get("/session/:sessionId", requireAdmin, featureGate, async (req, res) =>
       },
       metrics: {
         billableSeconds,
+        // backward-compat aliases
+        computeSeconds:       billableSeconds,
+        billingSeconds:       billableSeconds,
         apiCostCredits,
+        actualApiCredits:     apiCostCredits,
         retailSeconds,
         retailCreditsCharged: retailCredits,
-        profitMarginCredits: profitCredits,
+        profitMarginCredits:  profitCredits,
         effectiveCreditsPerSec,
-        billingRateAtQuery: billingRate,
-        settlementSource: "wallet_billable_seconds",
-        anomalyFlag: anomaly,
+        billingRateAtQuery:   billingRate,
+        settlementSource:     "wallet_billable_seconds",
+        anomalyFlag:          anomaly,
       },
       timeline,
       accountingLog,
@@ -776,6 +788,9 @@ router.get("/stream-ledger/live", requireAdmin, featureGate, streamLedgerGate, a
         streamStartTime: new Date(group.streamStartMs).toISOString(),
         streamEndTime: new Date(group.streamEndMs).toISOString(),
         ...agg,
+        // backward-compat aliases for old frontend field names
+        totalComputeSeconds: agg.totalBillableSeconds,
+        totalBillingSeconds: agg.totalBillableSeconds,
         currentBillingRate: billingRate,
         sessionIds: group.sessions.map(s => s.session_id),
       };
@@ -1031,10 +1046,21 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
       wallets = wallets.filter(w => w.status === statusFilter);
     }
 
+    // backward-compat summary breakdown the old frontend expects
+    const walletSummary = {
+      active:    wallets.filter(w => w.status === "active").length,
+      paused:    wallets.filter(w => w.status === "paused").length,
+      exhausted: wallets.filter(w => w.status === "exhausted").length,
+      inactive:  wallets.filter(w => w.status === "inactive").length,
+      mismatched: wallets.filter(w => Math.abs(w.consistencyDeltaSeconds) > 10).length,
+    };
+
     res.json({
       wallets,
       currentBillingRate: billingRate,
       totalWallets: wallets.length,
+      total: wallets.length,
+      summary: walletSummary,
       computedAt: new Date().toISOString(),
     });
   } catch (err) {
