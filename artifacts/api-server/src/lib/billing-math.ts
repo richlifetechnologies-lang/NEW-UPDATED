@@ -5,28 +5,48 @@
  * This makes them trivially testable and portable across hosting platforms.
  *
  * ── Constants ──────────────────────────────────────────────────────────────
- *   DECART_CREDITS_PER_SEC       = 5     (Lucy 2.1 charges 5 credits/second)
+ *   DECART_CREDITS_PER_SEC       = 5     (Lucy 2.1 charges 5 credits/second —
+ *                                         used for wallet deduction only)
  *   DECART_CREDITS_PER_MIN       = 300   (5 × 60)
- *   DECART_API_COST_PER_SEC      = 5     (SAME as DECART_CREDITS_PER_SEC — Decart's
- *                                         actual charge is 5 cr/s, used for analytics)
+ *   DECART_REAL_API_COST_RATE    = 2.3   (safe default API cost rate — analytics
+ *                                         and profit calculations ONLY)
+ *   DECART_API_COST_PER_SEC      = 2.3   (alias for DECART_REAL_API_COST_RATE)
  *   MINIMUM_RESERVATION_SEC      = 1     (reserved at session creation)
  *   HEARTBEAT_GRACE_MS           = 35_000  — max gap before a heartbeat is "late"
  *   ORPHAN_GRACE_MS              = 120_000 — no heartbeat for 2 min → orphan kill
  *   DEDUCTION_FREEZE_MS          = 45_000
  *
- * ── Billing math truth table ────────────────────────────────────────────────
- *   Decart charges:   5 cr/s (Lucy 2.1 — this is the actual API cost)
- *   Admin billing rate (r): stored in settings table, fetched via getBillingRate()
- *   Retail credits:   billableSeconds × r   (≈ what the user's wallet pays)
- *   API cost credits: billableSeconds × 5   (what we pay Decart)
- *   Profit:           billableSeconds × (r − 5)
+ * ── Dual Rate System ────────────────────────────────────────────────────────
  *
- *   At r = 5  → profit =  0  (breakeven)
- *   At r = 7  → profit = +2 cr/s per second (profitable)
- *   At r = 3  → profit = −2 cr/s per second (loss)
+ *   RATE A — BILLING RATE (admin-controlled, dynamic):
+ *     Source:  settings table, fetched live via getBillingRate()
+ *     Used for: retail revenue calculation ONLY
+ *     Formula: retail_cost = wallet.used_seconds × billing_rate
  *
- * DO NOT change DECART_CREDITS_PER_SEC without updating Decart's actual billing
- * contract. This value represents the FIXED Decart API cost (5 cr/s from Lucy 2.1).
+ *   RATE B — API COST RATE (fixed system constant):
+ *     Value:   DECART_REAL_API_COST_RATE = 2.3 cr/s (SAFE DEFAULT — never changes)
+ *     Used for: infrastructure cost / profit analytics ONLY
+ *     Formula: api_cost = wallet.used_seconds × 2.3
+ *     NOT tied to billing rate. NOT editable from admin billing dashboard.
+ *
+ *   CRITICAL RULE: Billing rate ≠ API cost rate. They MUST NEVER be mixed.
+ *
+ *   profit = (wallet.used_seconds × billing_rate) − (wallet.used_seconds × 2.3)
+ *
+ *   At billing_rate = 2.3 → profit = 0  (breakeven)
+ *   At billing_rate > 2.3 → profit > 0  (profitable)
+ *   At billing_rate < 2.3 → profit < 0  (loss)
+ *
+ * ── Stream Ledger Duration Rule ─────────────────────────────────────────────
+ *   ALL display durations MUST be derived from wallet.used_seconds ONLY.
+ *   NEVER use wall-clock duration, session duration aggregation, fragmented
+ *   stream totals, reconnect duration, or compute_seconds.
+ *   display_duration = wallet.used_seconds
+ *
+ * ── Dynamic Rate Sync ───────────────────────────────────────────────────────
+ *   Billing rate MUST update instantly across ALL modules (Stream Ledger,
+ *   Wallet Monitor, Reconciliation, Profit Dashboard). NOT cached. NOT
+ *   overwritten by AI edits. NO fallback to default values.
  *
  * The admin-configurable billing rate (credits drained from the licence wallet) is
  * stored separately in the `settings` table and retrieved via getBillingRate().
@@ -34,13 +54,26 @@
 
 export const DECART_CREDITS_PER_SEC   = 5;
 export const DECART_CREDITS_PER_MIN   = DECART_CREDITS_PER_SEC * 60; // 300
+
 /**
- * Actual Decart API cost rate used for analytics and profit calculations.
- * This EQUALS DECART_CREDITS_PER_SEC (5 cr/s) because that IS the real Decart
- * charge per second. A previous patch incorrectly set this to 2.3 which caused
- * all profit/margin numbers to appear inflated. Fixed to reflect true values.
+ * DECART_REAL_API_COST_RATE — Fixed safe API cost rate for analytics and profit.
+ *
+ * This is the ONLY allowed API cost rate: 2.3 cr/s.
+ * - NOT tied to the billing rate
+ * - NOT editable from the admin billing rate UI
+ * - NOT a dynamic setting
+ * - Used ONLY for: infrastructure cost tracking and profit calculations
+ *
+ * wallet deduction uses DECART_CREDITS_PER_SEC (5 cr/s) — a separate constant.
  */
-export const DECART_API_COST_PER_SEC  = DECART_CREDITS_PER_SEC; // 5 cr/s
+export const DECART_REAL_API_COST_RATE = 2.3;
+
+/**
+ * DECART_API_COST_PER_SEC — alias for DECART_REAL_API_COST_RATE.
+ * Safe analytics rate used for profit calculations only.
+ * MUST NOT be used in wallet deduction or streaming logic.
+ */
+export const DECART_API_COST_PER_SEC  = DECART_REAL_API_COST_RATE; // 2.3 cr/s
 export const MINIMUM_RESERVATION_SEC  = 1;
 export const HEARTBEAT_GRACE_MS       = 35_000;
 export const ORPHAN_GRACE_MS          = 120_000; // 2 minutes — orphan kill threshold
@@ -113,18 +146,22 @@ export function licenseRemainingSeconds(minutesAllocated: number, usedSeconds: n
 //
 //   SOURCE OF TRUTH: wallet.used_seconds (= session.duration_seconds aggregated
 //   per license_key). NEVER use wall-clock time, compute_seconds, or fragmented
-//   session time.
+//   session time.  display_duration = wallet.used_seconds (stream ledger rule).
+//
+//   DUAL RATE SYSTEM (rates MUST NEVER be mixed):
+//     API cost rate:  DECART_API_COST_PER_SEC = 2.3 cr/s  (fixed — analytics only)
+//     Billing rate:   dynamicBillingRate       (admin-controlled — revenue only)
 //
 //   billableSeconds  = wallet.used_seconds per license_key
 //                    = SUM(session.duration_seconds) per license_key
-//   apiCostCredits   = billableSeconds × DECART_API_COST_PER_SEC  (5 cr/s — actual Decart charge)
-//   retailCredits    = billableSeconds × dynamicBillingRate
+//   apiCostCredits   = billableSeconds × 2.3      (FIXED — infrastructure cost)
+//   retailCredits    = billableSeconds × dynamicBillingRate  (DYNAMIC — revenue)
 //   profit           = retailCredits − apiCostCredits
-//                    = billableSeconds × (dynamicRate − 5)
+//                    = billableSeconds × (dynamicRate − 2.3)
 //
-//   At billing rate = 5  → profit = 0  (breakeven — costs exactly what Decart charges)
-//   At billing rate > 5  → profit > 0  (surplus)
-//   At billing rate < 5  → profit < 0  (loss)
+//   At billing rate = 2.3 → profit = 0  (breakeven)
+//   At billing rate > 2.3 → profit > 0  (surplus)
+//   At billing rate < 2.3 → profit < 0  (loss)
 //
 //   BILLING RATE MODEL:
 //   - Higher rate = more revenue per second (economic value only)
@@ -141,10 +178,14 @@ export function licenseRemainingSeconds(minutesAllocated: number, usedSeconds: n
  *
  * SOURCE OF TRUTH: billableSeconds = wallet.used_seconds per license_key.
  * NEVER pass wall-clock duration, compute_seconds, or fragmented session time.
+ * display_duration = wallet.used_seconds (the ONLY valid source for stream ledger).
  *
- * API cost uses DECART_API_COST_PER_SEC (2.3 cr/s safe rate) — NOT billing rate.
+ * API cost uses DECART_API_COST_PER_SEC (2.3 cr/s — fixed, never changes).
  * Retail revenue uses dynamicRate (live from admin billing rate monitor).
  * Both use the SAME billableSeconds denominator → no fake negative profit.
+ * These two rates are STRICTLY SEPARATE — never mix or alias them.
+ *
+ * profit = (billableSeconds × dynamicRate) − (billableSeconds × 2.3)
  *
  * @param billableSeconds  wallet.used_seconds — the license-key source of truth
  * @param dynamicRate      live billing rate from getBillingRate() — admin-controlled,
