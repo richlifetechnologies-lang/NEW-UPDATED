@@ -2118,6 +2118,78 @@ router.put("/billing-rate", requireAdmin, async (req: any, res) => {
   }
 });
 
+/** GET /api/admin/profit-live — live per-session profit dashboard data (no extra feature gates) */
+router.get("/profit-live", requireAdmin, async (_req, res) => {
+  const API_COST_PER_SEC = 2.3;
+  try {
+    const rate          = await getBillingRate();
+    const burnMultiplier = Math.round((rate / BASE_BILLING_RATE) * 1000) / 1000;
+    const liveBurnSpeed  = rate / 2;
+    const profitPerSec   = rate - API_COST_PER_SEC;
+
+    const rows = await db.execute(sql`
+      SELECT
+        s.id               AS session_id,
+        lk.key             AS license_key,
+        s.license_key_id,
+        s.started_at,
+        COALESCE(s.duration_seconds, 0) AS used_seconds
+      FROM sessions s
+      LEFT JOIN license_keys lk ON lk.id = s.license_key_id
+      WHERE s.status = 'active'
+      ORDER BY s.started_at DESC
+      LIMIT 200
+    `);
+
+    const sessions: any[] = (rows as any).rows ?? [];
+
+    const streams = sessions.map((s: any) => {
+      const usedSeconds   = Number(s.used_seconds) || 0;
+      const totalRevenue  = usedSeconds * rate;
+      const totalApiCost  = usedSeconds * API_COST_PER_SEC;
+      const totalProfit   = usedSeconds * profitPerSec;
+      return {
+        sessionId:       String(s.session_id),
+        licenseKey:      s.license_key ?? null,
+        usedSeconds,
+        billingRate:     rate,
+        apiCostRate:     API_COST_PER_SEC,
+        revenueCrPerSec: rate,
+        costCrPerSec:    API_COST_PER_SEC,
+        profitCrPerSec:  profitPerSec,
+        totalRevenue,
+        totalApiCost,
+        totalProfit,
+        burnMultiplier,
+        liveBurnSpeed,
+      };
+    });
+
+    const totals = streams.reduce(
+      (acc: { profit: number; revenue: number; apiCost: number }, s: any) => ({
+        profit:  acc.profit  + s.totalProfit,
+        revenue: acc.revenue + s.totalRevenue,
+        apiCost: acc.apiCost + s.totalApiCost,
+      }),
+      { profit: 0, revenue: 0, apiCost: 0 }
+    );
+
+    res.json({
+      streams,
+      activeCount:  streams.length,
+      totalProfit:  totals.profit,
+      totalRevenue: totals.revenue,
+      totalApiCost: totals.apiCost,
+      billingRate:  rate,
+      burnMultiplier,
+      liveBurnSpeed,
+      computedAt:   new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to compute live profit data" });
+  }
+});
+
 /** GET /api/admin/billing-rate/audit — billing rate change history */
 router.get("/billing-rate/audit", requireAdmin, async (_req, res) => {
   try {
