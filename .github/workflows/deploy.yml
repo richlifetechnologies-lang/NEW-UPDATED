@@ -57,28 +57,29 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── 2. Deploy to Railway (if RAILWAY_TOKEN secret is configured) ─────────────
+  # ── 2. Deploy to Railway via GraphQL API ────────────────────────────────────
   deploy-railway:
     name: Deploy to Railway
     needs: build
     runs-on: ubuntu-latest
-    # Use env var to check secret presence — secrets context is not available in if:
     env:
       HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' && 'true' || 'false' }}
     if: ${{ always() && needs.build.result == 'success' }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Deploy to Railway
+      - name: Trigger Railway deployment
         if: ${{ env.HAS_RAILWAY_TOKEN == 'true' }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          npm install -g @railway/cli
-          railway up --service api --service frontend
+          RESPONSE=$(curl -s -X POST "https://backboard.railway.app/graphql/v2" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -d '{
+              "query": "mutation { serviceInstanceDeploy(serviceId: \"5976eb3e-f411-41fc-a318-a577d0a62ad1\", environmentId: \"2d149ec2-eec1-416e-b012-de3e842f52a2\") }"
+            }')
+          echo "Railway response: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"serviceInstanceDeploy":true' && echo "Deployment triggered successfully" || (echo "Deployment trigger failed" && exit 1)
 
       - name: Skip (RAILWAY_TOKEN not configured)
         if: ${{ env.HAS_RAILWAY_TOKEN != 'true' }}
