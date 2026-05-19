@@ -316,7 +316,7 @@ export default function AdminProfitDashboardPage() {
                         <Activity className="w-8 h-8 mx-auto mb-3 opacity-30" />
                         <p>No active sessions right now</p>
                         <p className="text-xs mt-1 opacity-60">
-                          Dashboard refreshes every 1 s — data will appear when users start streaming
+                          Dashboard refreshes every 1 s — data will appear when licence keys start streaming
                         </p>
                       </td>
                     </tr>

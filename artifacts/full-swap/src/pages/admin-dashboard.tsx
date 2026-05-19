@@ -626,7 +626,7 @@ export default function AdminDashboardPage() {
                 })()}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">No sessions recorded yet. Tier usage will appear here once users start streaming.</p>
+              <p className="text-xs text-muted-foreground">No sessions recorded yet. Tier usage will appear here once licence keys start streaming.</p>
             )}
           </div>
 
@@ -967,7 +967,7 @@ export default function AdminDashboardPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-green-500/20">
-                    <th className="text-left pb-2 text-xs text-green-400/70 font-medium">User</th>
+                    <th className="text-left pb-2 text-xs text-green-400/70 font-medium">Licence Key</th>
                     <th className="text-left pb-2 text-xs text-green-400/70 font-medium">Style</th>
                     <th className="text-left pb-2 text-xs text-green-400/70 font-medium">Running</th>
                     <th className="text-left pb-2 text-xs text-green-400/70 font-medium">Started</th>
@@ -998,7 +998,7 @@ export default function AdminDashboardPage() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              {live.count === null ? "Loading..." : "No users are streaming right now."}
+              {live.count === null ? "Loading..." : "No licence keys are streaming right now."}
             </p>
           )}
         </div>
@@ -1067,7 +1067,7 @@ export default function AdminDashboardPage() {
             <div className="h-52 flex flex-col items-center justify-center gap-2">
               <BarChart2 className="w-10 h-10 text-muted-foreground/40" />
               <p className="text-muted-foreground text-sm">No payments recorded yet</p>
-              <p className="text-muted-foreground/60 text-xs">Revenue will appear here once users make purchases</p>
+              <p className="text-muted-foreground/60 text-xs">Revenue will appear here once licence keys make purchases</p>
             </div>
           ) : (
             <div className="px-2 pt-4 pb-2 h-60">
@@ -1114,7 +1114,7 @@ export default function AdminDashboardPage() {
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
             <Clock className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold text-foreground">User Usage Monitor</h2>
+            <h2 className="font-semibold text-foreground">Licence Key Usage Monitor</h2>
             <span className="ml-auto text-xs text-muted-foreground">Auto-refreshes every 15s</span>
           </div>
           {users.isLoading ? (
@@ -1122,13 +1122,13 @@ export default function AdminDashboardPage() {
               {[...Array(5)].map((_, i) => <div key={i} className="h-10 bg-muted rounded animate-pulse" />)}
             </div>
           ) : sortedUsers.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">No users yet</p>
+            <p className="p-6 text-sm text-muted-foreground">No licence keys yet</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-background/50">
-                    <th className="text-left p-4 text-muted-foreground font-medium">User</th>
+                    <th className="text-left p-4 text-muted-foreground font-medium">Licence Key</th>
                     <th className="text-left p-4 text-muted-foreground font-medium">Status</th>
                     <th className="text-left p-4 text-muted-foreground font-medium">Used</th>
                     <th className="text-left p-4 text-muted-foreground font-medium">Purchased</th>

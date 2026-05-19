@@ -391,7 +391,7 @@ export default function AdminBillingRatePerKeyPage() {
               Billing Rate per Key
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              Assign custom billing rates per license key — overrides global rate for heavy users.
+              Assign custom billing rates per licence key — overrides global rate for each licence key.
             </p>
           </div>
           <div className="flex items-center gap-3">

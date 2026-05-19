@@ -143,7 +143,7 @@ export default function AdminChatPage() {
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center p-8">
               <MessageCircle className="w-12 h-12 text-muted-foreground/30" />
               <p className="text-muted-foreground font-medium">Select a thread to view messages</p>
-              <p className="text-sm text-muted-foreground/60">Incoming messages from users appear on the left</p>
+              <p className="text-sm text-muted-foreground/60">Incoming messages from licence keys appear on the left</p>
             </div>
           ) : (
             <>

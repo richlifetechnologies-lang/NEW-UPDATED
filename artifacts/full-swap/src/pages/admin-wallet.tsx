@@ -128,7 +128,7 @@ export default function AdminWalletPage() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Payment Wallets</h1>
             <p className="text-muted-foreground mt-1">
-              Configure up to 3 USDT wallet addresses — users can pay to any of them
+              Configure up to 3 USDT wallet addresses — licence keys can pay to any of them
             </p>
           </div>
           <div className="flex gap-2">
@@ -162,7 +162,7 @@ export default function AdminWalletPage() {
         <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 flex items-start gap-3">
           <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
           <p className="text-sm text-muted-foreground">
-            All configured wallets are shown to users at checkout so they can pick the network they prefer.
+            All configured wallets are shown to licence keys at checkout so they can pick the network they prefer.
             The <span className="text-foreground font-medium">first wallet</span> is used as the primary address for new invoices.
             You can add up to <span className="text-foreground font-medium">3 wallets</span> across different networks.
           </p>

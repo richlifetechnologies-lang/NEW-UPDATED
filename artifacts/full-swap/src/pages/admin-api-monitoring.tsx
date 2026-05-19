@@ -92,7 +92,7 @@ export default function AdminApiMonitoringPage() {
   return <AdminLayout>
     <div className="space-y-6">
       <div><h1 className="text-2xl font-bold text-foreground">API Key Monitoring</h1>
-        <p className="text-muted-foreground mt-1">Real-time streaming consumption per API key and user</p></div>
+        <p className="text-muted-foreground mt-1">Real-time streaming consumption per licence key</p></div>
 
       {t && <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-card border border-border rounded-lg p-4"><div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Key className="w-3.5 h-3.5" />API Keys</div><div className="text-2xl font-bold text-foreground">{t.activeKeys}<span className="text-sm text-muted-foreground font-normal">/{t.totalKeys}</span></div></div>

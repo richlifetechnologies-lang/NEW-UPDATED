@@ -105,7 +105,7 @@ export default function SubAdminDashboardPage() {
     const r = await fetch(API(`/subadmin/users/search?email=${encodeURIComponent(searchEmail.trim())}`), { headers: authH() });
     setSearching(false);
     if (r.ok) setFoundUser(await r.json());
-    else toast({ title: "User not found", description: "No account with that email in your created users", variant: "destructive" });
+    else toast({ title: "Licence key not found", description: "No account with that email in your created licence keys", variant: "destructive" });
   }
 
   async function creditUser() {
@@ -138,7 +138,7 @@ export default function SubAdminDashboardPage() {
       const d = await r.json();
       setCreatedUser({ email: d.email, username: d.username });
       setCreateForm({ email: "", username: "", password: "" });
-      toast({ title: "User created!", description: `${d.email} — no free credits` });
+      toast({ title: "Licence key created!", description: `${d.email} — no free credits` });
     } else {
       const d = await r.json(); toast({ title: "Error", description: d.error, variant: "destructive" });
     }
@@ -294,7 +294,7 @@ export default function SubAdminDashboardPage() {
           <div className={card}>
             <div className="flex items-center gap-2 mb-2"><Activity className="w-4 h-4 text-green-400" /><span className="text-xs text-muted-foreground font-bold uppercase tracking-wide">Live Streams</span></div>
             <div className="text-3xl font-bold font-mono text-green-400">{sessions.length}</div>
-            <div className="text-xs text-muted-foreground mt-1">your users active now</div>
+            <div className="text-xs text-muted-foreground mt-1">your licence keys active now</div>
           </div>
           <div className={card}>
             <div className="flex items-center gap-2 mb-2"><Clock className="w-4 h-4 text-blue-400" /><span className="text-xs text-muted-foreground font-bold uppercase tracking-wide">Recent</span></div>
@@ -330,9 +330,9 @@ export default function SubAdminDashboardPage() {
           {(["credit","create","sessions","activity","users","billing","streaming"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition-all ${tab===t?"bg-primary text-primary-foreground":"text-muted-foreground hover:text-foreground"}`}>
-              {t === "credit" ? "Credit User" : t === "create" ? "Create User" :
+              {t === "credit" ? "Credit Licence Key" : t === "create" ? "Create Licence Key" :
                t === "sessions" ? `Live (${sessions.length})` : t === "billing" ? "Software License Prices" :
-               t === "users" ? `My Users (${myUsers.length || "..."})` : t === "streaming" ? "Streaming" : "Activity"}
+               t === "users" ? `My Licence Keys (${myUsers.length || "..."})` : t === "streaming" ? "Streaming" : "Activity"}
             </button>
           ))}
         </div>
@@ -341,7 +341,7 @@ export default function SubAdminDashboardPage() {
         {tab === "credit" && (
           <div className="space-y-4">
             <div className={card}>
-              <h3 className="text-sm font-bold text-foreground mb-3">Find User by Email</h3>
+              <h3 className="text-sm font-bold text-foreground mb-3">Find Licence Key by Email</h3>
               <div className="flex gap-2">
                 <input type="email" placeholder="user@example.com" value={searchEmail}
                   onChange={e => { setSearchEmail(e.target.value); setFoundUser(null); }}
@@ -395,9 +395,9 @@ export default function SubAdminDashboardPage() {
         {tab === "create" && (
           <div className="space-y-4">
             <div className={`${card} max-w-md`}>
-              <div className="flex items-center gap-2 mb-4"><UserPlus className="w-4 h-4 text-primary" /><h3 className="text-sm font-bold text-foreground">Create New User Account</h3></div>
+              <div className="flex items-center gap-2 mb-4"><UserPlus className="w-4 h-4 text-primary" /><h3 className="text-sm font-bold text-foreground">Create New Licence Key</h3></div>
               <div className="mb-3 p-3 rounded-lg bg-orange-500/10 border border-orange-500/25">
-                <p className="text-xs text-orange-300 font-semibold">Users created here start with <span className="text-orange-200">zero free credits</span>.</p>
+                <p className="text-xs text-orange-300 font-semibold">Licence keys created here start with <span className="text-orange-200">zero free credits</span>.</p>
               </div>
               <div className="space-y-3">
                 <div>
@@ -425,7 +425,7 @@ export default function SubAdminDashboardPage() {
                   </div>
                 </div>
                 <Button className="w-full gap-2 mt-1" disabled={creating} onClick={createUser}>
-                  <UserPlus className="w-4 h-4" />{creating ? "Creating..." : "Create User Account"}
+                  <UserPlus className="w-4 h-4" />{creating ? "Creating..." : "Create Licence Key"}
                 </Button>
               </div>
             </div>
@@ -433,7 +433,7 @@ export default function SubAdminDashboardPage() {
               <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/25 max-w-md">
                 <div className="flex items-center gap-2 mb-1"><CheckCircle className="w-4 h-4 text-green-400" /><span className="text-sm font-bold text-green-400">Created</span></div>
                 <p className="text-sm text-foreground"><span className="font-semibold">{createdUser.username}</span> · {createdUser.email}</p>
-                <p className="text-xs text-muted-foreground mt-1">0 free credits. Use Credit User tab to add minutes.</p>
+                <p className="text-xs text-muted-foreground mt-1">0 free credits. Use Credit Licence Key tab to add minutes.</p>
               </div>
             )}
           </div>
@@ -443,10 +443,10 @@ export default function SubAdminDashboardPage() {
         {tab === "sessions" && (
           <div className={card}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-foreground">Your Users — Live Sessions</h3>
+              <h3 className="text-sm font-bold text-foreground">Your Licence Keys — Live Sessions</h3>
               <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={fetchAll}><RefreshCw className="w-3 h-3" /> Refresh</Button>
             </div>
-            {sessions.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">None of your users are streaming right now.</p> : (
+            {sessions.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">None of your licence keys are streaming right now.</p> : (
               <div className="space-y-2">
                 {sessions.map(s => (
                   <div key={s.id} className="flex items-center gap-3 p-3 rounded-lg bg-background border border-border">
@@ -471,14 +471,14 @@ export default function SubAdminDashboardPage() {
           <div className={card}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2"><Users className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-bold text-foreground">Users You Created</h3>
+                <h3 className="text-sm font-bold text-foreground">Licence Keys You Created</h3>
               </div>
               <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => { setMyUsersLoaded(false); }}>
                 <RefreshCw className="w-3 h-3" /> Refresh
               </Button>
             </div>
             {myUsers.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">You haven't created any user accounts yet.</p>
+              <p className="text-sm text-muted-foreground text-center py-8">You haven't created any licence keys yet.</p>
             ) : (
               <div className="space-y-2">
                 {myUsers.map(u => (
@@ -503,8 +503,8 @@ export default function SubAdminDashboardPage() {
         {/* ACTIVITY */}
         {tab === "activity" && (
           <div className={card}>
-            <h3 className="text-sm font-bold text-foreground mb-4">Your Users — Recent Sessions</h3>
-            {recentSessions.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No recent activity from your users.</p> : (
+            <h3 className="text-sm font-bold text-foreground mb-4">Your Licence Keys — Recent Sessions</h3>
+            {recentSessions.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No recent activity from your licence keys.</p> : (
               <div className="space-y-2">
                 {recentSessions.map(s => (
                   <div key={s.id} className="flex items-center gap-3 p-3 rounded-lg bg-background border border-border">
@@ -599,7 +599,7 @@ export default function SubAdminDashboardPage() {
             {!pendingInvoice ? (
               <div className={card}>
                 <div className="flex items-center gap-2 mb-3"><CreditCard className="w-4 h-4 text-primary" /><h3 className="text-sm font-bold text-foreground">Top Up Minutes</h3></div>
-                <p className="text-xs text-muted-foreground mb-4">Purchase minutes in USD. Purchased minutes are added to your balance to distribute to users.</p>
+                <p className="text-xs text-muted-foreground mb-4">Purchase minutes in USD. Purchased minutes are added to your balance to distribute to licence keys.</p>
                 <div className="grid grid-cols-2 gap-2 mb-4">
                   {tiers.map(tier => (
                     <button key={tier.id} onClick={() => setSelectedTier(tier)}

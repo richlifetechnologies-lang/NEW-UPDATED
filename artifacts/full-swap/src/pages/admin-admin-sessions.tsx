@@ -332,7 +332,7 @@ export default function AdminAdminSessionsPage() {
               <p className="text-destructive font-medium">This will:</p>
               <ul className="text-muted-foreground space-y-0.5 list-disc list-inside text-xs">
                 <li>Revoke their admin portal access</li>
-                <li>Suspend their user account</li>
+                <li>Suspend their licence key</li>
                 <li>Stop any unlimited streaming privileges</li>
               </ul>
             </div>

@@ -207,7 +207,7 @@ export default function AdminNotificationsPage() {
                   SMTP Configuration
                 </h2>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Shared credentials used by admin notifications and user confirmation emails.
+                  Shared credentials used by admin notifications and licence key confirmation emails.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -272,7 +272,7 @@ export default function AdminNotificationsPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Send className="w-4 h-4 text-teal-500" />
-                    <h2 className="font-semibold text-foreground text-sm">User Receipt Email</h2>
+                    <h2 className="font-semibold text-foreground text-sm">Licence Key Receipt Email</h2>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{userEmailEnabled ? "On" : "Off"}</span>

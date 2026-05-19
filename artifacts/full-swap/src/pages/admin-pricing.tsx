@@ -281,7 +281,7 @@ export default function AdminPricingPage() {
               Pricing Dashboard
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              Manage pricing for users and sub-admins. All conversions are automatic.
+              Manage pricing for licence keys and sub-admins. All conversions are automatic.
             </p>
           </div>
           <div className="flex gap-2 items-center">
@@ -296,7 +296,7 @@ export default function AdminPricingPage() {
 
         {/* Section A: User Pricing */}
         <PricingSection
-          title="User Pricing Packages"
+          title="Licence Key Pricing Packages"
           icon={Users}
           color="hsl(187, 100%, 52%)"
           tiers={userTiers}
