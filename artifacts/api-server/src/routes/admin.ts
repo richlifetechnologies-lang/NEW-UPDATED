@@ -2190,6 +2190,126 @@ router.get("/profit-live", requireAdmin, async (_req, res) => {
   }
 });
 
+/** GET /api/admin/billing-integrity — live billing system integrity verification (no extra gates) */
+router.get("/billing-integrity", requireAdmin, async (_req, res) => {
+  const API_COST_PER_SEC = 2.3;
+  const CODE_CONSTANT_RATE = DECART_CREDITS_PER_SEC; // compile-time constant
+
+  try {
+    const dbRate         = await getBillingRate();
+    const burnMultiplier = Math.round((dbRate / BASE_BILLING_RATE) * 1000) / 1000;
+    const liveBurnSpeed  = dbRate / 2;
+    const profitPerSec   = dbRate - API_COST_PER_SEC;
+    const hardcodeDetected = CODE_CONSTANT_RATE !== dbRate;
+
+    const rows = await db.execute(sql`
+      SELECT
+        s.id                  AS session_id,
+        lk.key                AS license_key,
+        s.license_key_id,
+        s.started_at,
+        s.billing_started_at,
+        s.last_heartbeat_at,
+        COALESCE(s.duration_seconds, 0) AS wallet_seconds,
+        CASE
+          WHEN s.billing_started_at IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (NOW() - s.billing_started_at))
+          ELSE 0
+        END AS clock_elapsed_seconds
+      FROM sessions s
+      LEFT JOIN license_keys lk ON lk.id = s.license_key_id
+      WHERE s.status = 'active'
+      ORDER BY s.started_at DESC
+      LIMIT 200
+    `);
+
+    const sessions: any[] = (rows as any).rows ?? [];
+    const now = Date.now();
+
+    const streams = sessions.map((s: any) => {
+      const walletSeconds       = Number(s.wallet_seconds)        || 0;
+      const clockElapsedSeconds = Math.max(0, Number(s.clock_elapsed_seconds) || 0);
+      const driftDelta          = Math.max(0, clockElapsedSeconds - walletSeconds);
+
+      const lastHbMs      = s.last_heartbeat_at ? new Date(s.last_heartbeat_at).getTime() : null;
+      const heartbeatAge  = lastHbMs != null ? Math.floor((now - lastHbMs) / 1000) : null;
+      const liveStreamState: "healthy" | "stale" =
+        heartbeatAge !== null && heartbeatAge < 90 ? "healthy" : "stale";
+
+      const syncStatus: "sync" | "mild_lag" | "warning" =
+        driftDelta < 30 ? "sync" : driftDelta < 90 ? "mild_lag" : "warning";
+
+      const totalRevenueLive  = walletSeconds * dbRate;
+      const totalApiCostLive  = walletSeconds * API_COST_PER_SEC;
+      const totalProfitLive   = walletSeconds * profitPerSec;
+
+      return {
+        sessionId:            String(s.session_id),
+        licenseKey:           s.license_key ?? null,
+        activeBillingRate:    dbRate,
+        billingRateSource:    "database",
+        burnMultiplier,
+        walletUsedSeconds:    walletSeconds,
+        clockElapsedSeconds,
+        driftDelta,
+        revenuePerSecond:     dbRate,
+        apiCostPerSecond:     API_COST_PER_SEC,
+        profitPerSecond:      profitPerSec,
+        profitPerMinute:      profitPerSec * 60,
+        totalRevenueLive,
+        totalApiCostLive,
+        totalProfitLive,
+        heartbeatAgeSeconds:  heartbeatAge,
+        liveStreamState,
+        syncStatus,
+      };
+    });
+
+    const totals = streams.reduce(
+      (acc: { profit: number; revenue: number; apiCost: number }, s: any) => ({
+        profit:  acc.profit  + s.totalProfitLive,
+        revenue: acc.revenue + s.totalRevenueLive,
+        apiCost: acc.apiCost + s.totalApiCostLive,
+      }),
+      { profit: 0, revenue: 0, apiCost: 0 }
+    );
+
+    const mismatchedStreams = streams.filter((s: any) => s.syncStatus === "warning").length;
+
+    res.json({
+      streams,
+      activeCount:  streams.length,
+      totalProfit:  totals.profit,
+      totalRevenue: totals.revenue,
+      totalApiCost: totals.apiCost,
+      billingIntegrity: {
+        dbRate,
+        codeConstantRate: CODE_CONSTANT_RATE,
+        baseRate:         BASE_BILLING_RATE,
+        hardcodeDetected,
+        hardcodeAlert: hardcodeDetected
+          ? `Code constant (${CODE_CONSTANT_RATE} cr/s in billing-math.ts) differs from DB rate (${dbRate} cr/s). Ensure all billing paths read from DB.`
+          : null,
+        burnMultiplier,
+        liveBurnSpeed,
+        profitPerSec,
+        rateSource:   "database",
+        rateVerified: true,
+      },
+      walletLedgerSync: {
+        mismatchedStreams,
+        allInSync: mismatchedStreams === 0,
+        alert: mismatchedStreams > 0
+          ? `${mismatchedStreams} session(s) have >90s drift between wallet and wall-clock elapsed time`
+          : null,
+      },
+      computedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to compute billing integrity data" });
+  }
+});
+
 /** GET /api/admin/billing-rate/audit — billing rate change history */
 router.get("/billing-rate/audit", requireAdmin, async (_req, res) => {
   try {

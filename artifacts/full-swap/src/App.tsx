@@ -26,6 +26,7 @@ import AdminBillingPage from "@/pages/admin-billing";
 import AdminBillingIntelligencePage from "@/pages/admin-billing-intelligence";
 import AdminBillingObservatoryPage from "@/pages/admin-billing-observatory";
 import AdminProfitDashboardPage from "@/pages/admin-profit-dashboard";
+import AdminBillingIntegrityPage from "@/pages/admin-billing-integrity";
 import SubAdminDashboardPage from "@/pages/subadmin-dashboard";
 import SubAdminLoginPage from "@/pages/subadmin-login";
 import SubAdminStreamPage from "@/pages/subadmin-stream";
@@ -68,6 +69,7 @@ function Router() {
       <Route path="/admin/billing-intelligence" component={AdminBillingIntelligencePage} />
       <Route path="/admin/observatory" component={AdminBillingObservatoryPage} />
       <Route path="/admin/profit-dashboard" component={AdminProfitDashboardPage} />
+      <Route path="/admin/billing-integrity" component={AdminBillingIntegrityPage} />
       <Route path="/subadmin" component={SubAdminLoginPage} />
       <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
       <Route path="/subadmin/stream" component={SubAdminStreamPage} />
