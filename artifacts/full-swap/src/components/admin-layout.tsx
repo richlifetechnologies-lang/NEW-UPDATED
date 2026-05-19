@@ -16,6 +16,7 @@ const navItems = [
   { href: "/admin/observatory", label: "Live Observatory", icon: Radio },
   { href: "/admin/profit-dashboard", label: "Live Profit", icon: TrendingUp },
   { href: "/admin/billing-integrity", label: "Billing Integrity", icon: ShieldAlert },
+  { href: "/admin/billing-rate-per-key", label: "Rate per Key", icon: Zap },
   { href: "/admin/wallet", label: "Wallet", icon: Wallet },
   { href: "/admin/decart-keys", label: "API Keys", icon: KeyRound },
   { href: "/admin/admin-sessions", label: "Admin Audit", icon: ShieldCheck },

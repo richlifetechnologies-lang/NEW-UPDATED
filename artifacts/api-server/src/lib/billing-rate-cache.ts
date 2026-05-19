@@ -10,6 +10,12 @@
  *   - API cost rate → DECART_API_COST_PER_SEC = 2.3 cr/s (fixed, analytics only)
  *   These two values MUST NEVER be mixed or aliased together.
  *
+ * PER-LICENSE BILLING RATE (additive):
+ *   getBillingRateForLicense(licenseKeyId) returns the EFFECTIVE rate for a key:
+ *   - If the key has use_custom_billing_rate = true AND custom_billing_rate IS NOT NULL
+ *     → returns custom_billing_rate (NEVER falls back during active session)
+ *   - Otherwise → returns global billing rate from settings table
+ *
  * PATCH SPEC (DYNAMIC BILLING RATE SYNC — CRITICAL):
  *   Billing rate MUST be fetched live from the admin Billing Rate Monitor.
  *   It MUST NOT be cached. Any change MUST instantly reflect in:
@@ -17,23 +23,9 @@
  *     - Wallet Monitor (license_key grouped)
  *     - Reconciliation engine
  *     - Profit calculation engine
- *
- * Usage:
- *   const rate = await getBillingRate();
- *   const licenceIncrement = Math.round(rawSec * rate / 2);
- *
- * The "/2" denominator is the original baseline rate (2 credits/sec).  Any
- * value stored in the DB is the new credits-per-second target; the formula
- * automatically scales licence drain relative to that baseline:
- *   rate = 2  → 1× (original speed)
- *   rate = 5  → 2.5× faster  ($0.05/sec, $180/hr)
- *   rate = 10 → 5× faster    ($0.10/sec, $360/hr)
- *
- * NOTE: billing rate affects REVENUE ONLY — not streaming speed.
- * Streaming duration is controlled ONLY by wallet allocation.
  */
 
-import { db, settingsTable } from "@workspace/db";
+import { db, settingsTable, licenseKeysTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 const SETTING_KEY = "billing_credits_per_sec";
@@ -46,7 +38,7 @@ const SETTING_KEY = "billing_credits_per_sec";
 const BILLING_RATE_FALLBACK = 5;
 
 /**
- * Returns the active billing rate (credits/sec).
+ * Returns the active GLOBAL billing rate (credits/sec).
  * Fetched live from the DB on every call — NO cache.
  * This ensures billing rate changes reflect instantly across all dashboards.
  *
@@ -60,11 +52,44 @@ export async function getBillingRate(): Promise<number> {
       .from(settingsTable)
       .where(eq(settingsTable.key, SETTING_KEY));
 
-    const parsed = row ? parseInt(row.value, 10) : NaN;
+    const parsed = row ? parseFloat(row.value) : NaN;
     return Number.isFinite(parsed) && parsed >= 1 ? parsed : BILLING_RATE_FALLBACK;
   } catch {
     return BILLING_RATE_FALLBACK;
   }
+}
+
+/**
+ * Returns the EFFECTIVE billing rate for a specific license key.
+ *
+ * Priority rule (spec §1):
+ *   1. If license.use_custom_billing_rate = true AND license.custom_billing_rate IS NOT NULL
+ *      → use custom_billing_rate ONLY (NEVER fall back to global during an active session)
+ *   2. Otherwise → use global billing rate from settings table
+ *
+ * Safe fallback (spec §12): if custom rate lookup fails entirely, falls back to global rate.
+ *
+ * @param licenseKeyId  The integer PK of the license key (license_keys.id)
+ * @returns Effective billing rate in cr/s
+ */
+export async function getBillingRateForLicense(licenseKeyId: number | null | undefined): Promise<number> {
+  if (licenseKeyId == null) return getBillingRate();
+  try {
+    const [row] = await db
+      .select({
+        customBillingRate:    licenseKeysTable.customBillingRate,
+        useCustomBillingRate: licenseKeysTable.useCustomBillingRate,
+      })
+      .from(licenseKeysTable)
+      .where(eq(licenseKeysTable.id, licenseKeyId));
+
+    if (row?.useCustomBillingRate && row.customBillingRate != null && row.customBillingRate >= 1) {
+      return row.customBillingRate;
+    }
+  } catch {
+    // safe fallback to global rate on any DB error
+  }
+  return getBillingRate();
 }
 
 /**

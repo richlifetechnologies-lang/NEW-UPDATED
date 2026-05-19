@@ -2192,15 +2192,30 @@ router.get("/profit-live", requireAdmin, async (_req, res) => {
 
 /** GET /api/admin/billing-integrity — live billing system integrity verification (no extra gates) */
 router.get("/billing-integrity", requireAdmin, async (_req, res) => {
+  // API_COST_PER_SEC is the FIXED Decart infrastructure cost (2.3 cr/s).
+  // It is NOT the billing rate. It is ONLY used for profit/cost analytics.
+  // Spec §8: 2.3 cr/s is the ONLY allowed value here.
   const API_COST_PER_SEC = 2.3;
-  const CODE_CONSTANT_RATE = DECART_CREDITS_PER_SEC; // compile-time constant
+
+  // DECART_CREDITS_PER_SEC (5 cr/s) is the Decart wallet deduction rate — it is a
+  // fixed infrastructure constant, NOT the billing rate. Comparing it against dbRate
+  // to detect "hardcoding" was producing false danger alerts (spec §8, §9).
+  // hardcodeDetected now only fires for REAL hardcode violations: detecting that
+  // the API_COST_PER_SEC constant itself has been altered from its canonical 2.3 value,
+  // or if DB rate is non-positive (indicating a corrupt/missing DB value).
+  const CANONICAL_API_COST = 2.3;
 
   try {
     const dbRate         = await getBillingRate();
     const burnMultiplier = Math.round((dbRate / BASE_BILLING_RATE) * 1000) / 1000;
     const liveBurnSpeed  = dbRate / 2;
     const profitPerSec   = dbRate - API_COST_PER_SEC;
-    const hardcodeDetected = CODE_CONSTANT_RATE !== dbRate;
+
+    // hardcodeDetected = true ONLY for REAL integrity violations:
+    //   - API_COST_PER_SEC was modified from its canonical 2.3 value (infrastructure cost tampering)
+    //   - DB rate is non-positive (corrupt or missing settings value)
+    // Spec §9: MUST NOT alert because billing_rate ≠ 5 cr/s or custom rate differs from global.
+    const hardcodeDetected = API_COST_PER_SEC !== CANONICAL_API_COST || dbRate <= 0;
 
     const rows = await db.execute(sql`
       SELECT
@@ -2284,11 +2299,13 @@ router.get("/billing-integrity", requireAdmin, async (_req, res) => {
       totalApiCost: totals.apiCost,
       billingIntegrity: {
         dbRate,
-        codeConstantRate: CODE_CONSTANT_RATE,
+        codeConstantRate: DECART_CREDITS_PER_SEC,
         baseRate:         BASE_BILLING_RATE,
         hardcodeDetected,
         hardcodeAlert: hardcodeDetected
-          ? `Code constant (${CODE_CONSTANT_RATE} cr/s in billing-math.ts) differs from DB rate (${dbRate} cr/s). Ensure all billing paths read from DB.`
+          ? (dbRate <= 0
+              ? `DB billing rate is non-positive (${dbRate}). Check settings table key 'billing_credits_per_sec'.`
+              : `API cost constant has been altered from the canonical 2.3 cr/s value. Restore DECART_API_COST_PER_SEC = 2.3 in billing-math.ts.`)
           : null,
         burnMultiplier,
         liveBurnSpeed,

@@ -30,6 +30,7 @@ import AdminBillingIntegrityPage from "@/pages/admin-billing-integrity";
 import SubAdminDashboardPage from "@/pages/subadmin-dashboard";
 import SubAdminLoginPage from "@/pages/subadmin-login";
 import SubAdminStreamPage from "@/pages/subadmin-stream";
+import AdminBillingRatePerKeyPage from "@/pages/admin-billing-rate-per-key";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +71,7 @@ function Router() {
       <Route path="/admin/observatory" component={AdminBillingObservatoryPage} />
       <Route path="/admin/profit-dashboard" component={AdminProfitDashboardPage} />
       <Route path="/admin/billing-integrity" component={AdminBillingIntegrityPage} />
+      <Route path="/admin/billing-rate-per-key" component={AdminBillingRatePerKeyPage} />
       <Route path="/subadmin" component={SubAdminLoginPage} />
       <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
       <Route path="/subadmin/stream" component={SubAdminStreamPage} />

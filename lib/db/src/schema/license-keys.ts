@@ -5,6 +5,11 @@ import {
 /**
  * Desktop/web application license keys.
  * License key is the SOLE identity and access mechanism.
+ *
+ * Per-license billing rate columns (additive — nullable, backward compatible):
+ *   custom_billing_rate         — admin-assigned custom credits/sec for this key
+ *   use_custom_billing_rate     — when true, IGNORE global billing rate for this key
+ *   billing_rate_last_updated_at — timestamp of last custom rate change
  */
 export const licenseKeysTable = pgTable("license_keys", {
   id:                   serial("id").primaryKey(),
@@ -26,4 +31,11 @@ export const licenseKeysTable = pgTable("license_keys", {
   assignedDecartKeyId: integer("assigned_decart_key_id"),
   createdBySubAdminId: integer("created_by_sub_admin_id"),
   minutesCredited:     boolean("minutes_credited").default(false).notNull(),
+
+  // ── Per-license billing rate system (additive, nullable, backward compatible) ──
+  // If use_custom_billing_rate = true, this key IGNORES the global billing rate
+  // and uses custom_billing_rate ONLY. Falls back to global rate if null/disabled.
+  customBillingRate:          real("custom_billing_rate"),             // nullable — admin-assigned cr/s
+  useCustomBillingRate:       boolean("use_custom_billing_rate").default(false), // false = use global
+  billingRateLastUpdatedAt:   timestamp("billing_rate_last_updated_at"), // nullable — last change time
 });
