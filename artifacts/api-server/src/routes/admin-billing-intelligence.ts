@@ -275,7 +275,7 @@ router.get("/sessions", requireAdmin, featureGate, async (req, res) => {
       LIMIT ${limit} OFFSET ${offset}
     `);
 
-    const sessions = (rows as any[]).map((row: any) => {
+    const sessions = ((rows as any).rows as any[]).map((row: any) => {
       const computeSeconds  = Number(row.compute_seconds ?? 0);
       const billingSeconds  = Number(row.billing_seconds ?? 0);
       const actualApiCredits = computeSeconds * DECART_CREDITS_PER_SEC;
@@ -422,11 +422,11 @@ router.get("/ghost-sessions", requireAdmin, featureGate, async (_req, res) => {
     `);
 
     res.json({
-      zeroFrameSessions:     zeroFrameSessions   as any[],
-      duplicateActiveSessions: duplicateActiveSessions as any[],
-      reconnectLoops:        reconnectLoops       as any[],
-      staleSessions:         staleSessions        as any[],
-      frozenSessions:        frozenSessions       as any[],
+      zeroFrameSessions:     (zeroFrameSessions as any).rows as any[],
+      duplicateActiveSessions: (duplicateActiveSessions as any).rows as any[],
+      reconnectLoops:        (reconnectLoops as any).rows as any[],
+      staleSessions:         (staleSessions as any).rows as any[],
+      frozenSessions:        (frozenSessions as any).rows as any[],
       generatedAt:           new Date().toISOString(),
     });
   } catch (err) {
@@ -455,12 +455,12 @@ router.get("/session/:sessionId", requireAdmin, featureGate, async (req, res) =>
       LIMIT 1
     `);
 
-    if (!(rows as any[]).length) {
+    if (!(rows as any).rows.length) {
       res.status(404).json({ error: "Session not found" });
       return;
     }
 
-    const row = (rows as any[])[0];
+    const row = (rows as any).rows[0];
     const endMs = row.stopped_at ? new Date(row.stopped_at).getTime() : Date.now();
     const startMs = new Date(row.started_at).getTime();
     const billingAnchorMs = row.billing_started_at
@@ -816,7 +816,7 @@ router.get("/stream-ledger/live", requireAdmin, featureGate, streamLedgerGate, a
       LIMIT ${limit}
     `);
 
-    const sessions = rows as unknown as RawSession[];
+    const sessions = (rows as any).rows as unknown as RawSession[];
     const groups = groupIntoStreams(sessions);
 
     const result = groups.map(group => {
@@ -916,7 +916,7 @@ router.post("/stream-ledger/rebuild", requireAdmin, featureGate, streamLedgerGat
       ORDER BY s.started_at ASC
     `);
 
-    const sessions = rows as unknown as RawSession[];
+    const sessions = (rows as any).rows as unknown as RawSession[];
     const groups = groupIntoStreams(sessions);
 
     let upserted = 0;
@@ -1050,7 +1050,7 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
     `);
 
     const aggByKey: Record<number, any> = {};
-    for (const row of sessionAgg as any[]) {
+    for (const row of (sessionAgg as any).rows as any[]) {
       aggByKey[Number(row.license_key_id)] = row;
     }
 
@@ -1072,7 +1072,7 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
       LIMIT ${limit}
     `);
 
-    const wallets = (keys as any[]).map(lk => {
+    const wallets = ((keys as any).rows as any[]).map(lk => {
       const allocatedSeconds = Math.round(Number(lk.minutes_allocated ?? 0) * 60);
       const usedSeconds = Number(lk.used_seconds ?? 0);
       const remainingSeconds = Math.max(0, allocatedSeconds - usedSeconds);
@@ -1142,11 +1142,11 @@ router.get("/wallet/:licenseKeyId", requireAdmin, featureGate, walletGate, async
 
     const billingRate = await getBillingRate();
 
-    const [lkRow] = await db.execute(sql`
+    const [lkRow] = (await db.execute(sql`
       SELECT lk.id, lk.key, lk.is_active, lk.minutes_allocated, lk.used_seconds,
              lk.credits_allocated, lk.credits_used, lk.last_used_at, lk.streaming_enabled
       FROM license_keys lk WHERE lk.id = ${licenseKeyId}
-    `) as any[];
+    `)).rows;
 
     if (!lkRow) {
       res.status(404).json({ error: "License key not found" });
@@ -1174,7 +1174,7 @@ router.get("/wallet/:licenseKeyId", requireAdmin, featureGate, walletGate, async
       usedPercent: allocatedSeconds > 0 ? Math.round((usedSeconds / allocatedSeconds) * 100) : 0,
       status: walletStatus(Boolean(lkRow.is_active), allocatedSeconds, usedSeconds, lkRow.last_used_at ? new Date(lkRow.last_used_at).getTime() : null),
       billingRateSnapshot: billingRate,
-      sessions,
+      sessions: (sessions as any).rows,
       currentBillingRate: billingRate,
     });
   } catch (err) {
@@ -1238,7 +1238,7 @@ router.get("/billing-rate", requireAdmin, featureGate, billingMonitorGate, async
         COUNT(*) AS total_sessions
       FROM session_accounting_log
       WHERE billing_rate_at_settle IS NOT NULL
-    `) as any[];
+    `).rows;
 
     const propagation = propagationCheck[0] ?? { synced_sessions: 0, stale_sessions: 0, total_sessions: 0 };
 
@@ -1257,7 +1257,7 @@ router.get("/billing-rate", requireAdmin, featureGate, billingMonitorGate, async
         note: h.note,
         changedAt: h.createdAt,
       })),
-      rateStats,
+      (rateStats as any).rows,
       propagation: {
         syncedSessions: Number(propagation.synced_sessions),
         staleSessions: Number(propagation.stale_sessions),
