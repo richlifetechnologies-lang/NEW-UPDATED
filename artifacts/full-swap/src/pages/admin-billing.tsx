@@ -10,20 +10,18 @@ const token = () => localStorage.getItem("fullswap_admin_token") ?? localStorage
 const authH = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
 
 const PRESETS = [
-  { label: "2 cr/s",  value: 2,  badge: "original",  desc: "$0.02/s · $72/hr"  },
-  { label: "3 cr/s",  value: 3,  badge: "",           desc: "$0.03/s · $108/hr" },
-  { label: "4 cr/s",  value: 4,  badge: "",           desc: "$0.04/s · $144/hr" },
-  { label: "5 cr/s",  value: 5,  badge: "default",    desc: "$0.05/s · $180/hr" },
-  { label: "8 cr/s",  value: 8,  badge: "",           desc: "$0.08/s · $288/hr" },
-  { label: "10 cr/s", value: 10, badge: "",           desc: "$0.10/s · $360/hr" },
+  { label: "2 cr/s",  value: 2,  badge: "",  desc: "$0.02/s · $72/hr"  },
+  { label: "3 cr/s",  value: 3,  badge: "",  desc: "$0.03/s · $108/hr" },
+  { label: "4 cr/s",  value: 4,  badge: "",  desc: "$0.04/s · $144/hr" },
+  { label: "5 cr/s",  value: 5,  badge: "",  desc: "$0.05/s · $180/hr" },
+  { label: "8 cr/s",  value: 8,  badge: "",  desc: "$0.08/s · $288/hr" },
+  { label: "10 cr/s", value: 10, badge: "",  desc: "$0.10/s · $360/hr" },
 ];
 
 function calcImpact(rate: number) {
-  const perSec              = rate * 0.01;
-  const perHr               = perSec * 3600;
-  const drainFactor         = rate / 2;
-  const realMinsPerAllocHr  = 60 / drainFactor;
-  return { perSec, perHr, drainFactor, realMinsPerAllocHr };
+  const perSec = rate * 0.01;
+  const perHr  = perSec * 3600;
+  return { perSec, perHr };
 }
 
 function fmtDate(iso: string) {
@@ -180,11 +178,10 @@ export default function AdminBillingPage() {
                   <>
                     <div className="text-xs text-slate-400">
                       ${(currentRate * 0.01).toFixed(2)}/sec &nbsp;·&nbsp;
-                      ${(currentRate * 0.01 * 3600).toFixed(0)}/hr &nbsp;·&nbsp;
-                      {(currentRate / 2).toFixed(1)}× faster than real-time
+                      ${(currentRate * 0.01 * 3600).toFixed(0)}/hr
                     </div>
                     <div className="text-xs text-slate-500">
-                      A 60-min licence gives {(60 / (currentRate / 2)).toFixed(1)} min of real streaming
+                      Live billing rate — fetched from database on every heartbeat
                     </div>
                   </>
                 )}
@@ -264,41 +261,37 @@ export default function AdminBillingPage() {
             <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 space-y-3">
               <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-slate-400" />
-                Impact Preview
+                Rate Preview
                 <span className="text-xs font-normal text-slate-500 ml-1">@ {preview} cr/s</span>
               </h2>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-slate-800/60 rounded-lg px-3 py-2.5">
                   <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
-                    <DollarSign className="w-3 h-3" /> Cost per second
+                    <DollarSign className="w-3 h-3" /> Revenue per second
                   </div>
                   <div className="text-xl font-bold text-slate-100">${impact.perSec.toFixed(2)}</div>
                 </div>
                 <div className="bg-slate-800/60 rounded-lg px-3 py-2.5">
                   <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
-                    <DollarSign className="w-3 h-3" /> Cost per hour
+                    <DollarSign className="w-3 h-3" /> Revenue per hour
                   </div>
                   <div className="text-xl font-bold text-slate-100">${impact.perHr.toFixed(0)}</div>
                 </div>
                 <div className="bg-slate-800/60 rounded-lg px-3 py-2.5">
                   <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
-                    <Zap className="w-3 h-3" /> Drain speed
+                    <Zap className="w-3 h-3" /> Billing Rate (Live from DB)
                   </div>
-                  <div className="text-xl font-bold text-yellow-400">{impact.drainFactor.toFixed(1)}×</div>
-                  <div className="text-xs text-slate-600">faster than real-time</div>
+                  <div className="text-xl font-bold text-primary">{preview} cr/s</div>
                 </div>
                 <div className="bg-slate-800/60 rounded-lg px-3 py-2.5">
                   <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> 60-min key gives
+                    <Zap className="w-3 h-3" /> API Cost Rate (Fixed)
                   </div>
-                  <div className="text-xl font-bold text-slate-100">{impact.realMinsPerAllocHr.toFixed(1)} min</div>
-                  <div className="text-xs text-slate-600">of real streaming</div>
+                  <div className="text-xl font-bold text-red-400">2.3 cr/s</div>
                 </div>
               </div>
               <p className="text-xs text-slate-600 pt-1">
-                Formula: licence drain = wall-clock seconds × rate ÷ 2 (baseline).
                 Changes apply immediately — the rate is fetched live on every heartbeat with no caching.
-                The Decart credit tracker reflects this rate on the "effective licence time remaining" field.
               </p>
             </div>
           </>

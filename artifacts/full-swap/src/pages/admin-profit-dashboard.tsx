@@ -166,42 +166,21 @@ export default function AdminProfitDashboardPage() {
             <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground font-mono">Rate</span>
+                <span className="text-xs text-muted-foreground font-mono">Billing Rate (Live from DB)</span>
                 <span className="text-sm font-bold text-primary font-mono">{billingInfo.rate} cr/s</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground font-mono">Burn ×</span>
-                <span
-                  className={`text-sm font-bold font-mono ${
-                    billingInfo.burnMultiplier > 1
-                      ? "text-orange-400"
-                      : billingInfo.burnMultiplier < 1
-                      ? "text-blue-400"
-                      : "text-green-400"
-                  }`}
-                >
-                  {billingInfo.burnMultiplier}×
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground font-mono">Depletion</span>
+                <span className="text-xs text-muted-foreground font-mono">Effective Rate</span>
                 <span className="text-sm font-bold text-foreground font-mono">
-                  {billingInfo.liveBurnSpeed} sec/real-sec
+                  {billingInfo.rate} cr/s
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground font-mono">Profit/sec</span>
-                <span
-                  className={`text-sm font-bold font-mono ${
-                    billingInfo.rate - API_COST_RATE > 0 ? "text-green-400" : "text-red-400"
-                  }`}
-                >
-                  {(billingInfo.rate - API_COST_RATE).toFixed(1)} cr/s
+                <span className="text-xs text-muted-foreground font-mono">API Cost Rate (Fixed)</span>
+                <span className="text-sm font-bold text-red-400 font-mono">
+                  {API_COST_RATE} cr/s
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground font-mono flex-1 min-w-0 truncate">
-                {billingInfo.burnPreview}
-              </p>
             </div>
           </div>
         )}
@@ -243,7 +222,7 @@ export default function AdminProfitDashboardPage() {
             <div className="flex items-center gap-2 mb-2">
               <Zap className="w-4 h-4 text-red-400" />
               <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
-                API Cost (2.3 cr/s)
+                API Cost Rate (Fixed)
               </p>
             </div>
             <p className="text-2xl font-bold text-red-400 font-mono">{totalApiCost.toFixed(1)} cr</p>
@@ -321,22 +300,19 @@ export default function AdminProfitDashboardPage() {
                     <th className="text-right px-4 py-3 text-muted-foreground font-mono text-xs font-medium">
                       Total Profit
                     </th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-mono text-xs font-medium">
-                      Burn ×
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading && !profitData ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-12">
+                      <td colSpan={7} className="text-center py-12">
                         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" />
                         <p className="text-muted-foreground text-xs font-mono mt-2">Loading live data…</p>
                       </td>
                     </tr>
                   ) : streams.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-14 text-muted-foreground font-mono text-sm">
+                      <td colSpan={7} className="text-center py-14 text-muted-foreground font-mono text-sm">
                         <Activity className="w-8 h-8 mx-auto mb-3 opacity-30" />
                         <p>No active sessions right now</p>
                         <p className="text-xs mt-1 opacity-60">
@@ -391,9 +367,6 @@ export default function AdminProfitDashboardPage() {
                             {s.totalProfit >= 0 ? "+" : ""}
                             {s.totalProfit.toFixed(1)} cr
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-xs text-orange-400">
-                            {s.burnMultiplier}×
-                          </td>
                         </tr>
                       );
                     })
@@ -404,32 +377,28 @@ export default function AdminProfitDashboardPage() {
           </div>
         </div>
 
-        {/* Formula reference */}
+        {/* Live metrics legend */}
         <div
           className="rounded-xl p-4"
           style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}
         >
           <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest mb-3">
-            Billing Formula — read-only observability
+            Live Metrics — Source Reference
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
             <div className="p-2.5 rounded" style={{ background: "hsl(222 47% 4%)" }}>
-              <span className="text-muted-foreground">revenue = </span>
-              <span className="text-primary">used_secs × billing_rate</span>
+              <p className="text-muted-foreground text-[10px] mb-1 uppercase tracking-wider">Billing Rate</p>
+              <p className="text-primary font-semibold">Live from database</p>
             </div>
             <div className="p-2.5 rounded" style={{ background: "hsl(222 47% 4%)" }}>
-              <span className="text-muted-foreground">api_cost = </span>
-              <span className="text-red-400">used_secs × 2.3</span>
+              <p className="text-muted-foreground text-[10px] mb-1 uppercase tracking-wider">API Cost Rate</p>
+              <p className="text-red-400 font-semibold">Fixed: 2.3 cr/s</p>
             </div>
             <div className="p-2.5 rounded" style={{ background: "hsl(222 47% 4%)" }}>
-              <span className="text-muted-foreground">profit = </span>
-              <span className="text-green-400">revenue − api_cost</span>
+              <p className="text-muted-foreground text-[10px] mb-1 uppercase tracking-wider">Usage Seconds</p>
+              <p className="text-green-400 font-semibold">wallet.used_seconds</p>
             </div>
           </div>
-          <p className="text-[10px] text-muted-foreground font-mono mt-2">
-            billing_rate is always read from the database. api_cost_rate is a fixed constant (2.3 cr/s).
-            No values are hardcoded in this page.
-          </p>
         </div>
 
       </div>

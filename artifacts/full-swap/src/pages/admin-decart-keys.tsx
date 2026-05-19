@@ -591,15 +591,9 @@ export default function AdminDecartKeysPage() {
                           <Clock className="w-3 h-3" /> Est. Stream Time
                         </div>
                         <div className="text-lg font-bold text-slate-100">
-                          {fmtSeconds(Math.floor(cs.creditsRemaining / 5))}
+                          {fmtSeconds(Math.floor(cs.creditsRemaining / (cs.activeBillingRate ?? billingRate)))}
                         </div>
-                        <div className="text-xs text-slate-600">Decart wall-clock @ 5 cr/s</div>
-                        {(cs.activeBillingRate ?? billingRate) !== 2 && (
-                          <div className="text-xs text-yellow-500 mt-0.5">
-                            ≈ {fmtSeconds(Math.floor(cs.creditsRemaining / 5 * 2 / (cs.activeBillingRate ?? billingRate)))} effective licence time
-                            <span className="text-slate-600 ml-1">@ {cs.activeBillingRate ?? billingRate} cr/s rate</span>
-                          </div>
-                        )}
+                        <div className="text-xs text-slate-600">Est. at effective rate: {cs.activeBillingRate ?? billingRate} cr/s</div>
                       </div>
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                         <div className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">

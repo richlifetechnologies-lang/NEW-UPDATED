@@ -146,7 +146,7 @@ function EditModal({ row, globalRate, apiCostRate, onClose, onSaved }: EditModal
   const [error, setError]             = useState<string | null>(null);
 
   const rateNum   = parseFloat(rateInput) || 0;
-  const burnMul   = rateNum > 0 ? Math.round((rateNum / 4) * 1000) / 1000 : 1;
+  const burnMul   = rateNum > 0 ? Math.round((rateNum / apiCostRate) * 1000) / 1000 : 1;
   const profitPct = rateNum > 0 ? Math.round(((rateNum - apiCostRate) / rateNum) * 10000) / 100 : 0;
   const profitPs  = Math.round((rateNum - apiCostRate) * 100) / 100;
 
@@ -651,7 +651,7 @@ export default function AdminBillingRatePerKeyPage() {
               { label: "API cost rate", value: "Fixed at 2.3 cr/s — infrastructure cost, NOT billing rate", color: "text-foreground" },
               { label: "Rate propagation", value: "Changes take effect instantly — fetched live on every call", color: "text-green-400" },
               { label: "Stream duration", value: "NOT affected by billing rate — controlled by wallet allocation only", color: "text-foreground" },
-              { label: "Burn multiplier", value: "effective_rate ÷ 4 (base rate) — analytics only, not wallet deduction", color: "text-orange-400" },
+              { label: "Burn multiplier", value: "effective_rate ÷ api_cost_rate — analytics only, not wallet deduction", color: "text-orange-400" },
             ].map(item => (
               <div
                 key={item.label}

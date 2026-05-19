@@ -320,26 +320,12 @@ export default function AdminBillingIntegrityPage() {
                   {bi?.codeConstantRate ?? "…"} cr/s
                 </span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground text-xs">Base Rate</span>
-                <span className="text-foreground text-xs">{bi?.baseRate ?? "…"} cr/s</span>
-              </div>
               <div className="h-px" style={{ background: "hsl(222 40% 14%)" }} />
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground text-xs">Rate Source</span>
                 <span className="text-green-400 text-xs flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" /> {bi?.rateSource ?? "database"}
                 </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground text-xs">Burn Multiplier</span>
-                <span className={`font-semibold text-xs ${(bi?.burnMultiplier ?? 1) > 1 ? "text-orange-400" : "text-green-400"}`}>
-                  {bi?.burnMultiplier ?? "…"}×
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground text-xs">Live Burn Speed</span>
-                <span className="text-foreground text-xs">{bi?.liveBurnSpeed ?? "…"} sec/real-sec</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground text-xs">Profit/sec</span>
@@ -559,7 +545,7 @@ export default function AdminBillingIntegrityPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs font-mono">
             {[
               { label: "Rate Source", value: "DB only — never cached", color: "text-primary" },
-              { label: "API Cost", value: "2.3 cr/s (fixed)", color: "text-red-400" },
+              { label: "API Cost Rate", value: "Fixed: 2.3 cr/s", color: "text-red-400" },
               { label: "Drift Threshold", value: "> 90s = warning", color: "text-yellow-400" },
               { label: "Action on Mismatch", value: "Alert only — no auto-fix", color: "text-muted-foreground" },
             ].map(r => (
