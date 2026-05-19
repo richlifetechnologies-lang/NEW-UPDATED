@@ -23,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * Safe to call on every startup — already-applied migrations are skipped.
  */
 export async function runMigrations(): Promise<void> {
-  const migrationsFolder = path.join(__dirname, "../drizzle");
+  const migrationsFolder = path.join(process.cwd(), "lib/db/drizzle");
   await migrate(db, { migrationsFolder });
 }
 
