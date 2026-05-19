@@ -24,9 +24,8 @@ type FormData = {
 
 const emptyForm: FormData = { label: "", minutes: "", priceUsd: "", planType: "topup", isActive: true };
 
-// Decart fixed rates — 5 credits/sec = 300/min = 18000/hr → $0.01/credit → $180/hr
 const CREDITS_PER_MINUTE = 300;
-const DECART_COST_PER_CREDIT = 0.01; // USD per credit
+const DECART_COST_PER_CREDIT = 0.01;
 
 function calcFromForm(form: FormData, rates: Rates) {
   const mins = parseInt(form.minutes) || 0;
@@ -48,18 +47,6 @@ function PricingSection({
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState<FormData>(emptyForm);
-  const [billingRate, setBillingRate] = useState<number | null>(null);
-  const [burnPreview, setBurnPreview] = useState<string | null>(null);
-  useEffect(() => {
-    const t = token();
-    fetch(API("/admin/billing-rate"), { headers: { Authorization: `Bearer ${t}` } })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d?.rate != null) setBillingRate(d.rate);
-        if (d?.burnPreview) setBurnPreview(d.burnPreview);
-      })
-      .catch(() => {});
-  }, []);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -190,19 +177,16 @@ function PricingSection({
             {/* Live Calculator Output */}
             <div className="rounded-lg p-3 space-y-2" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}>
               <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">
-                Auto-Calculated ({billingRate != null ? billingRate : "…"} credits/sec · $0.01/credit · ${billingRate != null ? Math.round(billingRate * 36) : "…"}/hr)
-                {burnPreview && <span className="ml-2 text-orange-400/70">[{burnPreview}]</span>}
+                Auto-Calculated from package settings
               </p>
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
                   <p className="text-lg font-bold text-primary font-mono">{calc.credits.toLocaleString()}</p>
                   <p className="text-[10px] text-muted-foreground">Decart Credits</p>
-                  <p className="text-[10px] text-muted-foreground">({CREDITS_PER_MINUTE} credits/min)</p>
                 </div>
                 <div className="text-center p-2 rounded" style={{ background: "hsl(0 84% 60% / 0.06)" }}>
                   <p className="text-lg font-bold text-red-400 font-mono">${calc.decartCostUsd}</p>
                   <p className="text-[10px] text-muted-foreground">Decart Cost (USD)</p>
-                  <p className="text-[10px] text-muted-foreground">($0.01 per credit)</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">

@@ -10,12 +10,12 @@ const token = () => localStorage.getItem("fullswap_admin_token") ?? localStorage
 const authH = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
 
 const PRESETS = [
-  { label: "2 cr/s",  value: 2,  badge: "",  desc: "$0.02/s · $72/hr"  },
-  { label: "3 cr/s",  value: 3,  badge: "",  desc: "$0.03/s · $108/hr" },
-  { label: "4 cr/s",  value: 4,  badge: "",  desc: "$0.04/s · $144/hr" },
-  { label: "5 cr/s",  value: 5,  badge: "",  desc: "$0.05/s · $180/hr" },
-  { label: "8 cr/s",  value: 8,  badge: "",  desc: "$0.08/s · $288/hr" },
-  { label: "10 cr/s", value: 10, badge: "",  desc: "$0.10/s · $360/hr" },
+  { value: 2,  badge: "" },
+  { value: 3,  badge: "" },
+  { value: 4,  badge: "" },
+  { value: 5,  badge: "" },
+  { value: 8,  badge: "" },
+  { value: 10, badge: "" },
 ];
 
 function calcImpact(rate: number) {
@@ -200,15 +200,13 @@ export default function AdminBillingPage() {
                     <button
                       key={p.value}
                       onClick={() => setInputRate(String(p.value))}
-                      className={`relative px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                      className={`relative px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
                         selected
                           ? "bg-yellow-600/30 border-yellow-500 text-yellow-200"
                           : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"
                       }`}
                     >
                       <span className="font-bold text-sm">{p.value}</span>
-                      <span className="ml-1 opacity-80">{p.label.split(" ")[1]}</span>
-                      <div className="text-[10px] opacity-60 mt-0.5">{p.desc}</div>
                       {p.badge && (
                         <span className={`absolute -top-1.5 -right-1.5 text-[9px] font-bold px-1 rounded-full ${
                           p.badge === "default" ? "bg-yellow-600 text-white" : "bg-slate-600 text-slate-200"

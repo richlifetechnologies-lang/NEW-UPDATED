@@ -664,7 +664,7 @@ export default function AdminDashboardPage() {
                     <p className="text-sm font-semibold text-foreground">Decart LUCY 2.1 Credits</p>
                     <p className="text-xs text-muted-foreground">
                       {draining
-                        ? `Live — draining at ${decartCredits.activeSessions * 5} credits/sec (${decartCredits.activeSessions} active stream${decartCredits.activeSessions !== 1 ? "s" : ""} × 5)`
+                        ? `Live — ${decartCredits.activeSessions} active stream${decartCredits.activeSessions !== 1 ? "s" : ""} draining`
                         : "Auto-tracked as streams run"}
                     </p>
                   </div>
