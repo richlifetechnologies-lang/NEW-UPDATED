@@ -32,6 +32,7 @@
 import { Router } from "express";
 import { db, sessionsTable, licenseKeysTable, decartApiKeysTable, settingsTable } from "@workspace/db";
 import { sessionAccountingLogTable } from "@workspace/db";
+import { billingRateAuditTable } from "@workspace/db";
 import { eq, sql, and, desc, isNull, isNotNull } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth";
 import {
@@ -1167,6 +1168,143 @@ router.post("/wallet/rebuild", requireAdmin, featureGate, walletGate, async (_re
   } catch (err) {
     logger.error({ err }, "[LicenseWallet] rebuild failed");
     res.status(500).json({ error: "Wallet rebuild failed" });
+  }
+});
+
+// ── GET /billing-rate — Billing Rate Monitor ─────────────────────────────────
+//
+// Returns the full BillingRateResponse the frontend BillingRatePanel expects.
+// This endpoint was missing — causing the panel to be permanently stuck on
+// "Loading billing rate data…". Added here (under billing-intelligence router)
+// so the frontend apiFetch("/billing-rate") resolves correctly.
+//
+// What each number means:
+//   currentRate         — credits per second drained from the license wallet
+//                         (admin-configurable via Billing Rate settings page)
+//   decartFixedRate     — DECART_API_COST_PER_SEC = 2.3 cr/s
+//                         (safe Decart API cost rate used for analytics only —
+//                          actual Decart charge is 5 cr/s via DECART_CREDITS_PER_SEC)
+//   profitMarginAtCurrentRate — (currentRate − 2.3) / currentRate × 100 %
+//                         e.g. rate=5 → (5−2.3)/5 = 54% margin
+//   totalRateChanges    — number of admin billing rate changes ever recorded
+//   history             — each rate change: who changed it, from what, to what
+//   rateStats           — session counts & billing seconds grouped by rate used
+//   propagation         — rate is always fetched live (no cache), so it is
+//                         always fully_propagated. staleSessions = sessions
+//                         that used a different rate snapshot at settle time.
+router.get("/billing-rate", requireAdmin, featureGate, async (_req, res) => {
+  try {
+    const billingRate = await getBillingRate();
+
+    // ── Rate change audit history ──────────────────────────────────────────
+    const auditRows = await db
+      .select()
+      .from(billingRateAuditTable)
+      .orderBy(desc(billingRateAuditTable.createdAt))
+      .limit(100);
+
+    const history = auditRows.map(r => ({
+      id:           r.id,
+      previousRate: r.previousRate,
+      newRate:      r.newRate,
+      changedBy:    r.changedByEmail ?? String(r.changedBy ?? "admin"),
+      note:         r.note ?? null,
+      changedAt:    r.createdAt instanceof Date
+                      ? r.createdAt.toISOString()
+                      : String(r.createdAt),
+    }));
+
+    // ── Per-rate stats from session accounting log ─────────────────────────
+    let rateStats: Array<{
+      rate: number;
+      session_count: number;
+      total_billing_seconds: number;
+      avg_effective_cr_per_sec: number;
+    }> = [];
+
+    try {
+      const statsRows = await db.execute(sql`
+        SELECT
+          billing_rate_at_settle                      AS rate,
+          COUNT(*)::int                               AS session_count,
+          COALESCE(SUM(billing_seconds), 0)::int      AS total_billing_seconds,
+          COALESCE(AVG(effective_credits_per_sec), 0) AS avg_effective_cr_per_sec
+        FROM session_accounting_log
+        WHERE billing_rate_at_settle IS NOT NULL
+        GROUP BY billing_rate_at_settle
+        ORDER BY billing_rate_at_settle DESC
+      `);
+      rateStats = ((statsRows as any).rows ?? []).map((r: any) => ({
+        rate:                    Number(r.rate),
+        session_count:           Number(r.session_count),
+        total_billing_seconds:   Number(r.total_billing_seconds),
+        avg_effective_cr_per_sec: Number(r.avg_effective_cr_per_sec),
+      }));
+    } catch {
+      // session_accounting_log may be empty — non-fatal
+    }
+
+    // ── Propagation check ──────────────────────────────────────────────────
+    // Billing rate is fetched LIVE on every call (no cache) so all live sessions
+    // always use the current rate. "staleSessions" = sessions in the accounting
+    // log that settled at a different rate (historical snapshots — intentional).
+    let syncedSessions   = 0;
+    let staleSessions    = 0;
+    let totalWithRate    = 0;
+    try {
+      const propRows = await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE billing_rate_at_settle = ${billingRate})::int AS synced,
+          COUNT(*) FILTER (WHERE billing_rate_at_settle IS NOT NULL AND billing_rate_at_settle != ${billingRate})::int AS stale,
+          COUNT(*) FILTER (WHERE billing_rate_at_settle IS NOT NULL)::int AS total
+        FROM session_accounting_log
+      `);
+      const row = ((propRows as any).rows ?? [])[0];
+      if (row) {
+        syncedSessions = Number(row.synced ?? 0);
+        staleSessions  = Number(row.stale  ?? 0);
+        totalWithRate  = Number(row.total  ?? 0);
+      }
+    } catch {
+      // non-fatal
+    }
+
+    const propagationStatus: "fully_propagated" | "partial" =
+      staleSessions === 0 ? "fully_propagated" : "partial";
+
+    const propagationNote = staleSessions === 0
+      ? `All ${totalWithRate} settled sessions used the current rate (${billingRate} cr/s). Billing rate is fetched live — no stale cache.`
+      : `${syncedSessions} sessions settled at ${billingRate} cr/s. ${staleSessions} sessions used an older rate snapshot (historical — audit-correct).`;
+
+    // ── Profit margin at current rate ──────────────────────────────────────
+    // Formula: (retail cr/s − API cost cr/s) / retail cr/s × 100
+    //   retail cr/s  = billingRate  (credits charged to licence wallet per second)
+    //   API cost cr/s = DECART_API_COST_PER_SEC (2.3 — safe analytics rate)
+    const marginPct = billingRate > 0
+      ? (((billingRate - DECART_API_COST_PER_SEC) / billingRate) * 100).toFixed(1)
+      : "0.0";
+
+    res.json({
+      currentRate:              billingRate,
+      currentRateLabel:         `${billingRate} cr/s`,
+      decartFixedRate:          DECART_API_COST_PER_SEC,
+      decartFixedRateLabel:     `${DECART_API_COST_PER_SEC} cr/s`,
+      profitMarginAtCurrentRate: `${marginPct}%`,
+      totalRateChanges:         auditRows.length,
+      history,
+      rateStats,
+      propagation: {
+        syncedSessions,
+        staleSessions,
+        totalSessionsWithRate: totalWithRate,
+        propagationStatus,
+        propagationNote,
+      },
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[BillingRateMonitor] failed");
+    res.status(500).json({ error: "Failed to load billing rate monitor data" });
   }
 });
 
