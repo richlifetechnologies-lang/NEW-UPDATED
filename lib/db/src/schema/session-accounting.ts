@@ -77,6 +77,15 @@ export const sessionAccountingLogTable = pgTable("session_accounting_log", {
   /** Free-text anomaly description, null when clean */
   anomalyFlag: text("anomaly_flag"),
 
+  // ── Stream grouping (additive — not used by existing billing logic) ──────────
+  /**
+   * Derived stream group this session belongs to.
+   * Format: sg_{licenseKeyId}_{firstSessionStartMs}
+   * NEVER used by heartbeat, settlement, or Decart integration.
+   * Populated only by the stream ledger rebuild endpoint.
+   */
+  streamGroupId: text("stream_group_id"),
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 

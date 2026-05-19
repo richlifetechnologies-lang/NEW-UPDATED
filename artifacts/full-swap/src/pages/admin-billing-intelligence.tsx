@@ -17,6 +17,7 @@ import {
   Clock,
   DollarSign,
   Ghost,
+  Layers,
   RefreshCw,
   TrendingUp,
   X,
@@ -617,7 +618,388 @@ function GhostSessionsPanel() {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-type Tab = "summary" | "sessions" | "ghost";
+// ── Stream Ledger types ───────────────────────────────────────────────────────
+interface BillingRateSnapshot {
+  sessionId: string;
+  billingRate: number;
+  snapshotAt: string;
+}
+
+interface StreamRecord {
+  streamGroupId: string;
+  licenseKey: string | null;
+  licenseKeyId: number | null;
+  totalSessions: number;
+  fragmentationCount: number;
+  isActive: boolean;
+  streamStartTime: string;
+  streamEndTime: string;
+  streamDurationSeconds: number;
+  totalComputeSeconds: number;
+  totalBillingSeconds: number;
+  totalApiCreditsUsed: number;
+  totalRetailCreditsCharged: number;
+  profitInCredits: number;
+  effectiveCreditsPerSecond: number;
+  billingRateHistory: BillingRateSnapshot[];
+  lastBillingRateUsed: number;
+  currentBillingRate: number;
+  sessionIds: string[];
+}
+
+interface StreamLedgerResponse {
+  streams: StreamRecord[];
+  currentBillingRate: number;
+  totalStreams: number;
+  activeStreams: number;
+  computedAt: string;
+}
+
+// ── Stream Ledger Panel ───────────────────────────────────────────────────────
+function StreamLedgerPanel() {
+  const [data, setData] = useState<StreamLedgerResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildResult, setRebuildResult] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [activeOnly, setActiveOnly] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    const path = activeOnly ? "/stream-ledger/live?active=true" : "/stream-ledger/live";
+    const res = await apiFetch<StreamLedgerResponse>(path);
+    if (res) {
+      setData(res);
+    } else {
+      setError(true);
+    }
+    setLoading(false);
+  }, [activeOnly]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rebuild = async () => {
+    setRebuilding(true);
+    setRebuildResult(null);
+    try {
+      const res = await fetch(API("/stream-ledger/rebuild"), {
+        method: "POST",
+        headers: authH(),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setRebuildResult(`Persisted ${json.upserted} stream groups (rate: ${json.billingRateUsed} cr/s)`);
+        load();
+      } else {
+        setRebuildResult(`Rebuild failed: ${json.error}`);
+      }
+    } catch {
+      setRebuildResult("Rebuild request failed");
+    }
+    setRebuilding(false);
+  };
+
+  const fmt = (n: number) => n.toLocaleString();
+  const fmtDur = (s: number) => {
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Banner */}
+      <div className="flex items-start gap-2.5 rounded-xl border border-teal-800/40 bg-teal-950/20 p-4 text-xs text-teal-300">
+        <Layers className="w-3.5 h-3.5 shrink-0 mt-0.5 text-teal-400" />
+        <div>
+          <span className="font-semibold">Stream Ledger — Dynamic Rate Aware: </span>
+          Groups all sessions by license key and reconnect proximity (&lt;5 min gap = same stream).
+          Billing rate is always fetched live from admin settings — never hardcoded.
+          Detects credit leakage from session fragmentation.
+          {data && (
+            <span className="ml-1">
+              Current rate: <strong className="text-teal-200">{data.currentBillingRate} cr/s</strong>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={load}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+          Refresh Live
+        </button>
+        <button
+          onClick={rebuild}
+          disabled={rebuilding}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-teal-700 text-teal-400 hover:text-teal-200 transition-colors"
+        >
+          <Zap className={`w-3 h-3 ${rebuilding ? "animate-pulse" : ""}`} />
+          {rebuilding ? "Rebuilding…" : "Rebuild & Persist"}
+        </button>
+        <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={activeOnly}
+            onChange={e => setActiveOnly(e.target.checked)}
+            className="rounded"
+          />
+          Active streams only
+        </label>
+        {data && (
+          <span className="text-xs text-slate-500 ml-auto">
+            {data.totalStreams} streams · {data.activeStreams} active ·
+            computed {new Date(data.computedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {rebuildResult && (
+        <div className="text-xs rounded-lg border border-teal-700/40 bg-teal-950/20 px-4 py-2 text-teal-300">
+          {rebuildResult}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl border border-red-800/40 bg-red-950/20 p-6 text-center text-sm text-red-400">
+          Failed to load stream ledger. Feature may be disabled or unavailable.
+        </div>
+      )}
+
+      {loading && !data && (
+        <div className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-500">
+          Loading stream groups…
+        </div>
+      )}
+
+      {/* Summary cards */}
+      {data && data.streams.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              {
+                label: "Total Streams",
+                value: fmt(data.totalStreams),
+                sub: `${data.activeStreams} active`,
+                color: "text-teal-400",
+              },
+              {
+                label: "Current Billing Rate",
+                value: `${data.currentBillingRate} cr/s`,
+                sub: "live from admin",
+                color: "text-indigo-400",
+              },
+              {
+                label: "Total Profit",
+                value: fmt(data.streams.reduce((a, s) => a + s.profitInCredits, 0)),
+                sub: "credits (retail − Decart)",
+                color: "text-emerald-400",
+              },
+              {
+                label: "Fragmented Streams",
+                value: fmt(data.streams.filter(s => s.fragmentationCount > 0).length),
+                sub: "reconnect gaps detected",
+                color: "text-amber-400",
+              },
+            ].map(c => (
+              <div key={c.label} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <p className="text-xs text-slate-500">{c.label}</p>
+                <p className={`text-xl font-bold mt-1 ${c.color}`}>{c.value}</p>
+                <p className="text-xs text-slate-600 mt-0.5">{c.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Stream table */}
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-700 bg-slate-900/60">
+                  <th className="px-3 py-3 text-left font-medium text-slate-400">Stream Group</th>
+                  <th className="px-3 py-3 text-left font-medium text-slate-400">License Key</th>
+                  <th className="px-3 py-3 text-right font-medium text-slate-400">Sessions</th>
+                  <th className="px-3 py-3 text-right font-medium text-slate-400">Duration</th>
+                  <th className="px-3 py-3 text-right font-medium text-slate-400">Decart cr</th>
+                  <th className="px-3 py-3 text-right font-medium text-slate-400">Retail cr</th>
+                  <th className="px-3 py-3 text-right font-medium text-slate-400">Profit</th>
+                  <th className="px-3 py-3 text-right font-medium text-slate-400">Rate</th>
+                  <th className="px-3 py-3 text-right font-medium text-slate-400">Frags</th>
+                  <th className="px-3 py-3 text-center font-medium text-slate-400">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.streams.map(stream => (
+                  <>
+                    <tr
+                      key={stream.streamGroupId}
+                      className={`border-b border-slate-800 hover:bg-slate-800/30 ${stream.isActive ? "bg-teal-950/10" : ""}`}
+                    >
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-1.5">
+                          {stream.isActive && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+                          )}
+                          <span className="font-mono text-slate-400 text-xs">
+                            {stream.streamGroupId.slice(0, 24)}…
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="font-mono text-slate-300">
+                          {stream.licenseKey
+                            ? `${stream.licenseKey.slice(0, 8)}…`
+                            : <span className="text-slate-600">—</span>}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-slate-300">{stream.totalSessions}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-slate-300">
+                        {fmtDur(stream.streamDurationSeconds)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-blue-400">
+                        {fmt(stream.totalApiCreditsUsed)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-yellow-400">
+                        {fmt(stream.totalRetailCreditsCharged)}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold ${stream.profitInCredits >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {stream.profitInCredits >= 0 ? "+" : ""}{fmt(stream.profitInCredits)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-indigo-400">
+                        {stream.lastBillingRateUsed} cr/s
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        {stream.fragmentationCount > 0 ? (
+                          <span className="px-1.5 py-0.5 rounded-full text-xs bg-amber-900/40 text-amber-400 border border-amber-700/40">
+                            {stream.fragmentationCount}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <button
+                          onClick={() => setExpanded(expanded === stream.streamGroupId ? null : stream.streamGroupId)}
+                          className="text-slate-500 hover:text-slate-200 transition-colors"
+                        >
+                          {expanded === stream.streamGroupId
+                            ? <ChevronDown className="w-3.5 h-3.5" />
+                            : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* Expanded detail row */}
+                    {expanded === stream.streamGroupId && (
+                      <tr key={`${stream.streamGroupId}-detail`} className="border-b border-slate-800 bg-slate-950/60">
+                        <td colSpan={10} className="px-4 py-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {/* Session time breakdown */}
+                            <div>
+                              <p className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                                <Clock className="w-3 h-3" />
+                                Time Breakdown
+                              </p>
+                              <table className="w-full text-xs">
+                                <tbody>
+                                  {[
+                                    ["Stream start", new Date(stream.streamStartTime).toLocaleString()],
+                                    ["Stream end", new Date(stream.streamEndTime).toLocaleString()],
+                                    ["Wall-clock duration", fmtDur(stream.streamDurationSeconds)],
+                                    ["Compute seconds", `${fmt(stream.totalComputeSeconds)}s`],
+                                    ["Billing seconds", `${fmt(stream.totalBillingSeconds)}s`],
+                                    ["Retail seconds", `${fmt(stream.totalRetailCreditsCharged / 2)}s`],
+                                  ].map(([k, v]) => (
+                                    <tr key={k} className="border-b border-slate-800 last:border-0">
+                                      <td className="py-1.5 text-slate-500">{k}</td>
+                                      <td className="py-1.5 text-right font-mono text-slate-300">{v}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Billing rate history */}
+                            <div>
+                              <p className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                                <TrendingUp className="w-3 h-3" />
+                                Billing Rate History (per session)
+                              </p>
+                              {stream.billingRateHistory.length === 0 ? (
+                                <p className="text-xs text-slate-600">No rate history available.</p>
+                              ) : (
+                                <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                                  {stream.billingRateHistory.map((h, i) => (
+                                    <div key={i} className="flex items-center justify-between text-xs rounded px-2 py-1 bg-slate-800/60">
+                                      <span className="font-mono text-slate-500 truncate max-w-[120px]">
+                                        {h.sessionId.slice(0, 12)}…
+                                      </span>
+                                      <span className="text-indigo-400 font-mono">{h.billingRate} cr/s</span>
+                                      <span className="text-slate-600">
+                                        {new Date(h.snapshotAt).toLocaleTimeString()}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="mt-3 rounded-lg border border-teal-800/30 bg-teal-950/20 px-3 py-2">
+                                <p className="text-xs text-teal-400">
+                                  <span className="font-semibold">Current live rate: </span>
+                                  {stream.currentBillingRate} cr/s
+                                  <span className="text-teal-600 ml-2">(from admin dashboard)</span>
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Credit reconciliation */}
+                            <div className="sm:col-span-2">
+                              <p className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                                <Activity className="w-3 h-3" />
+                                Credit Reconciliation (stream level)
+                              </p>
+                              <div className="grid grid-cols-3 gap-2">
+                                {[
+                                  { label: "Decart API cost", value: fmt(stream.totalApiCreditsUsed), color: "text-blue-400", sub: `${stream.totalComputeSeconds}s × 5 cr/s` },
+                                  { label: "Retail charged", value: fmt(stream.totalRetailCreditsCharged), color: "text-yellow-400", sub: `rate: ${stream.lastBillingRateUsed} cr/s` },
+                                  { label: "Net profit", value: `${stream.profitInCredits >= 0 ? "+" : ""}${fmt(stream.profitInCredits)}`, color: stream.profitInCredits >= 0 ? "text-emerald-400" : "text-red-400", sub: `${stream.effectiveCreditsPerSecond.toFixed(2)} effective cr/s` },
+                                ].map(c => (
+                                  <div key={c.label} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                                    <p className="text-xs text-slate-500">{c.label}</p>
+                                    <p className={`text-base font-bold mt-1 font-mono ${c.color}`}>{c.value}</p>
+                                    <p className="text-xs text-slate-600 mt-0.5">{c.sub}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {data && data.streams.length === 0 && (
+        <div className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-500">
+          No stream groups found. Sessions may not exist yet.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+type Tab = "summary" | "sessions" | "ghost" | "stream";
 
 export default function AdminBillingIntelligencePage() {
   const [tab, setTab] = useState<Tab>("summary");
@@ -643,6 +1025,7 @@ export default function AdminBillingIntelligencePage() {
     { id: "summary", label: "Reconciliation Summary", icon: <BarChart3 className="w-3.5 h-3.5" /> },
     { id: "sessions", label: "Session Billing Table", icon: <DollarSign className="w-3.5 h-3.5" /> },
     { id: "ghost", label: "Ghost Session Monitor", icon: <Ghost className="w-3.5 h-3.5" /> },
+    { id: "stream", label: "Stream Ledger", icon: <Layers className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -781,6 +1164,8 @@ export default function AdminBillingIntelligencePage() {
         )}
 
         {tab === "ghost" && <GhostSessionsPanel />}
+
+        {tab === "stream" && <StreamLedgerPanel />}
       </div>
     </AdminLayout>
   );

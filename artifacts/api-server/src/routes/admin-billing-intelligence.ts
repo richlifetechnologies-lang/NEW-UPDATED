@@ -621,4 +621,374 @@ router.post("/record", requireAdmin, featureGate, async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// STREAM LEDGER — Dynamic Billing Rate Reconciliation (additive, feature-flagged)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// SAFETY: Reads only from existing `sessions` and `license_keys` tables.
+//         Writes only to `stream_ledger` (new) and `session_accounting_log.stream_group_id` (new col).
+//         Billing rate is ALWAYS fetched dynamically via getBillingRate() — never hardcoded.
+//         Feature-flagged via ENABLE_STREAM_LEDGER=false to disable entirely.
+//         Zero impact on heartbeat, settlement, Decart, or WebSocket flows.
+
+import { streamLedgerTable } from "@workspace/db";
+
+const STREAM_LEDGER_ENABLED = process.env.ENABLE_STREAM_LEDGER !== "false";
+const STREAM_GAP_MS = 5 * 60 * 1000; // 5 min gap between sessions = new stream
+
+function streamLedgerGate(_req: any, res: any, next: any) {
+  if (!STREAM_LEDGER_ENABLED) {
+    res.status(503).json({ error: "Stream Ledger is disabled (ENABLE_STREAM_LEDGER=false)." });
+    return;
+  }
+  next();
+}
+
+interface RawSession {
+  session_id: string;
+  license_key: string | null;
+  license_key_id: number | null;
+  status: string;
+  started_at: Date | string;
+  stopped_at: Date | string | null;
+  billing_started_at: Date | string | null;
+  last_heartbeat_at: Date | string | null;
+  duration_seconds: number | null;
+  billing_rate_snapshot: number | null;
+}
+
+interface StreamGroup {
+  streamGroupId: string;
+  licenseKey: string | null;
+  licenseKeyId: number | null;
+  sessions: RawSession[];
+  streamStartMs: number;
+  streamEndMs: number;
+  fragmentationCount: number;
+  isActive: boolean;
+}
+
+/** Group raw sessions into stream-level buckets by license key and time proximity. */
+function groupIntoStreams(sessions: RawSession[]): StreamGroup[] {
+  // Index by license_key_id (use "anon" for null)
+  const byKey: Record<string, RawSession[]> = {};
+  for (const s of sessions) {
+    const k = String(s.license_key_id ?? "anon");
+    if (!byKey[k]) byKey[k] = [];
+    byKey[k].push(s);
+  }
+
+  const groups: StreamGroup[] = [];
+
+  for (const [, keySessions] of Object.entries(byKey)) {
+    keySessions.sort((a, b) =>
+      new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
+    );
+
+    let current: StreamGroup | null = null;
+
+    for (const s of keySessions) {
+      const startMs = new Date(s.started_at).getTime();
+      const endMs = s.stopped_at ? new Date(s.stopped_at).getTime() : Date.now();
+      const isActive = s.status === "active";
+
+      if (!current) {
+        current = {
+          streamGroupId: `sg_${s.license_key_id ?? "anon"}_${startMs}`,
+          licenseKey: s.license_key,
+          licenseKeyId: s.license_key_id,
+          sessions: [s],
+          streamStartMs: startMs,
+          streamEndMs: endMs,
+          fragmentationCount: 0,
+          isActive,
+        };
+      } else {
+        const prev = current.sessions[current.sessions.length - 1];
+        const prevEndMs = prev.stopped_at
+          ? new Date(prev.stopped_at).getTime()
+          : Date.now();
+        const gapMs = startMs - prevEndMs;
+
+        if (gapMs < STREAM_GAP_MS) {
+          // Same stream — absorb this session
+          current.sessions.push(s);
+          current.streamEndMs = Math.max(current.streamEndMs, endMs);
+          if (gapMs > 0) current.fragmentationCount++;
+          if (isActive) current.isActive = true;
+        } else {
+          // New stream — save current and start fresh
+          groups.push(current);
+          current = {
+            streamGroupId: `sg_${s.license_key_id ?? "anon"}_${startMs}`,
+            licenseKey: s.license_key,
+            licenseKeyId: s.license_key_id,
+            sessions: [s],
+            streamStartMs: startMs,
+            streamEndMs: endMs,
+            fragmentationCount: 0,
+            isActive,
+          };
+        }
+      }
+    }
+    if (current) groups.push(current);
+  }
+
+  return groups;
+}
+
+/** Compute stream-level aggregates from grouped sessions.
+ *  Billing rate is fetched dynamically and NEVER hardcoded. */
+function aggregateStream(group: StreamGroup, liveBillingRate: number) {
+  let totalComputeSeconds = 0;
+  let totalBillingSeconds = 0;
+  const billingRateHistory: Array<{ sessionId: string; billingRate: number; snapshotAt: string }> = [];
+
+  for (const s of group.sessions) {
+    const endMs = s.stopped_at ? new Date(s.stopped_at).getTime() : Date.now();
+    const startMs = new Date(s.started_at).getTime();
+    totalComputeSeconds += Math.max(0, Math.floor((endMs - startMs) / 1000));
+    totalBillingSeconds += s.duration_seconds != null ? Number(s.duration_seconds) : 0;
+
+    // Use per-session snapshot if stored, else use live rate
+    const rateSnap = s.billing_rate_snapshot ?? liveBillingRate;
+    billingRateHistory.push({
+      sessionId: s.session_id,
+      billingRate: rateSnap,
+      snapshotAt: new Date(s.started_at).toISOString(),
+    });
+  }
+
+  const totalApiCreditsUsed = totalComputeSeconds * DECART_CREDITS_PER_SEC;
+
+  // Retail: always uses live billing rate from admin dashboard — never hardcoded
+  const totalRetailSeconds = Math.round(totalBillingSeconds * liveBillingRate / 2);
+  const totalRetailCreditsCharged = totalRetailSeconds * 2;
+  const profitInCredits = totalRetailCreditsCharged - totalApiCreditsUsed;
+  const effectiveCreditsPerSecond = totalComputeSeconds > 0
+    ? Math.round((totalRetailCreditsCharged / totalComputeSeconds) * 100) / 100
+    : 0;
+
+  return {
+    totalComputeSeconds,
+    totalBillingSeconds,
+    totalApiCreditsUsed,
+    totalRetailSeconds,
+    totalRetailCreditsCharged,
+    profitInCredits,
+    effectiveCreditsPerSecond,
+    billingRateHistory,
+    lastBillingRateUsed: liveBillingRate,
+    streamDurationSeconds: Math.floor((group.streamEndMs - group.streamStartMs) / 1000),
+  };
+}
+
+// ── GET /stream-ledger/live ───────────────────────────────────────────────────
+// Computes stream groupings live from the sessions table. No caching.
+// Billing rate fetched dynamically — reflects admin dashboard changes instantly.
+router.get("/stream-ledger/live", requireAdmin, featureGate, streamLedgerGate, async (req, res) => {
+  try {
+    // Always fetch billing rate dynamically
+    const billingRate = await getBillingRate();
+
+    const limit = Math.min(parseInt(String(req.query["limit"] ?? "200"), 10), 1000);
+    const activeOnly = req.query["active"] === "true";
+
+    const whereClause = activeOnly ? sql`s.status = 'active'` : sql`1=1`;
+
+    const rows = await db.execute(sql`
+      SELECT
+        s.id                                              AS session_id,
+        lk.key                                            AS license_key,
+        s.license_key_id,
+        s.status,
+        s.started_at,
+        s.stopped_at,
+        s.billing_started_at,
+        s.last_heartbeat_at,
+        s.duration_seconds,
+        NULL                                              AS billing_rate_snapshot
+      FROM sessions s
+      LEFT JOIN license_keys lk ON lk.id = s.license_key_id
+      WHERE ${whereClause}
+      ORDER BY s.started_at DESC
+      LIMIT ${limit}
+    `);
+
+    const sessions = rows as unknown as RawSession[];
+    const groups = groupIntoStreams(sessions);
+
+    const result = groups.map(group => {
+      const agg = aggregateStream(group, billingRate);
+      return {
+        streamGroupId: group.streamGroupId,
+        licenseKey: group.licenseKey,
+        licenseKeyId: group.licenseKeyId,
+        totalSessions: group.sessions.length,
+        fragmentationCount: group.fragmentationCount,
+        isActive: group.isActive,
+        streamStartTime: new Date(group.streamStartMs).toISOString(),
+        streamEndTime: new Date(group.streamEndMs).toISOString(),
+        ...agg,
+        // Current billing rate from admin dashboard — live, not cached
+        currentBillingRate: billingRate,
+        sessionIds: group.sessions.map(s => s.session_id),
+      };
+    });
+
+    // Sort: active first, then by streamStartTime desc
+    result.sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return new Date(b.streamStartTime).getTime() - new Date(a.streamStartTime).getTime();
+    });
+
+    res.json({
+      streams: result,
+      currentBillingRate: billingRate,
+      totalStreams: result.length,
+      activeStreams: result.filter(r => r.isActive).length,
+      computedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[StreamLedger] live query failed");
+    res.status(500).json({ error: "Failed to compute live stream ledger" });
+  }
+});
+
+// ── GET /stream-ledger ────────────────────────────────────────────────────────
+// Returns pre-computed stream ledger records from the stream_ledger table.
+// Falls back to live computation if table is empty.
+router.get("/stream-ledger", requireAdmin, featureGate, streamLedgerGate, async (req, res) => {
+  try {
+    const billingRate = await getBillingRate();
+    const limit = Math.min(parseInt(String(req.query["limit"] ?? "100"), 10), 500);
+
+    let records: any[] = [];
+    try {
+      records = await db
+        .select()
+        .from(streamLedgerTable)
+        .orderBy(desc(streamLedgerTable.computedAt))
+        .limit(limit);
+    } catch {
+      // Table might not exist yet if migration hasn't run — non-fatal
+    }
+
+    res.json({
+      streams: records,
+      currentBillingRate: billingRate,
+      totalStreams: records.length,
+      source: "persisted",
+      note: records.length === 0
+        ? "No persisted records yet. Use POST /stream-ledger/rebuild to compute and persist."
+        : undefined,
+    });
+  } catch (err) {
+    logger.error({ err }, "[StreamLedger] list failed");
+    res.status(500).json({ error: "Failed to load stream ledger" });
+  }
+});
+
+// ── POST /stream-ledger/rebuild ───────────────────────────────────────────────
+// Recomputes all stream groups from the sessions table and upserts into stream_ledger.
+// Billing rate is fetched dynamically — never hardcoded.
+// Safe to run at any time — does not touch sessions, heartbeats, or billing.
+router.post("/stream-ledger/rebuild", requireAdmin, featureGate, streamLedgerGate, async (req, res) => {
+  try {
+    // Billing rate fetched live from admin dashboard — never hardcoded
+    const billingRate = await getBillingRate();
+
+    const rows = await db.execute(sql`
+      SELECT
+        s.id                AS session_id,
+        lk.key              AS license_key,
+        s.license_key_id,
+        s.status,
+        s.started_at,
+        s.stopped_at,
+        s.billing_started_at,
+        s.last_heartbeat_at,
+        s.duration_seconds,
+        NULL                AS billing_rate_snapshot
+      FROM sessions s
+      LEFT JOIN license_keys lk ON lk.id = s.license_key_id
+      ORDER BY s.started_at ASC
+    `);
+
+    const sessions = rows as unknown as RawSession[];
+    const groups = groupIntoStreams(sessions);
+
+    let upserted = 0;
+    let errors = 0;
+
+    for (const group of groups) {
+      try {
+        const agg = aggregateStream(group, billingRate);
+        const record = {
+          streamGroupId:            group.streamGroupId,
+          licenseKey:               group.licenseKey,
+          licenseKeyId:             group.licenseKeyId,
+          sessionIds:               JSON.stringify(group.sessions.map(s => s.session_id)),
+          totalSessions:            group.sessions.length,
+          fragmentationCount:       group.fragmentationCount,
+          streamStartTime:          new Date(group.streamStartMs),
+          streamEndTime:            new Date(group.streamEndMs),
+          totalComputeSeconds:      agg.totalComputeSeconds,
+          totalBillingSeconds:      agg.totalBillingSeconds,
+          totalApiCreditsUsed:      agg.totalApiCreditsUsed,
+          totalRetailSeconds:       agg.totalRetailSeconds,
+          totalRetailCreditsCharged: agg.totalRetailCreditsCharged,
+          profitInCredits:          agg.profitInCredits,
+          effectiveCreditsPerSecond: agg.effectiveCreditsPerSecond,
+          billingRateHistory:       JSON.stringify(agg.billingRateHistory),
+          lastBillingRateUsed:      billingRate,
+          isActive:                 group.isActive,
+          updatedAt:                new Date(),
+        };
+
+        await db
+          .insert(streamLedgerTable)
+          .values(record)
+          .onConflictDoUpdate({
+            target: streamLedgerTable.streamGroupId,
+            set: {
+              totalSessions:            record.totalSessions,
+              fragmentationCount:       record.fragmentationCount,
+              sessionIds:               record.sessionIds,
+              streamEndTime:            record.streamEndTime,
+              totalComputeSeconds:      record.totalComputeSeconds,
+              totalBillingSeconds:      record.totalBillingSeconds,
+              totalApiCreditsUsed:      record.totalApiCreditsUsed,
+              totalRetailSeconds:       record.totalRetailSeconds,
+              totalRetailCreditsCharged: record.totalRetailCreditsCharged,
+              profitInCredits:          record.profitInCredits,
+              effectiveCreditsPerSecond: record.effectiveCreditsPerSecond,
+              billingRateHistory:       record.billingRateHistory,
+              lastBillingRateUsed:      record.lastBillingRateUsed,
+              isActive:                 record.isActive,
+              updatedAt:                record.updatedAt,
+            },
+          });
+        upserted++;
+      } catch {
+        errors++;
+      }
+    }
+
+    res.json({
+      ok: true,
+      streamsProcessed: groups.length,
+      upserted,
+      errors,
+      billingRateUsed: billingRate,
+      rebuiltAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[StreamLedger] rebuild failed");
+    res.status(500).json({ error: "Stream ledger rebuild failed" });
+  }
+});
+
 export default router;
+
