@@ -998,8 +998,490 @@ function StreamLedgerPanel() {
   );
 }
 
+// ── License Wallet types ──────────────────────────────────────────────────────
+interface WalletEntry {
+  licenseKeyId: number;
+  licenseKey: string;
+  allocatedSeconds: number;
+  usedSeconds: number;
+  remainingSeconds: number;
+  usedPercent: number;
+  status: "active" | "paused" | "exhausted" | "inactive";
+  isActive: boolean;
+  streamingEnabled: boolean;
+  billingRateSnapshot: number;
+  activeSessionCount: number;
+  totalSessionCount: number;
+  reconnectCount: number;
+  lastDeductionAt: string | null;
+  walletConsistencyStatus: "ok" | "mismatch" | "unknown";
+  consistencyDeltaSeconds: number;
+  creditsAllocated: number;
+  creditsUsed: number;
+  creditsRemaining: number;
+}
+
+interface WalletResponse {
+  wallets: WalletEntry[];
+  currentBillingRate: number;
+  total: number;
+  summary: {
+    active: number;
+    paused: number;
+    exhausted: number;
+    inactive: number;
+    mismatched: number;
+  };
+  computedAt: string;
+}
+
+// ── Billing Rate types ────────────────────────────────────────────────────────
+interface RateHistoryEntry {
+  id: number;
+  previousRate: number;
+  newRate: number;
+  changedBy: string;
+  note: string | null;
+  changedAt: string;
+}
+
+interface RateStat {
+  rate: number;
+  session_count: number;
+  total_billing_seconds: number;
+  avg_effective_cr_per_sec: number;
+}
+
+interface BillingRateResponse {
+  currentRate: number;
+  currentRateLabel: string;
+  decartFixedRate: number;
+  decartFixedRateLabel: string;
+  profitMarginAtCurrentRate: string;
+  totalRateChanges: number;
+  history: RateHistoryEntry[];
+  rateStats: RateStat[];
+  propagation: {
+    syncedSessions: number;
+    staleSessions: number;
+    totalSessionsWithRate: number;
+    propagationStatus: "fully_propagated" | "partial";
+    propagationNote: string;
+  };
+  checkedAt: string;
+}
+
+// ── License Wallet Panel ──────────────────────────────────────────────────────
+function LicenseWalletPanel() {
+  const [data, setData] = useState<WalletResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    const qs = statusFilter !== "all" ? `?status=${statusFilter}` : "";
+    const res = await apiFetch<WalletResponse>(`/wallet${qs}`);
+    if (res) setData(res);
+    else setError(true);
+    setLoading(false);
+  }, [statusFilter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const fmt = (n: number) => n.toLocaleString();
+  const fmtDur = (s: number) => {
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  };
+
+  const statusColor: Record<string, string> = {
+    active: "text-emerald-400 bg-emerald-900/30 border-emerald-700/40",
+    paused: "text-amber-400 bg-amber-900/30 border-amber-700/40",
+    exhausted: "text-red-400 bg-red-900/30 border-red-700/40",
+    inactive: "text-slate-500 bg-slate-800/30 border-slate-700/40",
+  };
+
+  const consistencyColor: Record<string, string> = {
+    ok: "text-emerald-400",
+    mismatch: "text-red-400",
+    unknown: "text-slate-500",
+  };
+
+  const filtered = data?.wallets.filter(w =>
+    !search || w.licenseKey.toLowerCase().includes(search.toLowerCase())
+  ) ?? [];
+
+  return (
+    <div className="space-y-5">
+      {/* Banner */}
+      <div className="flex items-start gap-2.5 rounded-xl border border-violet-800/40 bg-violet-950/20 p-4 text-xs text-violet-300">
+        <DollarSign className="w-3.5 h-3.5 shrink-0 mt-0.5 text-violet-400" />
+        <div>
+          <span className="font-semibold">License Wallet Monitor: </span>
+          Prepaid wallet view per license key — aggregated from live <code>license_keys</code> data.
+          The current heartbeat deduction engine continues unchanged.
+          This is a read-only observability overlay.
+          {data && (
+            <span className="ml-1">
+              Billing rate: <strong className="text-violet-200">{data.currentBillingRate} cr/s</strong>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      {data && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {[
+            { label: "Active", value: data.summary.active, color: "text-emerald-400" },
+            { label: "Paused", value: data.summary.paused, color: "text-amber-400" },
+            { label: "Exhausted", value: data.summary.exhausted, color: "text-red-400" },
+            { label: "Inactive", value: data.summary.inactive, color: "text-slate-500" },
+            { label: "Mismatched", value: data.summary.mismatched, color: "text-orange-400" },
+          ].map(c => (
+            <div key={c.label} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+              <p className="text-xs text-slate-500">{c.label}</p>
+              <p className={`text-xl font-bold mt-1 ${c.color}`}>{c.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Controls */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={load}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
+          className="text-xs rounded-lg border border-slate-700 bg-slate-800 text-slate-300 px-2 py-1.5"
+        >
+          {["all", "active", "paused", "exhausted", "inactive"].map(s => (
+            <option key={s} value={s}>{s === "all" ? "All statuses" : s}</option>
+          ))}
+        </select>
+        <input
+          type="text"
+          placeholder="Search license key…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="text-xs rounded-lg border border-slate-700 bg-slate-800 text-slate-300 px-3 py-1.5 w-48"
+        />
+        {data && (
+          <span className="text-xs text-slate-500 ml-auto">
+            {filtered.length} of {data.total} keys ·
+            computed {new Date(data.computedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-800/40 bg-red-950/20 p-6 text-center text-sm text-red-400">
+          Failed to load wallet data. Feature may be disabled (ENABLE_LICENSE_WALLET=false).
+        </div>
+      )}
+
+      {loading && !data && (
+        <div className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-500">
+          Loading license wallets…
+        </div>
+      )}
+
+      {/* Wallet table */}
+      {filtered.length > 0 && (
+        <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-700 bg-slate-900/60">
+                <th className="px-3 py-3 text-left font-medium text-slate-400">License Key</th>
+                <th className="px-3 py-3 text-center font-medium text-slate-400">Status</th>
+                <th className="px-3 py-3 text-right font-medium text-slate-400">Allocated</th>
+                <th className="px-3 py-3 text-right font-medium text-slate-400">Used</th>
+                <th className="px-3 py-3 text-right font-medium text-slate-400">Remaining</th>
+                <th className="px-3 py-3 text-right font-medium text-slate-400">Balance %</th>
+                <th className="px-3 py-3 text-right font-medium text-slate-400">Active</th>
+                <th className="px-3 py-3 text-right font-medium text-slate-400">Sessions</th>
+                <th className="px-3 py-3 text-right font-medium text-slate-400">Cr Remain</th>
+                <th className="px-3 py-3 text-center font-medium text-slate-400">Sync</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(w => (
+                <tr key={w.licenseKeyId} className="border-b border-slate-800 hover:bg-slate-800/30">
+                  <td className="px-3 py-2.5 font-mono text-slate-300">
+                    {w.licenseKey.slice(0, 12)}…
+                    <span className="ml-1 text-slate-600 text-xs">#{w.licenseKeyId}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`px-1.5 py-0.5 rounded-full text-xs border ${statusColor[w.status] ?? "text-slate-400"}`}>
+                      {w.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono text-slate-400">
+                    {fmtDur(w.allocatedSeconds)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono text-yellow-400">
+                    {fmtDur(w.usedSeconds)}
+                  </td>
+                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${w.remainingSeconds > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {fmtDur(w.remainingSeconds)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="w-16 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${w.usedPercent > 90 ? "bg-red-500" : w.usedPercent > 70 ? "bg-amber-500" : "bg-emerald-500"}`}
+                          style={{ width: `${Math.min(100, w.usedPercent)}%` }}
+                        />
+                      </div>
+                      <span className="text-slate-400 text-xs w-9 text-right">{w.usedPercent}%</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    {w.activeSessionCount > 0 ? (
+                      <span className="flex items-center justify-end gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-emerald-400">{w.activeSessionCount}</span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-slate-400">{w.totalSessionCount}</td>
+                  <td className="px-3 py-2.5 text-right font-mono text-indigo-400">
+                    {fmt(w.creditsRemaining)}
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`font-medium ${consistencyColor[w.walletConsistencyStatus]}`}>
+                      {w.walletConsistencyStatus === "ok" ? "✓" :
+                        w.walletConsistencyStatus === "mismatch" ? `Δ${w.consistencyDeltaSeconds}s` : "—"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && filtered.length === 0 && (
+        <div className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-500">
+          No wallets found{search ? ` matching "${search}"` : ""}.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Billing Rate Panel ────────────────────────────────────────────────────────
+function BillingRatePanel() {
+  const [data, setData] = useState<BillingRateResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    const res = await apiFetch<BillingRateResponse>("/billing-rate");
+    if (res) setData(res);
+    else setError(true);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-5">
+      {/* Banner */}
+      <div className="flex items-start gap-2.5 rounded-xl border border-blue-800/40 bg-blue-950/20 p-4 text-xs text-blue-300">
+        <TrendingUp className="w-3.5 h-3.5 shrink-0 mt-0.5 text-blue-400" />
+        <div>
+          <span className="font-semibold">Billing Rate Monitor: </span>
+          Verifies that billing rate changes in the admin dashboard propagate everywhere automatically.
+          Rate is ALWAYS fetched dynamically — never hardcoded anywhere in the system.
+          Historical sessions retain their original rate snapshot for audit integrity.
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={load}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+        {data && (
+          <span className="text-xs text-slate-500 ml-auto">
+            Checked {new Date(data.checkedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-800/40 bg-red-950/20 p-6 text-center text-sm text-red-400">
+          Failed to load billing rate data.
+        </div>
+      )}
+
+      {loading && !data && (
+        <div className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-500">
+          Loading billing rate data…
+        </div>
+      )}
+
+      {data && (
+        <>
+          {/* Current rate cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              {
+                label: "Current Billing Rate",
+                value: data.currentRateLabel,
+                sub: "live from admin dashboard",
+                color: "text-blue-400",
+              },
+              {
+                label: "Decart API Cost",
+                value: data.decartFixedRateLabel,
+                sub: "fixed Decart rate",
+                color: "text-slate-400",
+              },
+              {
+                label: "Profit Margin",
+                value: data.profitMarginAtCurrentRate,
+                sub: "retail vs Decart cost",
+                color: parseFloat(data.profitMarginAtCurrentRate) > 0 ? "text-emerald-400" : "text-red-400",
+              },
+              {
+                label: "Rate Changes",
+                value: String(data.totalRateChanges),
+                sub: "in audit history",
+                color: "text-amber-400",
+              },
+            ].map(c => (
+              <div key={c.label} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <p className="text-xs text-slate-500">{c.label}</p>
+                <p className={`text-xl font-bold mt-1 font-mono ${c.color}`}>{c.value}</p>
+                <p className="text-xs text-slate-600 mt-0.5">{c.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Propagation status */}
+          <div className={`rounded-xl border p-4 ${
+            data.propagation.propagationStatus === "fully_propagated"
+              ? "border-emerald-800/40 bg-emerald-950/20"
+              : "border-amber-800/40 bg-amber-950/20"
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className={`w-4 h-4 ${data.propagation.propagationStatus === "fully_propagated" ? "text-emerald-400" : "text-amber-400"}`} />
+              <span className={`text-sm font-semibold ${data.propagation.propagationStatus === "fully_propagated" ? "text-emerald-300" : "text-amber-300"}`}>
+                Propagation: {data.propagation.propagationStatus === "fully_propagated" ? "Fully Propagated" : "Partial"}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-xs">
+              <div>
+                <p className="text-slate-500">Synced sessions</p>
+                <p className="text-emerald-400 font-bold text-base">{data.propagation.syncedSessions}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Historical snapshots</p>
+                <p className="text-amber-400 font-bold text-base">{data.propagation.staleSessions}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Total with rate data</p>
+                <p className="text-slate-300 font-bold text-base">{data.propagation.totalSessionsWithRate}</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">{data.propagation.propagationNote}</p>
+          </div>
+
+          {/* Per-rate stats */}
+          {data.rateStats.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-300 mb-3">Usage by Billing Rate</h3>
+              <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-700 bg-slate-900/60">
+                      <th className="px-4 py-3 text-left font-medium text-slate-400">Rate</th>
+                      <th className="px-4 py-3 text-right font-medium text-slate-400">Sessions</th>
+                      <th className="px-4 py-3 text-right font-medium text-slate-400">Total billing time</th>
+                      <th className="px-4 py-3 text-right font-medium text-slate-400">Avg eff. cr/s</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.rateStats.map((r, i) => (
+                      <tr key={i} className={`border-b border-slate-800 last:border-0 ${Number(r.rate) === data.currentRate ? "bg-blue-950/20" : ""}`}>
+                        <td className="px-4 py-2.5">
+                          <span className="font-mono text-blue-400 font-bold">{r.rate} cr/s</span>
+                          {Number(r.rate) === data.currentRate && (
+                            <span className="ml-2 text-xs text-blue-500">(current)</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-slate-300">{Number(r.session_count).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-slate-400">
+                          {Math.floor(Number(r.total_billing_seconds) / 60)}m {Number(r.total_billing_seconds) % 60}s
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-mono text-indigo-400">
+                          {Number(r.avg_effective_cr_per_sec).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Change history */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-300 mb-3">Rate Change History</h3>
+            {data.history.length === 0 ? (
+              <div className="rounded-xl border border-slate-800 p-6 text-center text-sm text-slate-500">
+                No rate changes recorded yet.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {data.history.map(h => (
+                  <div key={h.id} className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 flex items-center gap-4">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-mono text-slate-500">{h.previousRate} cr/s</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+                      <span className="font-mono text-blue-400 font-bold">{h.newRate} cr/s</span>
+                    </div>
+                    <div className="text-xs text-slate-500 ml-auto text-right">
+                      <p>{h.changedBy}</p>
+                      <p>{new Date(h.changedAt).toLocaleString()}</p>
+                    </div>
+                    {h.note && (
+                      <p className="text-xs text-slate-600 italic max-w-xs truncate">{h.note}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
-type Tab = "summary" | "sessions" | "ghost" | "stream";
+type Tab = "summary" | "sessions" | "ghost" | "stream" | "wallet" | "billing-rate";
 
 export default function AdminBillingIntelligencePage() {
   const [tab, setTab] = useState<Tab>("summary");
@@ -1026,6 +1508,8 @@ export default function AdminBillingIntelligencePage() {
     { id: "sessions", label: "Session Billing Table", icon: <DollarSign className="w-3.5 h-3.5" /> },
     { id: "ghost", label: "Ghost Session Monitor", icon: <Ghost className="w-3.5 h-3.5" /> },
     { id: "stream", label: "Stream Ledger", icon: <Layers className="w-3.5 h-3.5" /> },
+    { id: "wallet", label: "License Wallet", icon: <DollarSign className="w-3.5 h-3.5" /> },
+    { id: "billing-rate", label: "Billing Rate Monitor", icon: <TrendingUp className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -1166,6 +1650,10 @@ export default function AdminBillingIntelligencePage() {
         {tab === "ghost" && <GhostSessionsPanel />}
 
         {tab === "stream" && <StreamLedgerPanel />}
+
+        {tab === "wallet" && <LicenseWalletPanel />}
+
+        {tab === "billing-rate" && <BillingRatePanel />}
       </div>
     </AdminLayout>
   );

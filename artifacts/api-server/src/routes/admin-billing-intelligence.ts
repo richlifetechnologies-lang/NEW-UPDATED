@@ -990,5 +990,289 @@ router.post("/stream-ledger/rebuild", requireAdmin, featureGate, streamLedgerGat
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// LICENSE WALLET MONITOR — Prepaid wallet view per license key (additive)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// SAFETY: Reads only from license_keys and sessions tables (read-only).
+//         Writes only to license_wallet (new additive table).
+//         Does NOT modify heartbeat, deduction, settlement, or Decart flows.
+//         Billing rate ALWAYS from getBillingRate() — never hardcoded.
+//         Feature-flagged via ENABLE_LICENSE_WALLET=false.
+
+import { licenseWalletTable } from "@workspace/db";
+
+const LICENSE_WALLET_ENABLED = process.env.ENABLE_LICENSE_WALLET !== "false";
+
+function walletGate(_req: any, res: any, next: any) {
+  if (!LICENSE_WALLET_ENABLED) {
+    res.status(503).json({ error: "License Wallet is disabled (ENABLE_LICENSE_WALLET=false)." });
+    return;
+  }
+  next();
+}
+
+/** Classify wallet status from license key data. */
+function walletStatus(
+  isActive: boolean,
+  allocatedSeconds: number,
+  usedSeconds: number,
+  lastActivityMs: number | null
+): string {
+  if (!isActive) return "inactive";
+  if (usedSeconds >= allocatedSeconds && allocatedSeconds > 0) return "exhausted";
+  const PAUSE_THRESHOLD_MS = 30 * 60 * 1000; // 30 min inactivity = paused
+  if (lastActivityMs && Date.now() - lastActivityMs > PAUSE_THRESHOLD_MS) return "paused";
+  return "active";
+}
+
+// ── GET /wallet ───────────────────────────────────────────────────────────────
+// Computes live wallet state for all license keys from license_keys + sessions.
+// Billing rate fetched dynamically — reflects admin dashboard changes instantly.
+router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) => {
+  try {
+    const billingRate = await getBillingRate();
+    const limit = Math.min(parseInt(String(req.query["limit"] ?? "200"), 10), 1000);
+    const statusFilter = req.query["status"] as string | undefined;
+
+    // Aggregate sessions per license key in one query
+    const sessionAgg = await db.execute(sql`
+      SELECT
+        s.license_key_id,
+        COUNT(*)                                                 AS total_sessions,
+        COUNT(*) FILTER (WHERE s.status = 'active')             AS active_sessions,
+        COUNT(*) FILTER (WHERE s.status = 'active')             AS reconnect_count,
+        COALESCE(SUM(s.duration_seconds), 0)                    AS session_used_seconds,
+        MAX(s.last_deducted_at)                                 AS last_deduction_at
+      FROM sessions s
+      WHERE s.license_key_id IS NOT NULL
+      GROUP BY s.license_key_id
+    `);
+
+    const aggByKey: Record<number, any> = {};
+    for (const row of sessionAgg as any[]) {
+      aggByKey[Number(row.license_key_id)] = row;
+    }
+
+    // Fetch all license keys
+    const keys = await db.execute(sql`
+      SELECT
+        lk.id,
+        lk.key,
+        lk.is_active,
+        lk.minutes_allocated,
+        lk.used_seconds,
+        lk.credits_allocated,
+        lk.credits_used,
+        lk.last_used_at,
+        lk.last_session_at,
+        lk.streaming_enabled
+      FROM license_keys lk
+      ORDER BY lk.last_used_at DESC NULLS LAST
+      LIMIT ${limit}
+    `);
+
+    const wallets = (keys as any[]).map(lk => {
+      const allocatedSeconds = Math.round(Number(lk.minutes_allocated ?? 0) * 60);
+      const usedSeconds = Number(lk.used_seconds ?? 0);
+      const remainingSeconds = Math.max(0, allocatedSeconds - usedSeconds);
+      const agg = aggByKey[Number(lk.id)];
+      const sessionUsedSeconds = agg ? Number(agg.session_used_seconds) : 0;
+      const lastActivityMs = lk.last_used_at ? new Date(lk.last_used_at).getTime() : null;
+      const status = walletStatus(Boolean(lk.is_active), allocatedSeconds, usedSeconds, lastActivityMs);
+      const consistencyDelta = sessionUsedSeconds - usedSeconds;
+
+      return {
+        licenseKeyId: Number(lk.id),
+        licenseKey: String(lk.key),
+        allocatedSeconds,
+        usedSeconds,
+        remainingSeconds,
+        usedPercent: allocatedSeconds > 0 ? Math.round((usedSeconds / allocatedSeconds) * 100) : 0,
+        status,
+        isActive: Boolean(lk.is_active),
+        streamingEnabled: Boolean(lk.streaming_enabled),
+        billingRateSnapshot: billingRate,
+        activeSessionCount: agg ? Number(agg.active_sessions) : 0,
+        totalSessionCount: agg ? Number(agg.total_sessions) : 0,
+        reconnectCount: agg ? Math.max(0, Number(agg.total_sessions) - 1) : 0,
+        lastDeductionAt: agg?.last_deduction_at ?? lk.last_used_at,
+        walletConsistencyStatus: agg
+          ? (Math.abs(consistencyDelta) <= 5 ? "ok" : "mismatch")
+          : "unknown",
+        consistencyDeltaSeconds: consistencyDelta,
+        creditsAllocated: Number(lk.credits_allocated ?? 0),
+        creditsUsed: Number(lk.credits_used ?? 0),
+        creditsRemaining: Math.max(0, Number(lk.credits_allocated ?? 0) - Number(lk.credits_used ?? 0)),
+      };
+    });
+
+    const filtered = statusFilter
+      ? wallets.filter(w => w.status === statusFilter)
+      : wallets;
+
+    res.json({
+      wallets: filtered,
+      currentBillingRate: billingRate,
+      total: filtered.length,
+      summary: {
+        active: wallets.filter(w => w.status === "active").length,
+        paused: wallets.filter(w => w.status === "paused").length,
+        exhausted: wallets.filter(w => w.status === "exhausted").length,
+        inactive: wallets.filter(w => w.status === "inactive").length,
+        mismatched: wallets.filter(w => w.walletConsistencyStatus === "mismatch").length,
+      },
+      computedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[LicenseWallet] list failed");
+    res.status(500).json({ error: "Failed to compute license wallet view" });
+  }
+});
+
+// ── GET /wallet/:licenseKeyId ──────────────────────────────────────────────────
+// Detailed wallet view for a single license key, including all its sessions.
+router.get("/wallet/:licenseKeyId", requireAdmin, featureGate, walletGate, async (req, res) => {
+  try {
+    const licenseKeyId = parseInt(req.params["licenseKeyId"] ?? "", 10);
+    if (isNaN(licenseKeyId)) {
+      res.status(400).json({ error: "Invalid licenseKeyId" });
+      return;
+    }
+
+    const billingRate = await getBillingRate();
+
+    const [lkRow] = await db.execute(sql`
+      SELECT lk.id, lk.key, lk.is_active, lk.minutes_allocated, lk.used_seconds,
+             lk.credits_allocated, lk.credits_used, lk.last_used_at, lk.streaming_enabled
+      FROM license_keys lk WHERE lk.id = ${licenseKeyId}
+    `) as any[];
+
+    if (!lkRow) {
+      res.status(404).json({ error: "License key not found" });
+      return;
+    }
+
+    const sessions = await db.execute(sql`
+      SELECT s.id, s.status, s.started_at, s.stopped_at, s.duration_seconds,
+             s.billing_started_at, s.last_deducted_at
+      FROM sessions s
+      WHERE s.license_key_id = ${licenseKeyId}
+      ORDER BY s.started_at DESC
+      LIMIT 100
+    `);
+
+    const allocatedSeconds = Math.round(Number(lkRow.minutes_allocated ?? 0) * 60);
+    const usedSeconds = Number(lkRow.used_seconds ?? 0);
+
+    res.json({
+      licenseKeyId,
+      licenseKey: String(lkRow.key),
+      allocatedSeconds,
+      usedSeconds,
+      remainingSeconds: Math.max(0, allocatedSeconds - usedSeconds),
+      usedPercent: allocatedSeconds > 0 ? Math.round((usedSeconds / allocatedSeconds) * 100) : 0,
+      status: walletStatus(Boolean(lkRow.is_active), allocatedSeconds, usedSeconds, lkRow.last_used_at ? new Date(lkRow.last_used_at).getTime() : null),
+      billingRateSnapshot: billingRate,
+      sessions,
+      currentBillingRate: billingRate,
+    });
+  } catch (err) {
+    logger.error({ err }, "[LicenseWallet] detail failed");
+    res.status(500).json({ error: "Failed to load wallet detail" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BILLING RATE MONITOR — Dynamic rate history + propagation verification
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// SAFETY: Read-only against billing_rate_audit and sessions tables.
+//         Billing rate fetched dynamically — never hardcoded.
+//         Feature-flagged via ENABLE_BILLING_MONITORING=false.
+
+import { billingRateAuditTable } from "@workspace/db";
+
+const BILLING_MONITORING_ENABLED = process.env.ENABLE_BILLING_MONITORING !== "false";
+
+function billingMonitorGate(_req: any, res: any, next: any) {
+  if (!BILLING_MONITORING_ENABLED) {
+    res.status(503).json({ error: "Billing Rate Monitor is disabled (ENABLE_BILLING_MONITORING=false)." });
+    return;
+  }
+  next();
+}
+
+// ── GET /billing-rate ─────────────────────────────────────────────────────────
+// Returns the current live billing rate + full change history + propagation stats.
+router.get("/billing-rate", requireAdmin, featureGate, billingMonitorGate, async (req, res) => {
+  try {
+    // Current rate — always live from admin dashboard, never hardcoded
+    const currentRate = await getBillingRate();
+
+    // Full audit history — oldest first for trend display
+    const history = await db
+      .select()
+      .from(billingRateAuditTable)
+      .orderBy(desc(billingRateAuditTable.createdAt))
+      .limit(100);
+
+    // Sessions that recorded billing_rate_at_settle (from session_accounting_log)
+    const rateStats = await db.execute(sql`
+      SELECT
+        billing_rate_at_settle                          AS rate,
+        COUNT(*)                                        AS session_count,
+        COALESCE(SUM(billing_seconds), 0)               AS total_billing_seconds,
+        COALESCE(AVG(effective_credits_per_sec), 0)     AS avg_effective_cr_per_sec
+      FROM session_accounting_log
+      WHERE billing_rate_at_settle IS NOT NULL
+      GROUP BY billing_rate_at_settle
+      ORDER BY billing_rate_at_settle
+    `);
+
+    // Active sessions using current rate vs stale rate (from session_accounting_log)
+    const propagationCheck = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE ABS(billing_rate_at_settle - ${currentRate}) < 0.01) AS synced_sessions,
+        COUNT(*) FILTER (WHERE ABS(billing_rate_at_settle - ${currentRate}) >= 0.01) AS stale_sessions,
+        COUNT(*) AS total_sessions
+      FROM session_accounting_log
+      WHERE billing_rate_at_settle IS NOT NULL
+    `) as any[];
+
+    const propagation = propagationCheck[0] ?? { synced_sessions: 0, stale_sessions: 0, total_sessions: 0 };
+
+    res.json({
+      currentRate,
+      currentRateLabel: `${currentRate} cr/s`,
+      decartFixedRate: DECART_CREDITS_PER_SEC,
+      decartFixedRateLabel: `${DECART_CREDITS_PER_SEC} cr/s (fixed)`,
+      profitMarginAtCurrentRate: `${((currentRate - DECART_CREDITS_PER_SEC) / DECART_CREDITS_PER_SEC * 100).toFixed(1)}%`,
+      totalRateChanges: history.length,
+      history: history.map(h => ({
+        id: h.id,
+        previousRate: h.previousRate,
+        newRate: h.newRate,
+        changedBy: h.changedByEmail ?? `user_${h.changedBy}`,
+        note: h.note,
+        changedAt: h.createdAt,
+      })),
+      rateStats,
+      propagation: {
+        syncedSessions: Number(propagation.synced_sessions),
+        staleSessions: Number(propagation.stale_sessions),
+        totalSessionsWithRate: Number(propagation.total_sessions),
+        propagationStatus: Number(propagation.stale_sessions) === 0 ? "fully_propagated" : "partial",
+        propagationNote: "Historical sessions retain their original rate snapshot for audit purposes. Only new sessions use the updated rate.",
+      },
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[BillingRateMonitor] query failed");
+    res.status(500).json({ error: "Failed to load billing rate data" });
+  }
+});
+
 export default router;
+
 
