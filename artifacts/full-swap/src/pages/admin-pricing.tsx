@@ -48,14 +48,18 @@ function PricingSection({
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState<FormData>(emptyForm);
-    const [billingRate, setBillingRate] = useState(5);
-    useEffect(() => {
-      const t = token();
-      fetch(API("/admin/billing-rate"), { headers: { Authorization: `Bearer ${t}` } })
-        .then(r => r.ok ? r.json() : { rate: 5 })
-        .then(d => setBillingRate(d.rate ?? 5))
-        .catch(() => {});
-    }, []);
+  const [billingRate, setBillingRate] = useState<number | null>(null);
+  const [burnPreview, setBurnPreview] = useState<string | null>(null);
+  useEffect(() => {
+    const t = token();
+    fetch(API("/admin/billing-rate"), { headers: { Authorization: `Bearer ${t}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.rate != null) setBillingRate(d.rate);
+        if (d?.burnPreview) setBurnPreview(d.burnPreview);
+      })
+      .catch(() => {});
+  }, []);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -185,7 +189,10 @@ function PricingSection({
 
             {/* Live Calculator Output */}
             <div className="rounded-lg p-3 space-y-2" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}>
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">Auto-Calculated ({billingRate} credits/sec · $0.01/credit · ${Math.round(billingRate * 36)}/hr)</p>
+              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">
+                Auto-Calculated ({billingRate != null ? billingRate : "…"} credits/sec · $0.01/credit · ${billingRate != null ? Math.round(billingRate * 36) : "…"}/hr)
+                {burnPreview && <span className="ml-2 text-orange-400/70">[{burnPreview}]</span>}
+              </p>
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
                   <p className="text-lg font-bold text-primary font-mono">{calc.credits.toLocaleString()}</p>
