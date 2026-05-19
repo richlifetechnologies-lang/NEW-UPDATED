@@ -422,11 +422,11 @@ router.get("/ghost-sessions", requireAdmin, featureGate, async (_req, res) => {
     `);
 
     res.json({
-      zeroFrameSessions:     (zeroFrameSessions as any).rows as any[],
-      duplicateActiveSessions: (duplicateActiveSessions as any).rows as any[],
-      reconnectLoops:        (reconnectLoops as any).rows as any[],
-      staleSessions:         (staleSessions as any).rows as any[],
-      frozenSessions:        (frozenSessions as any).rows as any[],
+      zeroFrameSessions:       ((zeroFrameSessions as any).rows ?? []) as any[],
+      duplicateActiveSessions: ((duplicateActiveSessions as any).rows ?? []) as any[],
+      reconnectLoops:          ((reconnectLoops as any).rows ?? []) as any[],
+      staleSessions:           ((staleSessions as any).rows ?? []) as any[],
+      frozenSessions:          ((frozenSessions as any).rows ?? []) as any[],
       generatedAt:           new Date().toISOString(),
     });
   } catch (err) {
@@ -1257,7 +1257,7 @@ router.get("/billing-rate", requireAdmin, featureGate, billingMonitorGate, async
         note: h.note,
         changedAt: h.createdAt,
       })),
-      rateStats: (rateStats as any).rows,
+      rateStats: ((rateStats as any).rows ?? []) as any[],
       propagation: {
         syncedSessions: Number(propagation.synced_sessions),
         staleSessions: Number(propagation.stale_sessions),
