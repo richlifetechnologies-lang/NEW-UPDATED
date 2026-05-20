@@ -1449,7 +1449,7 @@ export default function StreamPage() {
               )}
             </div>)}
 
-            {/* Start / Stop button */}
+            {/* Start / Stop button — always shown below camera source */}
             <div className="flex items-center gap-3">
               {isStreaming ? (
                 <Button
@@ -1457,30 +1457,113 @@ export default function StreamPage() {
                   onClick={handleStopStream}
                   variant="destructive"
                   disabled={stopSession.isPending}
-                  className="gap-2 flex-1 h-12 text-base font-bold"
+                  className="gap-2 flex-1 h-14 text-base font-bold"
                 >
                   <Square className="w-5 h-5" />
                   {stopSession.isPending ? "Stopping..." : "Stop Session"}
                 </Button>
-              ) : (noAccess || licenseExhausted) ? (
-                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
-                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-amber-300">No streaming time remaining</p>
-                    <p className="text-xs text-amber-400/70 truncate">Contact your admin to add more minutes — @rich_life2k15</p>
-                  </div>
-                </div>
               ) : (
                 <Button
                   data-testid="button-start-stream"
                   onClick={handleStartStream}
-                  disabled={startSession.isPending || !cameraReady}
-                  className="gap-2 flex-1 h-12 text-base font-bold tracking-wide"
-                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.25)" }}
+                  disabled={startSession.isPending || !cameraReady || noAccess || licenseExhausted}
+                  className="gap-2 flex-1 h-14 text-base font-bold tracking-wide"
+                  style={{ boxShadow: "0 0 28px hsl(187 100% 52% / 0.30)" }}
                 >
                   <Play className="w-5 h-5" />
                   {startSession.isPending ? "Starting..." : "Stream Now"}
                 </Button>
+              )}
+            </div>
+
+            {/* No streaming time remaining — shown below button when applicable */}
+            {(noAccess || licenseExhausted) && !isStreaming && (
+              <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-300">No streaming time remaining</p>
+                  <p className="text-xs text-amber-400/70 truncate">Contact your admin to add more minutes — @rich_life2k15</p>
+                </div>
+              </div>
+            )}
+
+            {/* OBS Instructions — below wallet message */}
+            <div className="p-4 bg-card border border-border rounded-xl space-y-3">
+              <div className="flex items-center gap-2">
+                <Monitor className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium text-foreground">OBS Output</span>
+              </div>
+              <ol className="space-y-1.5 text-xs text-muted-foreground list-none">
+                <li className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
+                  Start your stream above and wait for the AI output to appear.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
+                  Click <span className="text-foreground font-medium">Fullscreen</span> on the output — the AI video fills your entire screen.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
+                  In OBS: Add source → <span className="text-foreground font-medium">Window Capture</span> → select this browser window.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">4</span>
+                  Or use <span className="text-foreground font-medium">Browser Source</span> in OBS and enter your FULL SWAP BY RICH page URL.
+                </li>
+              </ol>
+            </div>
+
+            {/* Renew / Top Up License Key — below OBS instructions */}
+            <div className="p-4 rounded-xl space-y-3"
+               style={{ background: "hsl(187 100% 52% / 0.04)", border: "1px solid hsl(187 100% 52% / 0.22)" }}>
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-primary shrink-0" />
+                <p className="text-xs font-bold text-primary tracking-widest font-mono uppercase">
+                  Renew / Top Up License Key Here
+                </p>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Enter a valid license key — minutes will be added to your existing balance instantly.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={renewKey}
+                  onChange={e => { setRenewKey(e.target.value.toUpperCase()); setRenewMsg(null); }}
+                  onKeyDown={e => e.key === "Enter" && !renewLoading && handleRenewLicense()}
+                  placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
+                  className="flex-1 px-3 py-2.5 rounded-lg text-sm font-mono tracking-widest placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition-colors"
+                  style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.3)", color: "hsl(187 100% 90%)" }}
+                  disabled={renewLoading}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <Button
+                  onClick={handleRenewLicense}
+                  disabled={renewLoading || !renewKey.trim()}
+                  size="sm"
+                  className="shrink-0 gap-1.5 font-bold text-xs tracking-wide h-10"
+                  style={{ boxShadow: "0 0 14px hsl(187 100% 52% / 0.2)" }}
+                >
+                  {renewLoading
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <RefreshCw className="w-3.5 h-3.5" />}
+                  {renewLoading ? "Validating..." : "Renew License"}
+                </Button>
+              </div>
+              {renewMsg && (
+                <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-xs leading-relaxed ${
+                  renewOk ? "text-emerald-400" : "text-red-400"
+                }`}
+                style={{
+                  background: renewOk ? "hsl(143 72% 42% / 0.08)" : "hsl(0 84% 60% / 0.08)",
+                  border: `1px solid ${renewOk ? "hsl(143 72% 42% / 0.25)" : "hsl(0 84% 60% / 0.25)"}`,
+                }}>
+                  {renewOk
+                    ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                  <span>{renewMsg}</span>
+                </div>
               )}
             </div>
 
@@ -1703,86 +1786,6 @@ export default function StreamPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">{style.description}</p>
                     </button>
                   ))}
-                </div>
-              )}
-            </div>
-
-            {/* 6. OBS Instructions */}
-            <div className="p-4 bg-card border border-border rounded-xl space-y-3">
-              <div className="flex items-center gap-2">
-                <Monitor className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">OBS Output</span>
-              </div>
-              <ol className="space-y-1.5 text-xs text-muted-foreground list-none">
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
-                  Start your stream above and wait for the AI output to appear.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
-                  Click <span className="text-foreground font-medium">Fullscreen</span> on the output — the AI video fills your entire screen.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
-                  In OBS: Add source → <span className="text-foreground font-medium">Window Capture</span> → select this browser window.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">4</span>
-                  Or use <span className="text-foreground font-medium">Browser Source</span> in OBS and enter your FULL SWAP BY RICH page URL.
-                </li>
-              </ol>
-            </div>
-
-            {/* 7. Renew / Top Up License Key */}
-            <div className="p-4 rounded-xl space-y-3"
-               style={{ background: "hsl(187 100% 52% / 0.04)", border: "1px solid hsl(187 100% 52% / 0.22)" }}>
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-primary shrink-0" />
-                <p className="text-xs font-bold text-primary tracking-widest font-mono uppercase">
-                  Renew / Top Up License Key Here
-                </p>
-              </div>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Enter a valid license key — minutes will be added to your existing balance instantly.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={renewKey}
-                  onChange={e => { setRenewKey(e.target.value.toUpperCase()); setRenewMsg(null); }}
-                  onKeyDown={e => e.key === "Enter" && !renewLoading && handleRenewLicense()}
-                  placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
-                  className="flex-1 px-3 py-2.5 rounded-lg text-sm font-mono tracking-widest placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition-colors"
-                  style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.3)", color: "hsl(187 100% 90%)" }}
-                  disabled={renewLoading}
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <Button
-                  onClick={handleRenewLicense}
-                  disabled={renewLoading || !renewKey.trim()}
-                  size="sm"
-                  className="shrink-0 gap-1.5 font-bold text-xs tracking-wide h-10"
-                  style={{ boxShadow: "0 0 14px hsl(187 100% 52% / 0.2)" }}
-                >
-                  {renewLoading
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <RefreshCw className="w-3.5 h-3.5" />}
-                  {renewLoading ? "Validating..." : "Renew License"}
-                </Button>
-              </div>
-              {renewMsg && (
-                <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-xs leading-relaxed ${
-                  renewOk ? "text-emerald-400" : "text-red-400"
-                }`}
-                style={{
-                  background: renewOk ? "hsl(143 72% 42% / 0.08)" : "hsl(0 84% 60% / 0.08)",
-                  border: `1px solid ${renewOk ? "hsl(143 72% 42% / 0.25)" : "hsl(0 84% 60% / 0.25)"}`,
-                }}>
-                  {renewOk
-                    ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
-                  <span>{renewMsg}</span>
                 </div>
               )}
             </div>
