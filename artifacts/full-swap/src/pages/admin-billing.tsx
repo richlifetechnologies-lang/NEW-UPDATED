@@ -38,9 +38,9 @@ async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T | null> {
 interface RateInfo { rate: number; apiCostRate: number; realStreamMinutesPerLicenseHour: number; }
 interface BrkKey {
   licenseKeyId: number; licenseKey: string; isActive: boolean;
-  effectiveRate: number; usedSeconds: number;
-  remainingSeconds: number;
+  effectiveRate: number; usedSeconds: number; remainingSeconds: number;
   isLive: boolean; activeSessionCount: number; rateSource: string;
+  customBillingRate: number | null; useCustomBillingRate: boolean;
 }
 interface BrkResponse { keys: BrkKey[]; globalBillingRate: number; apiCostRate: number; }
 interface AuditRow {
@@ -119,6 +119,12 @@ export default function AdminBillingPage() {
   const [saving, setSaving]       = useState(false);
   const [loading, setLoading]     = useState(true);
   const [lastPoll, setLastPoll]   = useState("");
+  // Dynamic Rate Impact Preview
+  const [previewMinutes, setPreviewMinutes] = useState<string>("60");
+  // Per-key inline editing
+  const [editingKeyId, setEditingKeyId]   = useState<number | null>(null);
+  const [editRateVal, setEditRateVal]     = useState<string>("");
+  const [savingKeyId, setSavingKeyId]     = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchLive = useCallback(async () => {
@@ -205,15 +211,57 @@ export default function AdminBillingPage() {
       )
     : null;
 
-  // Preview metrics for the "Rate Impact" panel
-  const previewMargin     = previewRate != null ? margin(previewRate)              : null;
-  const previewRealMin    = previewRate != null ? realMinPerWalletHour(previewRate): null;
-  const previewProfit60   = previewRate != null
-    ? Math.round((previewRate - COST_RATE) * 3600 * 100) / 100  // credits profit per wallet-hour
-    : null;
-  const previewDecartCost60 = previewRate != null && previewRealMin != null
-    ? Math.round(previewRealMin * 60 * COST_RATE * 100) / 100  // Decart credits for 1 wallet-hour
-    : null;
+  // Per-key custom rate helpers
+  const saveCustomRate = async (keyId: number) => {
+    const rateNum = parseFloat(editRateVal);
+    if (!Number.isFinite(rateNum) || rateNum < 0.1) {
+      toast({ title: "Invalid rate", description: "Must be ≥ 0.1 cr/s", variant: "destructive" });
+      return;
+    }
+    setSavingKeyId(keyId);
+    const res = await fetch(`/api/admin/billing-rate-per-key/${keyId}`, {
+      method: "PUT",
+      headers: authH(),
+      body: JSON.stringify({ customBillingRate: rateNum, useCustomBillingRate: true }),
+    });
+    setSavingKeyId(null);
+    if (res.ok) {
+      toast({ title: "Custom rate set", description: `Key #${keyId} → ${rateNum} cr/s (${margin(rateNum)}% margin)` });
+      setEditingKeyId(null);
+      fetchLive();
+    } else {
+      const b = await res.json().catch(() => ({}));
+      toast({ title: "Failed", description: b.error ?? "Unknown error", variant: "destructive" });
+    }
+  };
+  const revertToGlobal = async (keyId: number) => {
+    setSavingKeyId(keyId);
+    const res = await fetch(`/api/admin/billing-rate-per-key/${keyId}/custom`, {
+      method: "DELETE", headers: authH(),
+    });
+    setSavingKeyId(null);
+    if (res.ok) {
+      toast({ title: "Reverted to global rate", description: `Key #${keyId} now uses global billing rate` });
+      fetchLive();
+    } else {
+      toast({ title: "Failed to revert", variant: "destructive" });
+    }
+  };
+
+  // Dynamic Rate Impact Preview — based on user-supplied previewMinutes
+  const prevMins      = Math.max(0, parseFloat(previewMinutes) || 60);
+  const prevSecs      = prevMins * 60;
+  const previewMargin = previewRate != null ? margin(previewRate) : null;
+  // Real streaming seconds the wallet gives at this billing rate
+  const previewRealSec    = previewRate != null ? Math.round(prevSecs * COST_RATE / previewRate) : null;
+  const previewRealMin    = previewRealSec != null ? Math.round(previewRealSec / 60 * 10) / 10 : null;
+  // Revenue = wallet_seconds × billing_rate
+  const previewRevenue    = previewRate != null ? Math.round(prevSecs * previewRate * 100) / 100 : null;
+  // Decart cost = real_stream_seconds × 2.3
+  const previewDecartCost = previewRealSec != null ? Math.round(previewRealSec * COST_RATE * 100) / 100 : null;
+  // Profit = revenue - cost
+  const previewProfit     = previewRevenue != null && previewDecartCost != null
+    ? Math.round((previewRevenue - previewDecartCost) * 100) / 100 : null;
 
   const tabs: { id: TabId; label: string; icon: any }[] = [
     { id: "control", label: "Rate Control",   icon: Zap      },
@@ -470,20 +518,39 @@ export default function AdminBillingPage() {
                 {/* Rate Impact Preview */}
                 <div className="rounded-xl p-5 space-y-4"
                   style={{ background: "hsl(222 44% 5%)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    <p className="text-xs font-mono font-bold uppercase tracking-wider" style={{ color: "hsl(187 100% 52%)" }}>
-                      Rate Impact Preview — {inputProfile?.label ?? "Loading…"} ({previewRate} cr/s)
-                    </p>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                      <p className="text-xs font-mono font-bold uppercase tracking-wider" style={{ color: "hsl(187 100% 52%)" }}>
+                        Rate Impact Preview — {inputProfile?.label ?? "Loading…"} ({previewRate} cr/s)
+                      </p>
+                    </div>
+                    {/* Dynamic minutes input */}
+                    <div className="flex items-center gap-2 rounded-lg px-3 py-1.5"
+                      style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 18%)" }}>
+                      <span className="text-[10px] font-mono text-muted-foreground">Wallet minutes:</span>
+                      <input
+                        type="number" min="1" max="99999" step="1"
+                        value={previewMinutes}
+                        onChange={e => setPreviewMinutes(e.target.value)}
+                        className="w-16 bg-transparent text-sm font-mono font-bold text-foreground focus:outline-none"
+                        style={{ color: "hsl(187 100% 52%)" }}
+                      />
+                      <span className="text-[10px] font-mono text-muted-foreground">min</span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Wallet → Real Stream */}
                     <div className="rounded-lg p-4 space-y-3" style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 12%)" }}>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">60 Wallet-Minutes gives →</p>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                        {prevMins} Wallet-Minutes gives →
+                      </p>
                       <div className="flex items-center gap-3">
                         <div>
-                          <p className="text-3xl font-black font-mono text-foreground">60<span className="text-lg">m</span></p>
+                          <p className="text-3xl font-black font-mono text-foreground">
+                            {prevMins}<span className="text-lg">m</span>
+                          </p>
                           <p className="text-[10px] font-mono text-muted-foreground">wallet allocation</p>
                         </div>
                         <ArrowRight className="w-5 h-5 text-primary shrink-0" />
@@ -503,21 +570,23 @@ export default function AdminBillingPage() {
 
                     {/* Profit breakdown */}
                     <div className="rounded-lg p-4 space-y-3" style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 12%)" }}>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Per 60 Wallet-Minutes Sold</p>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                        Per {prevMins} Wallet-Minutes Sold
+                      </p>
                       <div className="space-y-2 font-mono text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Revenue charged</span>
-                          <span className="text-foreground font-bold">{previewRate != null ? `${Math.round(previewRate * 3600)} cr` : "—"}</span>
+                          <span className="text-foreground font-bold">{previewRevenue != null ? `${previewRevenue} cr` : "—"}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Decart API cost</span>
-                          <span className="text-foreground font-bold">{previewDecartCost60 != null ? `${previewDecartCost60} cr` : "—"}</span>
+                          <span className="text-foreground font-bold">{previewDecartCost != null ? `${previewDecartCost} cr` : "—"}</span>
                         </div>
                         <div className="h-px" style={{ background: "hsl(222 40% 14%)" }} />
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Net profit</span>
-                          <span className="font-bold" style={{ color: previewProfit60 != null && previewProfit60 >= 0 ? "#26de81" : "#fc5c65" }}>
-                            {previewProfit60 != null ? `${previewProfit60} cr` : "—"}
+                          <span className="font-bold" style={{ color: previewProfit != null && previewProfit >= 0 ? "#26de81" : "#fc5c65" }}>
+                            {previewProfit != null ? `${previewProfit} cr` : "—"}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -533,10 +602,10 @@ export default function AdminBillingPage() {
                   {/* Quick metric row */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
                     {[
-                      { label: "Billing Rate",          value: previewRate != null ? `${previewRate} cr/s`                                               : "—" },
-                      { label: "Decart Base Cost",       value: `${COST_RATE} cr/s`                                                                        },
-                      { label: "Profit per Hr Streamed", value: previewRate != null ? `${Math.round((previewRate - COST_RATE) * 3600)} cr`                : "—" },
-                      { label: "Margin",                 value: previewMargin != null ? `${previewMargin}%`                                               : "—" },
+                      { label: "Billing Rate",           value: previewRate != null ? `${previewRate} cr/s` : "—" },
+                      { label: "Decart Base Cost",        value: `${COST_RATE} cr/s` },
+                      { label: "Profit per Hr Streamed",  value: previewRate != null ? `${Math.round((previewRate - COST_RATE) * 3600)} cr` : "—" },
+                      { label: "Margin",                  value: previewMargin != null ? `${previewMargin}%` : "—" },
                     ].map(m => (
                       <div key={m.label} className="rounded-lg px-3 py-2 text-center"
                         style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 12%)" }}>
@@ -556,6 +625,7 @@ export default function AdminBillingPage() {
                   <p className="text-xs font-mono" style={{ color: "hsl(187 100% 52%)" }}>
                     <strong>Per-Key Billing Monitor.</strong> Revenue = wallet_used × billing_rate. Decart cost = real_stream_sec × 2.3.
                     Real stream remaining = wallet_remaining × 2.3 / billing_rate.
+                    Click <strong>SET</strong> on any row to override that key's billing rate individually.
                   </p>
                 </div>
                 <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
@@ -563,22 +633,24 @@ export default function AdminBillingPage() {
                     <table className="w-full text-xs">
                       <thead>
                         <tr style={{ background: "hsl(222 44% 6%)" }}>
-                          {["Licence Key","Source","Rate","Wallet Used","Wallet Rem","Real Stream Rem","Revenue","Decart Cost","Profit","Margin","Live"].map(h => (
-                            <th key={h} className="px-3 py-3 text-muted-foreground font-mono text-[11px] font-medium whitespace-nowrap text-right first:text-left">{h}</th>
+                          {["Licence Key","Source","Effective Rate","Wallet Used","Wallet Rem","Real Stream Rem","Revenue","Decart Cost","Profit","Margin","Live","Action"].map(h => (
+                            <th key={h} className="px-3 py-3 text-muted-foreground font-mono text-[11px] font-medium whitespace-nowrap text-right first:text-left last:text-center">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {keys.length === 0 ? (
-                          <tr><td colSpan={11} className="text-center py-12 text-muted-foreground font-mono text-sm">No licence keys found</td></tr>
+                          <tr><td colSpan={12} className="text-center py-12 text-muted-foreground font-mono text-sm">No licence keys found</td></tr>
                         ) : keys.map(k => {
-                          const rate      = k.effectiveRate;
+                          const rate       = k.effectiveRate;
                           const realRemSec = realStreamRemaining(k.remainingSeconds, rate);
-                          const revenue   = Math.round(k.usedSeconds * rate * 100) / 100;
-                          const realUsed  = rate > 0 ? k.usedSeconds * COST_RATE / rate : k.usedSeconds;
-                          const cost      = Math.round(realUsed * COST_RATE * 100) / 100;
-                          const profit    = Math.round((revenue - cost) * 100) / 100;
-                          const marginPct = margin(rate);
+                          const revenue    = Math.round(k.usedSeconds * rate * 100) / 100;
+                          const realUsed   = rate > 0 ? k.usedSeconds * COST_RATE / rate : k.usedSeconds;
+                          const cost       = Math.round(realUsed * COST_RATE * 100) / 100;
+                          const profit     = Math.round((revenue - cost) * 100) / 100;
+                          const marginPct  = margin(rate);
+                          const isEditing  = editingKeyId === k.licenseKeyId;
+                          const isSaving   = savingKeyId === k.licenseKeyId;
                           return (
                             <tr key={k.licenseKeyId} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}
                               className={k.isLive ? "bg-green-400/[0.02]" : ""}>
@@ -621,6 +693,53 @@ export default function AdminBillingPage() {
                                       <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />LIVE
                                     </span>
                                   : <span className="text-[10px] font-mono text-muted-foreground">idle</span>}
+                              </td>
+                              {/* ── Inline Rate Editor ── */}
+                              <td className="px-3 py-2 text-center">
+                                {isEditing ? (
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <input
+                                      type="number" min="0.1" max="100" step="0.1"
+                                      value={editRateVal}
+                                      onChange={e => setEditRateVal(e.target.value)}
+                                      className="w-14 rounded px-1 py-0.5 text-xs font-mono font-bold focus:outline-none"
+                                      style={{ background: "hsl(222 44% 8%)", border: "1px solid hsl(187 100% 52% / 0.4)", color: "hsl(187 100% 52%)" }}
+                                      autoFocus
+                                    />
+                                    <button
+                                      onClick={() => saveCustomRate(k.licenseKeyId)}
+                                      disabled={isSaving}
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors disabled:opacity-40"
+                                      style={{ background: "hsl(187 100% 52% / 0.15)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.3)" }}>
+                                      {isSaving ? "…" : "✓"}
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingKeyId(null)}
+                                      disabled={isSaving}
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors">
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <button
+                                      onClick={() => { setEditingKeyId(k.licenseKeyId); setEditRateVal(String(rate)); }}
+                                      className="px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-colors"
+                                      style={{ background: "hsl(222 40% 10%)", color: "hsl(215 20% 65%)", border: "1px solid hsl(222 40% 18%)" }}>
+                                      SET
+                                    </button>
+                                    {k.rateSource === "custom" && (
+                                      <button
+                                        onClick={() => revertToGlobal(k.licenseKeyId)}
+                                        disabled={isSaving}
+                                        title="Revert to global rate"
+                                        className="px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors disabled:opacity-40"
+                                        style={{ background: "rgba(252,92,101,0.08)", color: "#fc5c65", border: "1px solid rgba(252,92,101,0.2)" }}>
+                                        {isSaving ? "…" : "↩"}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
