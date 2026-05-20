@@ -110,7 +110,12 @@ export default function DashboardPage() {
   const isActive     = data?.isActive ?? false;
   const streamOk     = data?.streamingEnabled ?? false;
   const isExpired    = !!data?.expiresAt && new Date(data.expiresAt) < new Date();
-  const exhausted    = isActive && remainSecs <= 0;
+  // Exhaustion must derive from real_remaining_seconds ONLY (never display/TCE values).
+  // Use server-provided licenseStatus when available; fall back to real remainSecs check.
+  const exhausted    = isActive && (
+    (data as any)?.licenseStatus === "exhausted"
+    || ((data as any)?.licenseStatus == null && remainSecs <= 0)
+  );
 
   // colour for remaining bar / numbers
   const barColor =

@@ -242,7 +242,13 @@ export default function StreamPage() {
   const minutesAllocated = licenseStatus.data?.minutesAllocated ?? 0;
   const paidMinsRemaining  = remainingSeconds / 60;
   const totalAvailableSecs = remainingSeconds;
-  const noAccess           = licenseStatus.isSuccess && totalAvailableSecs <= 0;
+  // Access gating uses realRemainingSeconds ONLY (server truth).
+  // licenseStatus.data.licenseStatus === "exhausted" is the authoritative check.
+  // Fall back to totalAvailableSecs <= 0 if server hasn't returned the new field yet.
+  const noAccess           = licenseStatus.isSuccess && (
+    (licenseStatus.data as any)?.licenseStatus === "exhausted"
+    || ((licenseStatus.data as any)?.licenseStatus == null && totalAvailableSecs <= 0)
+  );
 
   // Keep connectionStatusRef in sync so interval callbacks always read the latest value
   useEffect(() => { connectionStatusRef.current = connectionStatus; }, [connectionStatus]);
@@ -608,7 +614,10 @@ export default function StreamPage() {
       // freshly-entered key (prevents countdown from immediately showing 0).
       const remainingAtStart     = licenseStatus.data?.remainingSeconds ?? validatedRemainingRef.current;
       streamStartRemRef.current  = remainingAtStart;
-      trialLimitRef.current      = remainingAtStart > 0 ? remainingAtStart : Infinity;
+      // trialLimitRef intentionally not set: exhaustion is determined ONLY
+      // by the server heartbeat returning { ok: false, reason: "no_time" }.
+      // DO NOT kill the stream from the client-side elapsed timer — that would
+      // cause admin/user inconsistency when heartbeat billing lags the timer.
 
       // Timer uses wall-clock time so it stays accurate even when the browser
       // throttles setInterval in background tabs (e.g. user is in OBS).
@@ -672,11 +681,12 @@ export default function StreamPage() {
             const elapsed = Math.floor((performance.now() - timerStartMsRef.current) / 1000);
             setElapsedSecs(elapsed);
             elapsedSecsRef.current = elapsed;
-            if (elapsed >= trialLimitRef.current) {
-              // Bug #5: show splash screen when minutes reach zero
-              setLicenseExhausted(true);
-              stopStreamInternally(sessionId, elapsed, false);
-            }
+            // EXHAUSTION RULE (patch §CRITICAL):
+            // Do NOT terminate the session here. The client-side elapsed timer
+            // may reach zero before the server does (heartbeat lag, TCE display drift).
+            // The ONLY valid exhaustion signal is the server heartbeat returning
+            // { ok: false, reason: "no_time" } (line ~904). Killing here would cause
+            // admin (real_used_seconds) and user (display) to disagree on license status.
           }, 1000);
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

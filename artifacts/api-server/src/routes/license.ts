@@ -3,6 +3,8 @@ import { db, licenseKeysTable, decartApiKeysTable, sessionsTable, pricingTable, 
 import { eq, isNull, and } from "drizzle-orm";
 import { requireAdmin, requireLicense } from "../lib/auth";
 import { notifyLicenseActivated } from "../lib/notifications";
+import { getBillingRate } from "../lib/billing-rate-cache";
+import { computeCompressionFactor } from "../lib/billing-math";
 import { invalidateLicenseTokenCache } from "./decart";
 import { decartPool } from "../lib/decart-pool";
 
@@ -101,6 +103,13 @@ router.get("/status", requireLicense, async (req, res) => {
     } catch { /* non-fatal */ }
     const remainingSeconds = Math.max(0, allocatedSeconds - effectiveUsedSeconds);
 
+    // TCE display layer — compute display_remaining (UX only, NEVER gates access)
+    let displayRemainingSeconds = remainingSeconds;
+    try {
+      const billingRate = await getBillingRate();
+      displayRemainingSeconds = Math.round(remainingSeconds * computeCompressionFactor(billingRate));
+    } catch { /* non-fatal — fall back to real seconds */ }
+
     let assignedApiKey: string | null = null;
     try {
       if ((license as any).assignedDecartKeyId) {
@@ -132,6 +141,18 @@ router.get("/status", requireLicense, async (req, res) => {
       activatedAt: license.activatedAt ?? null,
       lastUsedAt: license.lastUsedAt ?? null,
       createdAt: license.createdAt,
+      // ── Consistency fields (patch: user/admin MUST agree on license validity) ──
+      // Access gating MUST use realRemainingSeconds ONLY — never displayRemainingSeconds.
+      // displayRemainingSeconds is UX-only (TCE compressed time for visual timers).
+      realRemainingSeconds: remainingSeconds,
+      realUsedSeconds:      effectiveUsedSeconds,
+      displayRemainingSeconds,
+      licenseStatus: ((): string => {
+        if (!license.isActive) return "revoked";
+        if (license.expiresAt && license.expiresAt < new Date()) return "date_expired";
+        if (remainingSeconds <= 0) return "exhausted";
+        return "active";
+      })(),
     });
   } catch (err) { console.error("[license:status]", err); return res.status(500).json({ error: "Server error" }); }
 });
