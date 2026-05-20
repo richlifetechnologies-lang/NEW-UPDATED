@@ -1488,29 +1488,129 @@ export default function StreamPage() {
             )}
 
             {/* OBS Instructions — below wallet message */}
-            <div className="p-4 bg-card border border-border rounded-xl space-y-3">
+            <div className="p-4 bg-card border border-border rounded-xl space-y-4">
               <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">OBS Output</span>
+                <span className="text-sm font-semibold text-foreground">OBS Setup Guide</span>
               </div>
-              <ol className="space-y-1.5 text-xs text-muted-foreground list-none">
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
-                  Start your stream above and wait for the AI output to appear.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
-                  Click <span className="text-foreground font-medium">Fullscreen</span> on the output — the AI video fills your entire screen.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
-                  In OBS: Add source → <span className="text-foreground font-medium">Window Capture</span> → select this browser window.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">4</span>
-                  Or use <span className="text-foreground font-medium">Browser Source</span> in OBS and enter your FULL SWAP BY RICH page URL.
-                </li>
-              </ol>
+
+              {/* Step 1 */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 1 — Start your stream first</p>
+                <ol className="space-y-1 text-xs text-muted-foreground list-none">
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
+                    Open this page in <span className="text-foreground font-medium">Google Chrome</span> — camera APIs work best there.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
+                    Enable your camera, click <span className="text-foreground font-medium">Stream Now</span>, and wait for AI output to appear.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
+                    Toggle <span className="text-foreground font-medium">Audio Sync ON</span> — this delays your mic to match the AI video processing lag.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="border-t border-border" />
+
+              {/* Step 2 */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 2 — Capture output in OBS</p>
+                <div className="space-y-2">
+                  <div className="rounded-lg px-3 py-2 text-xs space-y-1" style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.18)" }}>
+                    <p className="text-foreground font-semibold">Option A — Browser Source (best quality)</p>
+                    <ol className="space-y-0.5 text-muted-foreground list-none">
+                      <li>1. OBS → <span className="text-foreground">+</span> → <span className="text-foreground font-medium">Browser Source</span></li>
+                      <li>2. Paste your Full Swap page URL</li>
+                      <li>3. Set Width: <span className="text-foreground font-medium">1920</span>, Height: <span className="text-foreground font-medium">1080</span></li>
+                      <li>4. Check <span className="text-foreground font-medium">Control audio via OBS</span> → OK</li>
+                    </ol>
+                  </div>
+                  <div className="rounded-lg px-3 py-2 text-xs space-y-1" style={{ background: "hsl(0 0% 100% / 0.03)", border: "1px solid hsl(0 0% 100% / 0.08)" }}>
+                    <p className="text-foreground font-semibold">Option B — Window Capture (simpler)</p>
+                    <ol className="space-y-0.5 text-muted-foreground list-none">
+                      <li>1. OBS → <span className="text-foreground">+</span> → <span className="text-foreground font-medium">Window Capture</span></li>
+                      <li>2. Select your Chrome window running this page</li>
+                      <li>3. Capture Method: <span className="text-foreground font-medium">Windows Graphics Capture</span></li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-border" />
+
+              {/* Step 3 */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 3 — Audio routing (no echo)</p>
+                <ol className="space-y-1 text-xs text-muted-foreground list-none">
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
+                    OBS <span className="text-foreground font-medium">Audio Mixer</span> → add <span className="text-foreground font-medium">Mic/Aux</span> pointing to your physical microphone.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
+                    Right-click your mic in OBS Mixer → <span className="text-foreground font-medium">Advanced Audio Settings</span> → set <span className="text-foreground font-medium">Sync Offset to +300ms</span> (adjust to match lips).
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
+                    <span className="text-amber-400 font-medium">Avoid echo:</span> never have both OBS and the browser capturing the same mic simultaneously — pick one source only.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="border-t border-border" />
+
+              {/* Step 4 */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 4 — OBS Audio Settings</p>
+                <ul className="space-y-0.5 text-xs text-muted-foreground list-none">
+                  <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />Settings → Audio → Sample Rate: <span className="text-foreground font-medium">44100 Hz</span>, Channels: <span className="text-foreground font-medium">Stereo</span></li>
+                  <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />Mic: your <span className="text-foreground font-medium">physical microphone</span></li>
+                  <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />Desktop Audio: set to <span className="text-foreground font-medium">Disabled</span> (prevents browser alert sounds leaking in)</li>
+                </ul>
+              </div>
+
+              <div className="border-t border-border" />
+
+              {/* Step 5 */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 5 — Fine-tune sync</p>
+                <ol className="space-y-1 text-xs text-muted-foreground list-none">
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
+                    Do a 10-second <span className="text-foreground font-medium">test recording</span> in OBS and play it back.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
+                    Voice before lips → <span className="text-foreground font-medium">increase</span> mic sync offset. Voice after lips → <span className="text-foreground font-medium">decrease</span> it.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
+                    Audio Sync adds ~<span className="text-foreground font-medium">200–400ms</span> of delay — match that in OBS's sync offset field.
+                  </li>
+                </ol>
+              </div>
+
+              {/* Checklist */}
+              <div className="rounded-lg px-3 py-2.5 space-y-1.5" style={{ background: "hsl(143 72% 42% / 0.06)", border: "1px solid hsl(143 72% 42% / 0.20)" }}>
+                <p className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Pre-stream checklist</p>
+                <ul className="space-y-1 text-xs text-muted-foreground list-none">
+                  {[
+                    "Stream page running with AI output visible",
+                    "Audio Sync toggled ON",
+                    "OBS capturing the output window or browser source",
+                    "Only one audio source active (no duplicates)",
+                    "Test recording confirms lips and voice are in sync",
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-center gap-2">
+                      <span className="text-emerald-400 text-base leading-none">✓</span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
 
             {/* Renew / Top Up License Key — below OBS instructions */}
