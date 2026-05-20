@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer, DollarSign, Key } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer, DollarSign, Key, Settings } from "lucide-react";
 import { clearAdminToken, clearAdminProfile, getAdminProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
-  { href: "/admin/dashboard",          label: "Overview",                icon: LayoutDashboard },
-  { href: "/admin/license-keys",       label: "Licence Keys",            icon: FileKey },
-  { href: "/admin/decart-keys",        label: "API Keys",                icon: Key },
-  { href: "/admin/pricing",            label: "Pricing",                 icon: DollarSign },
+  { href: "/admin/dashboard",            label: "Overview",              icon: LayoutDashboard },
+  { href: "/admin/license-keys",         label: "Licence Keys",          icon: FileKey },
+  { href: "/admin/decart-keys",          label: "API Keys",              icon: Key },
+  { href: "/admin/pricing",              label: "Pricing",               icon: DollarSign },
+  { href: "/admin/billing",              label: "Billing Rate",          icon: Settings },
   { href: "/admin/billing-rate-per-key", label: "Billing Rate per Key",  icon: Zap },
-  { href: "/admin/time-compression",   label: "Time Compression",        icon: Timer },
-  { href: "/admin/analytics",          label: "Billing Analytics",       icon: BarChart3 },
-  { href: "/admin/sessions",           label: "Session Monitor",         icon: Activity },
+  { href: "/admin/time-compression",     label: "Time Compression",      icon: Timer },
+  { href: "/admin/analytics",            label: "Billing Analytics",     icon: BarChart3 },
+  { href: "/admin/sessions",             label: "Session Monitor",       icon: Activity },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -38,9 +39,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           aria-label="Toggle menu"
         >
-          {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w5 h-5" />}
+          {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
-        <div className="w7 h-7 bg-destructive/20 border border-destructive/30 rounded flex items-center justify-center shrink-0">
+        <div className="w-7 h-7 bg-destructive/20 border border-destructive/30 rounded flex items-center justify-center shrink-0">
           <img src="/logo.svg" alt="FULL SWAP" className="w-6 h-6 rounded" />
         </div>
         <p className="text-sm font-bold font-mono text-foreground truncate">FULL SWAP BY RICH</p>
@@ -70,7 +71,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
           {/* Mobile sidebar top spacer */}
           <div className="lg:hidden h-14 shrink-0 border-b border-border flex items-center px-4 gap-3">
-            <div className="w7 h-7 bg-destructive/20 border border-destructive/30 rounded flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 bg-destructive/20 border border-destructive/30 rounded flex items-center justify-center shrink-0">
               <Shield className="w-3.5 h-3.5 text-destructive" />
             </div>
             <p className="text-sm font-bold font-mono text-foreground">Admin Portal</p>
@@ -80,7 +81,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           {profile && (
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background/40">
               {profile.avatarUrl ? (
-                <img src={profile.avatarUrl} alt={profile.username} className="w9 h-9 rounded-full object-cover border border-border shrink-0" />
+                <img src={profile.avatarUrl} alt={profile.username} className="w-9 h-9 rounded-full object-cover border border-border shrink-0" />
               ) : (
                 <div className="w-9 h-9 rounded-full bg-destructive/20 border border-destructive/30 flex items-center justify-center shrink-0 text-sm font-bold text-destructive">
                   {profile.username.charAt(0).toUpperCase()}
@@ -100,9 +101,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
               return (
                 <Link key={href} href={href} onClick={closeSidebar}>
                   <div
-                    className={`flex items-center gap-3.s px-3 py-2.5 rounded-lg cursor-pointer transition-all text-sm ${active ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/so hover:text-foreground"}`}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all text-sm ${active ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                   >
-                    <Icon className={`w-4.5 h-4.5 shrink-0 ${active ? "text-primary" : ""}`} />
+                    <Icon className={`w-4 h-4 shrink-0 ${active ? "text-primary" : ""}`} />
                     <span>{label}</span>
                   </div>
                 </Link>
@@ -114,10 +115,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <div className="p-2 border-t border-border">
             <Button
               variant="ghost"
-              className="wide-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/8"
+              className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
               onClick={handleLogout}
             >
-              <LogOut className="w4 h-4 shrink-0" />
+              <LogOut className="w-4 h-4 shrink-0" />
               Log Out
             </Button>
           </div>
@@ -125,8 +126,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
         {/* Main content area */}
         <main className="flex-1 min-w-0 lg:ml-0 overflow-hidden">
-          {/* Padding for mobile top bar */}
-          <div className="lg\u00e9ph-0 h-14"></div>
+          <div className="lg:hidden h-14"></div>
           {children}
         </main>
       </div>
