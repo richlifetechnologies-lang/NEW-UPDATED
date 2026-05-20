@@ -1,13 +1,15 @@
 [phases.setup]
-nixPkgs = ["nodejs_22", "nodePackages.pnpm"]
+  nixPkgs = ["nodejs_24"]
 
-[phases.install]
-cmds = [
-  "pnpm install --no-frozen-lockfile"
-]
+  [phases.install]
+  cmds = [
+    "npm install -g pnpm@9",
+    "pnpm install --no-frozen-lockfile"
+  ]
 
-[phases.build]
-cmds = ["pnpm run build:railway"]
+  [phases.build]
+  cmds = ["pnpm run build:railway"]
 
-[start]
-cmd = "node --enable-source-maps artifacts/api-server/dist/index.mjs"
+  [start]
+  cmd = "node --enable-source-maps artifacts/api-server/dist/index.mjs"
+  
