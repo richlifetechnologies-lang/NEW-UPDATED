@@ -1,7 +1,7 @@
 // lib: artifacts/api-server/src/lib/credit-tracker.ts
 // Decart Credit Tracker — calculates real-time credit usage per API key
 // Formula: creditsUsed = SUM(session.durationSeconds * 5) for completed sessions
-//          + FLOOR((NOW - session.startedAt) / 1000) * 5 for each live session
+//          + FLOOR((NOW - session.startedAt) / 1000) * 2.3 for each live session
 // Remaining = totalCreditsLoaded - (creditsUsed - creditsBaseline)
 
 import { db, decartApiKeysTable, sessionsTable } from "@workspace/db";
@@ -128,13 +128,15 @@ export async function getKeyCreditStatus(
   let estimatedRemainingSeconds: number | null = null;
   let estimatedEffectiveLicenceSeconds: number | null = null;
   if (activeSessionCount > 0) {
-    // Decart always burns 5 credits/sec regardless of billing rate
+    // Decart charges 2.3 credits/sec (DECART_CREDITS_PER_SEC = 2.3)
     const burnRatePerSec = DECART_CREDITS_PER_SEC * activeSessionCount;
     estimatedRemainingSeconds = Math.floor(creditsRemaining / burnRatePerSec);
-    // Effective licence seconds = how fast licence keys drain at the configured billing rate
-    // formula: licenceDrain = wallClockSec * activeBillingRate / 2
-    // so effectiveLicenceSec = decartSec * 2 / activeBillingRate
-    estimatedEffectiveLicenceSeconds = Math.floor(estimatedRemainingSeconds * 2 / activeBillingRate);
+    // Effective licence seconds = how long licence wallet lasts at current billing rate.
+    // compression_factor = activeBillingRate / 2.3
+    // wallet drains at: realSec × compressionFactor per real second
+    // so effectiveLicenceSec = estimatedRemainingSeconds × compressionFactor
+    const compressionFactor = activeBillingRate > 0 ? activeBillingRate / 2.3 : 1;
+    estimatedEffectiveLicenceSeconds = Math.floor(estimatedRemainingSeconds * compressionFactor);
   }
 
   return {
