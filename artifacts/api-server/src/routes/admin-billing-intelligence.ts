@@ -41,7 +41,7 @@ import {
   ORPHAN_GRACE_MS,
   computeNormalisedMetrics,
 } from "../lib/billing-math";
-import { getBillingRate } from "../lib/billing-rate-cache";
+import { getBillingRate, getBillingRateForLicense } from "../lib/billing-rate-cache";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -1291,6 +1291,98 @@ router.get("/billing-rate", requireAdmin, featureGate, async (_req, res) => {
   } catch (err) {
     logger.error({ err }, "[BillingRateMonitor] failed");
     res.status(500).json({ error: "Failed to load billing rate monitor data" });
+  }
+});
+
+
+// ── GET /credit-savings-per-key ──────────────────────────────────────────────
+// Returns Decart credit savings per individual license key.
+//
+// BILLING COMPRESSION INVARIANT (do not revert):
+//   compressionFactor  = effectiveBillingRate / 2.3
+//   realStreamSeconds  = walletSecondsConsumed / compressionFactor
+//   decartCostActual   = realStreamSeconds * 2.3 cr/s  (what Decart actually charges)
+//   decartCostBreakeven = walletSecondsConsumed * 2.3  (if rate = 2.3, no compression)
+//   creditsSaved       = decartCostBreakeven - decartCostActual
+//
+// Higher billing rate -> shorter real stream -> more Decart credits saved.
+// Custom billing rate per key is respected via getBillingRateForLicense().
+router.get("/credit-savings-per-key", requireAdmin, featureGate, async (_req, res) => {
+  try {
+    const globalBillingRate = await getBillingRate();
+
+    const keys = await db
+      .select({
+        id:                   licenseKeysTable.id,
+        key:                  licenseKeysTable.key,
+        minutesAllocated:     licenseKeysTable.minutesAllocated,
+        usedSeconds:          licenseKeysTable.usedSeconds,
+        customBillingRate:    licenseKeysTable.customBillingRate,
+        useCustomBillingRate: licenseKeysTable.useCustomBillingRate,
+        isActive:             licenseKeysTable.isActive,
+      })
+      .from(licenseKeysTable)
+      .orderBy(desc(licenseKeysTable.usedSeconds));
+
+    const rows = await Promise.all(keys.map(async (k) => {
+      // Effective rate: custom if enabled for this key, else global
+      const effectiveRate = (k.useCustomBillingRate && k.customBillingRate != null && k.customBillingRate >= 0.1)
+        ? k.customBillingRate
+        : globalBillingRate;
+
+      const walletSeconds       = k.usedSeconds ?? 0;
+      const compressionFactor   = effectiveRate / DECART_API_COST_PER_SEC;  // = effectiveRate / 2.3
+      const realStreamSeconds   = compressionFactor > 0 ? Math.round(walletSeconds / compressionFactor) : walletSeconds;
+
+      // Decart actual charge: only for real streaming time (always 2.3 cr/s — never 5)
+      const decartCostActual    = Math.round(realStreamSeconds * DECART_API_COST_PER_SEC * 100) / 100;
+      // Breakeven cost: what Decart would charge if rate = 2.3 (no compression at all)
+      const decartCostBreakeven = Math.round(walletSeconds * DECART_API_COST_PER_SEC * 100) / 100;
+      // Credits saved = Decart cost avoided by ending the stream earlier via compression
+      const creditsSaved        = Math.round((decartCostBreakeven - decartCostActual) * 100) / 100;
+      const savingsPct          = decartCostBreakeven > 0
+        ? Math.round((creditsSaved / decartCostBreakeven) * 1000) / 10
+        : 0;
+
+      return {
+        licenseKeyId:          k.id,
+        licenseKey:            k.key,
+        isActive:              k.isActive,
+        minutesAllocated:      k.minutesAllocated ?? 0,
+        walletSecondsConsumed: walletSeconds,
+        walletMinutesConsumed: Math.round((walletSeconds / 60) * 10) / 10,
+        effectiveBillingRate:  effectiveRate,
+        isCustomRate:          !!(k.useCustomBillingRate && k.customBillingRate != null),
+        compressionFactor:     Math.round(compressionFactor * 1000) / 1000,
+        realStreamSeconds,
+        realStreamMinutes:     Math.round((realStreamSeconds / 60) * 10) / 10,
+        decartCostActual,
+        decartCostBreakeven,
+        creditsSaved,
+        savingsPct,
+      };
+    }));
+
+    const totalCreditsSaved    = Math.round(rows.reduce((s, r) => s + r.creditsSaved,       0) * 100) / 100;
+    const totalDecartActual    = Math.round(rows.reduce((s, r) => s + r.decartCostActual,   0) * 100) / 100;
+    const totalDecartBreakeven = Math.round(rows.reduce((s, r) => s + r.decartCostBreakeven, 0) * 100) / 100;
+
+    res.json({
+      globalBillingRate,
+      keys: rows,
+      totals: {
+        totalCreditsSaved,
+        totalDecartActual,
+        totalDecartBreakeven,
+        overallSavingsPct: totalDecartBreakeven > 0
+          ? Math.round((totalCreditsSaved / totalDecartBreakeven) * 1000) / 10
+          : 0,
+      },
+      computedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[BillingIntelligence] credit-savings-per-key failed");
+    res.status(500).json({ error: "Failed to compute credit savings per key" });
   }
 });
 
