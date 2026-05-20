@@ -69,6 +69,7 @@ jobs:
     steps:
       - name: Trigger Railway deployment
         if: ${{ env.HAS_RAILWAY_TOKEN == 'true' }}
+        continue-on-error: true
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
@@ -79,7 +80,17 @@ jobs:
               "query": "mutation { serviceInstanceDeploy(serviceId: \"5976eb3e-f411-41fc-a318-a577d0a62ad1\", environmentId: \"2d149ec2-eec1-416e-b012-de3e842f52a2\") }"
             }')
           echo "Railway response: $RESPONSE"
-          echo "$RESPONSE" | grep -q '"serviceInstanceDeploy":true' && echo "Deployment triggered successfully" || (echo "Deployment trigger failed" && exit 1)
+          if echo "$RESPONSE" | grep -q '"serviceInstanceDeploy":true'; then
+            echo "✅ Deployment triggered successfully"
+          elif echo "$RESPONSE" | grep -q '"Not Authorized"'; then
+            echo "⚠️  Railway token expired or invalid."
+            echo "   Fix: Railway dashboard → Account → Tokens → generate new token"
+            echo "   Then update RAILWAY_TOKEN in GitHub repo Settings → Secrets → Actions"
+            exit 1
+          else
+            echo "⚠️  Unexpected Railway response — check the token and service/environment IDs"
+            exit 1
+          fi
 
       - name: Skip (RAILWAY_TOKEN not configured)
         if: ${{ env.HAS_RAILWAY_TOKEN != 'true' }}
