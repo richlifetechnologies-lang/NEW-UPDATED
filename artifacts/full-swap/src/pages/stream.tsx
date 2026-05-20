@@ -189,6 +189,7 @@ export default function StreamPage() {
   // Bug #5: track when license minutes are fully exhausted to show splash screen
   const [licenseExhausted,  setLicenseExhausted]   = useState(false);
   const [isStreamStarting,  setIsStreamStarting]   = useState(false);
+  const [styleCollapsed,    setStyleCollapsed]      = useState(false);
 
   // ── Audio sync state ─────────────────────────────────────────────────
   const [audioEnabled,        setAudioEnabled]        = useState(false);
@@ -1664,28 +1665,46 @@ export default function StreamPage() {
               <p className="text-xs text-muted-foreground">Changes apply in real-time. Leave blank to use style default.</p>
             </div>
 
-            {/* 4. Transformation Style */}
-            <div className="bg-card border border-border rounded-xl p-5">
-              <h3 className="font-semibold text-foreground mb-1 tracking-wide">Transformation Style</h3>
-              <p className="text-xs text-muted-foreground mb-4">Pick a style to apply</p>
-              <div className="space-y-2">
-                {STYLES.map((style) => (
-                  <button
-                    key={style.id}
-                    data-testid={`style-${style.id}`}
-                    onClick={() => handleStyleChange(style.id)}
-                    className={`w-full text-left p-3 rounded-lg border transition-all ${
-                      selectedStyle === style.id
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-background hover:border-primary/40 text-foreground"
-                    }`}
-                    style={selectedStyle === style.id ? { boxShadow: "0 0 12px hsl(187 100% 52% / 0.12)" } : {}}
-                  >
-                    <p className="text-sm font-medium">{style.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{style.description}</p>
-                  </button>
-                ))}
-              </div>
+            {/* 4. Transformation Style — collapsible */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <button
+                onClick={() => setStyleCollapsed(prev => !prev)}
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted/30 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-foreground tracking-wide">Transformation Style</h3>
+                  {styleCollapsed && (
+                    <span className="text-xs text-primary font-medium font-mono px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                      {STYLES.find(s => s.id === selectedStyle)?.name ?? "Natural"}
+                    </span>
+                  )}
+                </div>
+                <ChevronDown
+                  className="w-4 h-4 text-muted-foreground transition-transform duration-200"
+                  style={{ transform: styleCollapsed ? "rotate(0deg)" : "rotate(180deg)" }}
+                />
+              </button>
+              {!styleCollapsed && (
+                <div className="px-5 pb-5 space-y-2">
+                  <p className="text-xs text-muted-foreground mb-3">Pick a style to apply</p>
+                  {STYLES.map((style) => (
+                    <button
+                      key={style.id}
+                      data-testid={`style-${style.id}`}
+                      onClick={() => handleStyleChange(style.id)}
+                      className={`w-full text-left p-3 rounded-lg border transition-all ${
+                        selectedStyle === style.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background hover:border-primary/40 text-foreground"
+                      }`}
+                      style={selectedStyle === style.id ? { boxShadow: "0 0 12px hsl(187 100% 52% / 0.12)" } : {}}
+                    >
+                      <p className="text-sm font-medium">{style.name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{style.description}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 6. OBS Instructions */}
