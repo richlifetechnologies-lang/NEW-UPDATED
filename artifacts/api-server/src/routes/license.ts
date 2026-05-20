@@ -3,7 +3,7 @@ import { db, licenseKeysTable, decartApiKeysTable, sessionsTable, pricingTable, 
 import { eq, isNull, and } from "drizzle-orm";
 import { requireAdmin, requireLicense } from "../lib/auth";
 import { notifyLicenseActivated } from "../lib/notifications";
-import { getBillingRate } from "../lib/billing-rate-cache";
+import { getBillingRateForLicense } from "../lib/billing-rate-cache";
 import { computeCompressionFactor } from "../lib/billing-math";
 import { invalidateLicenseTokenCache } from "./decart";
 import { decartPool } from "../lib/decart-pool";
@@ -106,7 +106,7 @@ router.get("/status", requireLicense, async (req, res) => {
     // TCE display layer — compute display_remaining (UX only, NEVER gates access)
     let displayRemainingSeconds = remainingSeconds;
     try {
-      const billingRate = await getBillingRate();
+      const billingRate = await getBillingRateForLicense(license.id);
       displayRemainingSeconds = Math.round(remainingSeconds * computeCompressionFactor(billingRate));
     } catch { /* non-fatal — fall back to real seconds */ }
 

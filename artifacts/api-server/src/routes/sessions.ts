@@ -7,7 +7,7 @@ import { getDecartKeyIdFromCache } from "./decart";
 import { notifySessionDead } from "../lib/notifications";
 import { logger } from "../lib/logger";
 import { emitSessionStarted, emitSessionSettled, emitWalletUpdated } from "../lib/billing-ws";
-import { getBillingRate } from "../lib/billing-rate-cache";
+import { getBillingRateForLicense } from "../lib/billing-rate-cache";
 
 // ── All billing/timing constants imported from single source of truth ──────
 // Billing rate IS needed for heartbeat exhaustion check (DISPLAY-BOUND model):
@@ -284,7 +284,7 @@ router.post("/", requireLicense, async (req, res) => {
   // Reconnect after display exhaustion MUST fail — hidden real balance must NOT restore access.
   let displayRemainingForCreate = remainingSeconds;
   try {
-    const billingRate = await getBillingRate();
+    const billingRate = await getBillingRateForLicense(license.id);
     displayRemainingForCreate = computeDisplaySeconds(remainingSeconds, computeCompressionFactor(billingRate));
   } catch { /* non-fatal — fall back to real seconds */ }
 
@@ -477,7 +477,7 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // Compute displayRemainingSeconds using TCE compression factor (non-fatal fallback = real)
   let displayRemainingAfterDebit = newRealRemaining;
   try {
-    const billingRate = await getBillingRate();
+    const billingRate = await getBillingRateForLicense(freshLicense.id);
     displayRemainingAfterDebit = computeDisplaySeconds(newRealRemaining, computeCompressionFactor(billingRate));
   } catch { /* non-fatal — fall back to real seconds */ }
 
