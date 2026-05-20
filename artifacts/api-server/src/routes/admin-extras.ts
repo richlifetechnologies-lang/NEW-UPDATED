@@ -68,8 +68,10 @@ router.get("/analytics/per-key", requireAdmin, async (req, res) => {
       const profitPerSec = Math.round((effRate - DECART_API_COST_PER_SEC) * 100) / 100;
       const marginPct    = effRate > 0 ? Math.round(((effRate - DECART_API_COST_PER_SEC) / effRate) * 10000) / 100 : 0;
       const isLive       = Number(lk.active_session_count ?? 0) > 0;
-      const dispUsed     = Math.round(usedSec * cf);
+      // Conservation formula: display_used = alloc_display - display_remaining (avoids rounding drift)
+      const allocDisplay = Math.round(allocSec * cf);
       const dispRem      = Math.round(remSec * cf);
+      const dispUsed     = allocDisplay - dispRem;
       const driftPct     = usedSec > 0 ? Math.round(Math.abs((dispUsed - usedSec) / usedSec) * 10000) / 100 : 0;
 
       return {

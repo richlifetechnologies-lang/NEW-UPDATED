@@ -1216,16 +1216,25 @@ router.get("/decart-keys", requireAdmin, async (_req, res) => {
   }).from(licenseKeysTable).where(isNotNull(licenseKeysTable.assignedDecartKeyId)).groupBy(licenseKeysTable.assignedDecartKeyId);
   const countMap = new Map(licenseCounts.map(c => [c.keyId, Number(c.count)]));
 
-  res.json(keys.map(k => ({
-    id: k.id,
-    label: k.label,
-    apiKeyPreview: k.apiKey.slice(0, 8) + "..." + k.apiKey.slice(-4),
-    apiSecretPreview: k.apiSecret ? k.apiSecret.slice(0, 6) + "..." + k.apiSecret.slice(-4) : null,
-    isActive: k.isActive,
-    maxLicenseKeys: k.maxUsers,
-    assignedLicenseKeys: countMap.get(k.id) ?? 0,
-    createdAt: k.createdAt,
-  })));
+  res.json({
+    keys: keys.map(k => ({
+      id: k.id,
+      label: k.label,
+      apiKey: k.apiKey.slice(0, 8) + "..." + k.apiKey.slice(-4),
+      isActive: k.isActive,
+      maxUsers: k.maxUsers ?? null,
+      totalCreditsLoaded: k.totalCreditsLoaded ?? 0,
+      creditsBaseline: k.creditsBaseline ?? 0,
+      thresholdPct: k.thresholdPct ?? 15,
+      lastTopupAt: k.lastTopupAt ?? null,
+      healthStatus: k.healthStatus ?? null,
+      usageLoad: k.usageLoad ?? 0,
+      assignedLicenseKey: k.assignedLicenseKey ?? null,
+      assignmentStatus: k.assignmentStatus ?? null,
+      assignedLicenseKeyCount: countMap.get(k.id) ?? 0,
+      createdAt: k.createdAt,
+    })),
+  });
 });
 
 // POST /admin/decart-keys — add a new Decart API key

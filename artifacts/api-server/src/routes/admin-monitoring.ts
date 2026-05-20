@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, licenseKeysTable, sessionsTable, decartApiKeysTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -71,7 +72,7 @@ router.get("/", requireAdmin, async (_req, res) => {
       },
     });
   } catch (err) {
-    console.error("api-monitoring error:", err);
+    logger.error({ err }, "[AdminMonitoring] monitoring data load failed");
     res.status(500).json({ error: "Failed to load monitoring data" });
   }
 });

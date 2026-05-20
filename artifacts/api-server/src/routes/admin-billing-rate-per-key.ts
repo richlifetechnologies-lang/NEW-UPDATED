@@ -110,6 +110,10 @@ router.get("/", requireAdmin, async (req, res) => {
       const effRate         = effectiveRate(useCustom, customRate, globalRate);
       const isLive          = Number(lk.active_session_count) > 0;
 
+      const cf                 = computeCompressionFactor(effRate);
+      const _allocDisplay      = Math.round(allocatedSec * cf);
+      const _dispRem           = Math.round(remainingSec * cf);
+      const _dispUsed          = _allocDisplay - _dispRem;
       return {
         licenseKeyId:              Number(lk.id),
         licenseKey:                String(lk.key),
@@ -122,10 +126,10 @@ router.get("/", requireAdmin, async (req, res) => {
         billingRateLastUpdatedAt:  lk.billing_rate_last_updated_at ?? null,
         effectiveRate:             effRate,
         rateSource:                useCustom && customRate != null ? "custom" : "global",
-        // TCE — Time Compression Engine
-        compressionFactor:         computeCompressionFactor(effRate),
-        displaySecondsUsed:        Math.round(usedSec * computeCompressionFactor(effRate)),
-        displaySecondsRemaining:   Math.round(remainingSec * computeCompressionFactor(effRate)),
+        // TCE — Time Compression Engine (display_used = alloc_display - display_remaining, NOT real_used × cf)
+        compressionFactor:         cf,
+        displaySecondsUsed:        _dispUsed,
+        displaySecondsRemaining:   _dispRem,
         // Stream duration estimate (wallet-based; rate doesn't change duration, only revenue)
         remainingSeconds:          remainingSec,
         estimatedStreamDurationMin: estimatedStreamDurationMin(remainingSec, effRate),
