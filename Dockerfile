@@ -2,31 +2,31 @@ FROM node:22-slim
 
   WORKDIR /app
 
-  # Enable corepack for pnpm management (corepack is bundled with Node 22)
+  # Enable corepack (bundled with Node 22) for pnpm
   RUN corepack enable
 
-  # Copy package manifests for layer caching
+  # Copy workspace config + lockfile
   COPY package.json pnpm-workspace.yaml ./
   COPY pnpm-lock.yaml* ./
 
-  # Copy all package.json files
-  COPY artifacts/api-server/package.json ./artifacts/api-server/
+  # Copy all package.json manifests for dependency resolution (layer cache)
+  COPY lib/api-client-react/package.json ./lib/api-client-react/
   COPY lib/api-spec/package.json ./lib/api-spec/
+  COPY lib/api-zod/package.json ./lib/api-zod/
   COPY lib/db/package.json ./lib/db/
-  COPY lib/logger/package.json ./lib/logger/
+  COPY scripts/package.json ./scripts/
+  COPY artifacts/api-server/package.json ./artifacts/api-server/
+  COPY artifacts/full-swap/package.json ./artifacts/full-swap/
 
-  # Install with pnpm (corepack activates the right version)
+  # Install all workspace dependencies
   RUN pnpm install --no-frozen-lockfile
 
-  # Copy remaining source
+  # Copy all source files
   COPY . .
 
-  # Build the project
+  # Build (typecheck libs, then build frontend + API server)
   RUN pnpm run build:railway
 
-  # Expose Railway-provided port
-  EXPOSE 5000
-
-  # Start the API server
+  # Start the API server (PORT is injected by Railway)
   CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
   
