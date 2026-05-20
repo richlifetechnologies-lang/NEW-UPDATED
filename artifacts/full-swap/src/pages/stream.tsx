@@ -1520,20 +1520,20 @@ export default function StreamPage() {
                 <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 2 — Capture output in OBS</p>
                 <div className="space-y-2">
                   <div className="rounded-lg px-3 py-2 text-xs space-y-1" style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.18)" }}>
-                    <p className="text-foreground font-semibold">Option A — Browser Source (best quality)</p>
+                    <p className="text-foreground font-semibold">Option A — Window Capture (recommended)</p>
                     <ol className="space-y-0.5 text-muted-foreground list-none">
-                      <li>1. OBS → <span className="text-foreground">+</span> → <span className="text-foreground font-medium">Browser Source</span></li>
-                      <li>2. Paste your Full Swap page URL</li>
-                      <li>3. Set Width: <span className="text-foreground font-medium">1920</span>, Height: <span className="text-foreground font-medium">1080</span></li>
-                      <li>4. Check <span className="text-foreground font-medium">Control audio via OBS</span> → OK</li>
+                      <li>1. OBS → <span className="text-foreground">+</span> → <span className="text-foreground font-medium">Window Capture</span></li>
+                      <li>2. Select <span className="text-foreground font-medium">Full Swap</span> from the window list</li>
+                      <li>3. Capture Method: <span className="text-foreground font-medium">Windows Graphics Capture</span></li>
+                      <li>4. Resize/crop to fit your scene → OK</li>
                     </ol>
                   </div>
                   <div className="rounded-lg px-3 py-2 text-xs space-y-1" style={{ background: "hsl(0 0% 100% / 0.03)", border: "1px solid hsl(0 0% 100% / 0.08)" }}>
-                    <p className="text-foreground font-semibold">Option B — Window Capture (simpler)</p>
+                    <p className="text-foreground font-semibold">Option B — Display Capture (fullscreen mode)</p>
                     <ol className="space-y-0.5 text-muted-foreground list-none">
-                      <li>1. OBS → <span className="text-foreground">+</span> → <span className="text-foreground font-medium">Window Capture</span></li>
-                      <li>2. Select your Chrome window running this page</li>
-                      <li>3. Capture Method: <span className="text-foreground font-medium">Windows Graphics Capture</span></li>
+                      <li>1. Click <span className="text-foreground font-medium">Fullscreen</span> on the AI output in the app</li>
+                      <li>2. OBS → <span className="text-foreground">+</span> → <span className="text-foreground font-medium">Display Capture</span></li>
+                      <li>3. Select the monitor the app is fullscreened on → OK</li>
                     </ol>
                   </div>
                 </div>
