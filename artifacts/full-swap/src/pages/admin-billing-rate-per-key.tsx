@@ -67,7 +67,6 @@ interface ListResponse {
   keys: LicenseKeyRate[];
   globalBillingRate: number;
   apiCostRate: number;
-  baseRate: number;
   total: number;
   returned: number;
   computedAt: string;

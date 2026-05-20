@@ -7,7 +7,7 @@ import { AdminUpdateUserBody, AdminUpdateWalletBody } from "@workspace/api-zod";
 import { createDecartClient } from "@decartai/sdk";
 
 import { getAllRates } from "../lib/rates";
-import { DECART_CREDITS_PER_SEC, DECART_API_COST_PER_SEC, BASE_BILLING_RATE } from "../lib/billing-math";
+import { DECART_CREDITS_PER_SEC, DECART_API_COST_PER_SEC } from "../lib/billing-math";
 import { getBillingRate, invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 import { emitBillingRateChanged } from "../lib/billing-ws";
@@ -2045,30 +2045,16 @@ router.get("/billing-rate", async (_req, res) => {
   try {
     const rate = await getBillingRate();
 
-    // Live burn monitor fields (spec §3, §4 — read-only, no billing logic)
-    const burnMultiplier     = Math.round((rate / BASE_BILLING_RATE) * 1000) / 1000;
-    const liveBurnSpeed      = rate / 2;            // seconds consumed per real second (heartbeat formula)
-    const realStreamMinutes  = Math.round((120 / rate) * 10) / 10; // real streaming mins per licence hour
-
-    let burnPreviewText: string;
-    if (liveBurnSpeed === 1) {
-      burnPreviewText = `At rate ${rate}: licence depletes 1:1 with real time (60 min licence = 60 min streaming)`;
-    } else if (liveBurnSpeed > 1) {
-      burnPreviewText = `At rate ${rate}: 60 min licence lasts ~${realStreamMinutes} min of real streaming (${liveBurnSpeed}× depletion)`;
-    } else {
-      burnPreviewText = `At rate ${rate}: 60 min licence lasts ~${realStreamMinutes} min of real streaming (slower than real-time)`;
-    }
+    // Display helper — how many real minutes a 60-min (3600s) licence lasts at this rate.
+    // wallet.used_seconds = real seconds; revenue = used_seconds × rate.
+    // 60-min licence = 3600 allocation seconds → lasts 3600 real seconds of streaming.
+    const realStreamMinutes = 60; // wallet deduction is 1:1 with real seconds (spec §2)
 
     res.json({
       rate,
-      // Spec §6: no "defaultRate" constant emitted — billing rate is always DB-driven.
-      // baseRate is for display (burn_multiplier UI) only, NOT for billing (spec §5).
-      baseRate:         BASE_BILLING_RATE,
       apiCostRate:      DECART_API_COST_PER_SEC,
-      burnMultiplier,
-      liveBurnSpeed,
       realStreamMinutesPerLicenseHour: realStreamMinutes,
-      burnPreview:      burnPreviewText,
+      burnPreview: `At rate ${rate} cr/s: 60 min licence = 60 min real streaming. Revenue = wallet_seconds × ${rate} cr/s.`,
     });
   } catch {
     res.status(500).json({ error: "Failed to load billing rate" });
@@ -2127,8 +2113,6 @@ router.get("/profit-live", requireAdmin, async (_req, res) => {
   const API_COST_PER_SEC = 2.3;
   try {
     const rate          = await getBillingRate();
-    const burnMultiplier = Math.round((rate / BASE_BILLING_RATE) * 1000) / 1000;
-    const liveBurnSpeed  = rate / 2;
     const profitPerSec   = rate - API_COST_PER_SEC;
 
     const rows = await db.execute(sql`
@@ -2164,8 +2148,6 @@ router.get("/profit-live", requireAdmin, async (_req, res) => {
         totalRevenue,
         totalApiCost,
         totalProfit,
-        burnMultiplier,
-        liveBurnSpeed,
       };
     });
 
@@ -2185,8 +2167,6 @@ router.get("/profit-live", requireAdmin, async (_req, res) => {
       totalRevenue: totals.revenue,
       totalApiCost: totals.apiCost,
       billingRate:  rate,
-      burnMultiplier,
-      liveBurnSpeed,
       computedAt:   new Date().toISOString(),
     });
   } catch (err) {
@@ -2211,8 +2191,6 @@ router.get("/billing-integrity", requireAdmin, async (_req, res) => {
 
   try {
     const dbRate         = await getBillingRate();
-    const burnMultiplier = Math.round((dbRate / BASE_BILLING_RATE) * 1000) / 1000;
-    const liveBurnSpeed  = dbRate / 2;
     const profitPerSec   = dbRate - API_COST_PER_SEC;
 
     // hardcodeDetected = true ONLY for REAL integrity violations:
@@ -2267,7 +2245,6 @@ router.get("/billing-integrity", requireAdmin, async (_req, res) => {
         licenseKey:           s.license_key ?? null,
         activeBillingRate:    dbRate,
         billingRateSource:    "database",
-        burnMultiplier,
         walletUsedSeconds:    walletSeconds,
         clockElapsedSeconds,
         driftDelta,
@@ -2304,15 +2281,12 @@ router.get("/billing-integrity", requireAdmin, async (_req, res) => {
       billingIntegrity: {
         dbRate,
         codeConstantRate: DECART_CREDITS_PER_SEC,
-        baseRate:         BASE_BILLING_RATE,
         hardcodeDetected,
         hardcodeAlert: hardcodeDetected
           ? (dbRate <= 0
               ? `DB billing rate is non-positive (${dbRate}). Check settings table key 'billing_credits_per_sec'.`
               : `API cost constant has been altered from the canonical 2.3 cr/s value. Restore DECART_API_COST_PER_SEC = 2.3 in billing-math.ts.`)
           : null,
-        burnMultiplier,
-        liveBurnSpeed,
         profitPerSec,
         rateSource:   "database",
         rateVerified: true,

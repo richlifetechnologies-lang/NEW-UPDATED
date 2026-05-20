@@ -24,7 +24,6 @@ type StreamIntegrity = {
   licenseKey: string | null;
   activeBillingRate: number;
   billingRateSource: string;
-  burnMultiplier: number;
   walletUsedSeconds: number;
   clockElapsedSeconds: number;
   driftDelta: number;
@@ -49,11 +48,8 @@ type IntegrityResponse = {
   billingIntegrity: {
     dbRate: number;
     codeConstantRate: number;
-    baseRate: number;
     hardcodeDetected: boolean;
     hardcodeAlert: string | null;
-    burnMultiplier: number;
-    liveBurnSpeed: number;
     profitPerSec: number;
     rateSource: string;
     rateVerified: boolean;

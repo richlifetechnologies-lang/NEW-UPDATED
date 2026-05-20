@@ -13,9 +13,7 @@ const API_COST_RATE = 2.3;
 
 type BillingRateInfo = {
   rate: number;
-  baseRate: number;
-  burnMultiplier: number;
-  liveBurnSpeed: number;
+  apiCostRate: number;
   realStreamMinutesPerLicenseHour: number;
   burnPreview: string;
 };
@@ -32,8 +30,6 @@ type StreamEntry = {
   totalRevenue: number;
   totalApiCost: number;
   totalProfit: number;
-  burnMultiplier: number;
-  liveBurnSpeed: number;
 };
 
 type ProfitResponse = {
@@ -43,8 +39,6 @@ type ProfitResponse = {
   totalRevenue: number;
   totalApiCost: number;
   billingRate: number;
-  burnMultiplier: number;
-  liveBurnSpeed: number;
   computedAt: string;
 };
 

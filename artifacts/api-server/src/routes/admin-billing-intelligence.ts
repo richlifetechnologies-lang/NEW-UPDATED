@@ -39,9 +39,7 @@ import {
   DECART_CREDITS_PER_SEC,
   DECART_API_COST_PER_SEC,
   ORPHAN_GRACE_MS,
-  BASE_BILLING_RATE,
   computeNormalisedMetrics,
-  computeBurnMultiplier,
 } from "../lib/billing-math";
 import { getBillingRate } from "../lib/billing-rate-cache";
 import { logger } from "../lib/logger";
@@ -718,17 +716,8 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
   const { apiCostCredits, retailCredits, retailSeconds, profitCredits, effectiveCreditsPerSec } =
     computeNormalisedMetrics(totalBillableSeconds, liveBillingRate);
 
-  // Spec §5 (BASE RATE RULE — VISUAL ONLY):
-  // burn_multiplier = effective_rate / base_rate — display metric only, NEVER affects billing.
-  // Spec §4 (ANALYTICS RULE): all analytics MUST derive from wallet.used_seconds directly.
-  // DO NOT multiply totalBillableSeconds by burnMultiplier — that recomputes time incorrectly.
-  const burnMultiplier = computeBurnMultiplier(liveBillingRate);
-  // actualUsedSeconds IS wallet.used_seconds — the authoritative source (spec §4).
-  // It is NOT multiplied by burnMultiplier (that would violate spec §4/§5).
-  const actualUsedSeconds = totalBillableSeconds;
-
-  // Live burn speed is a display metric only — shows effective_rate for rate monitor UI.
-  const liveBurnSpeed = liveBillingRate;
+  // Analytics rule: all values derive from wallet.used_seconds (totalBillableSeconds) directly.
+  // effective_rate is the only rate used — base_rate and burn_multiplier are not part of billing.
 
   return {
     totalBillableSeconds,
@@ -739,10 +728,6 @@ function aggregateStream(group: StreamGroup, liveBillingRate: number) {
     effectiveCreditsPerSecond: effectiveCreditsPerSec,
     lastBillingRateUsed: liveBillingRate,
     streamDurationSeconds: Math.floor((group.streamEndMs - group.streamStartMs) / 1000),
-    burnMultiplier,
-    actualUsedSeconds,
-    liveBurnSpeed,
-    secondsConsumedPerRealSecond: liveBillingRate,
   };
 }
 
@@ -803,8 +788,7 @@ router.get("/stream-ledger/live", requireAdmin, featureGate, streamLedgerGate, a
         currentBillingRate: billingRate,
         billingRateHistory,
         sessionIds: group.sessions.map(s => s.session_id),
-        // Rate-controlled burn system fields (spec §2-§3)
-        baseRate: BASE_BILLING_RATE,
+        // effective_rate is the single billing truth — no base_rate or burn_multiplier in analytics
       };
     });
 
@@ -1032,12 +1016,7 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
       const { apiCostCredits, retailCredits } = computeNormalisedMetrics(sessionBillableSeconds, billingRate);
       const consistencyDelta = sessionBillableSeconds - usedSeconds;
 
-      // Spec §5 (BASE RATE RULE — VISUAL ONLY): burn_multiplier is display-only.
-      // Spec §4 (ANALYTICS RULE): analytics MUST use wallet.used_seconds directly.
-      // DO NOT multiply usedSeconds by burnMultiplier — wallet IS the truth source.
-      const burnMultiplier = computeBurnMultiplier(billingRate);
-      // actualConsumedSeconds = wallet.used_seconds (authoritative, spec §4).
-      const actualConsumedSeconds = usedSeconds;
+      // effective_rate is the only rate in analytics. wallet.used_seconds is the single truth source.
 
       // Derive wallet consistency status from delta
       const walletConsistencyStatus =
@@ -1072,13 +1051,7 @@ router.get("/wallet", requireAdmin, featureGate, walletGate, async (req, res) =>
         creditsAllocated,
         creditsUsed,
         creditsRemaining,
-        // Rate-controlled burn system fields (spec §2-§3)
-        burnMultiplier,
-        actualConsumedSeconds,
-        baseRate: BASE_BILLING_RATE,
-        // Live burn monitor (spec §3): seconds of licence consumed per real second
-        liveBurnSpeed: billingRate / 2,
-        secondsConsumedPerRealSecond: billingRate / 2,
+        // effective_rate (billingRateSnapshot) is the single billing truth source
       };
     });
 

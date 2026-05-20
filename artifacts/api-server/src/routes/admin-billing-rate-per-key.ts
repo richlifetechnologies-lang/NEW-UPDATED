@@ -27,8 +27,6 @@ import { requireAdmin } from "../lib/auth";
 import { getBillingRate } from "../lib/billing-rate-cache";
 import {
   DECART_API_COST_PER_SEC,
-  BASE_BILLING_RATE,
-  computeBurnMultiplier,
   computeCompressionFactor,
   licenseRemainingSeconds,
 } from "../lib/billing-math";
@@ -152,7 +150,6 @@ router.get("/", requireAdmin, async (req, res) => {
       keys,
       globalBillingRate:  globalRate,
       apiCostRate:        DECART_API_COST_PER_SEC,
-      baseRate:           BASE_BILLING_RATE,
       total:              Number(totalRow?.count ?? keys.length),
       returned:           keys.length,
       computedAt:         new Date().toISOString(),
