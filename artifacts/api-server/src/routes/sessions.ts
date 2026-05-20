@@ -86,11 +86,18 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
       billingStart.getTime()
     ));
   }
-  // Spec §2 (WALLET DEDUCTION RULE): wallet.used_seconds += real_stream_active_seconds.
-  // Billing rate affects REVENUE only — NOT wallet deduction speed.
-  // The incremented seconds here are the actual elapsed stream seconds (heartbeat-based time).
-  // Revenue is computed elsewhere as: revenue = used_seconds × effective_rate.
-  // DO NOT scale by billing rate — that would violate the single truth model.
+  // ── Billing-rate compression (settlement) ──────────────────────────────────
+  // Apply the same compression factor used during heartbeat deductions so the
+  // final settle is consistent with incremental billing.
+  // compression_factor = billingRate / 2.3  (2.3 = Decart cost breakeven)
+  // Higher billing rate → faster wallet drain → less real streaming time per minute.
+  try {
+    if (session.licenseKeyId) {
+      const settleRate = await getBillingRateForLicense(session.licenseKeyId);
+      const settleFactor = computeCompressionFactor(settleRate);
+      incrementSec = Math.max(0, Math.round(incrementSec * settleFactor));
+    }
+  } catch { /* non-fatal — use raw increment */ }
 
   // Every session has MINIMUM_RESERVATION_SEC debited at creation.
   // Guarantee duration_seconds reflects at least that so analytics never show 0.
@@ -279,16 +286,7 @@ router.post("/", requireLicense, async (req, res) => {
   const usedSeconds      = license.usedSeconds ?? 0;
   const remainingSeconds = Math.max(0, allocatedSeconds - usedSeconds);
 
-  // FINAL TCE EXHAUSTION MODEL (DISPLAY-BOUND):
-  // Session creation is gated on displayRemainingSeconds, NOT realRemainingSeconds.
-  // Reconnect after display exhaustion MUST fail — hidden real balance must NOT restore access.
-  let displayRemainingForCreate = remainingSeconds;
-  try {
-    const billingRate = await getBillingRateForLicense(license.id);
-    displayRemainingForCreate = computeDisplaySeconds(remainingSeconds, computeCompressionFactor(billingRate));
-  } catch { /* non-fatal — fall back to real seconds */ }
-
-  if (displayRemainingForCreate <= 0) {
+  if (remainingSeconds <= 0) {
     res.status(402).json({ error: "No streaming time remaining on this license." });
     return;
   }
@@ -417,14 +415,23 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // streaming goes un-billed --- not the entire session.
   const billingStart = billingAnchor;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
-  // Spec §2 (WALLET DEDUCTION RULE): wallet.used_seconds += real_stream_active_seconds.
-  // Billing rate affects REVENUE calculation only (computed in analytics endpoints).
-  // DO NOT scale by billing rate here — wallet deduction is pure elapsed time.
   const rawIncrementSec = Math.max(0, Math.floor((now.getTime() - lastDebit.getTime()) / 1000));
-  const incrementSec    = rawIncrementSec;
 
   const [freshLicense] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, license.id));
   if (!freshLicense) { res.status(404).json({ error: "License missing" }); return; }
+
+  // ── Billing-rate compression ───────────────────────────────────────────────
+  // The admin billing rate (global or per-key custom) controls how fast the
+  // licence wallet drains relative to real clock time.
+  // compression_factor = billingRate / 2.3  (2.3 = Decart API cost breakeven)
+  // Example: billingRate = 3 → factor ≈ 1.304 → 60 min key expires in ~46 real min.
+  // This saves Decart API credits because the stream ends sooner in real time.
+  let heartbeatCompressionFactor = 1.0;
+  try {
+    const hbBillingRate = await getBillingRateForLicense(freshLicense.id);
+    heartbeatCompressionFactor = computeCompressionFactor(hbBillingRate);
+  } catch { /* non-fatal — fallback to 1:1 deduction */ }
+  const incrementSec = Math.max(0, Math.round(rawIncrementSec * heartbeatCompressionFactor));
 
   const allocated = (freshLicense.minutesAllocated ?? 0) * 60;
   const used      = freshLicense.usedSeconds ?? 0;
@@ -465,23 +472,13 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
     })
     .where(eq(sessionsTable.id, sessionId));
 
-  // After this debit, is the license display-exhausted?
-  // FINAL TCE EXHAUSTION MODEL (DISPLAY-BOUND):
-  //   Exhaustion authority = displayRemainingSeconds, NOT realRemainingSeconds.
-  //   Billing truth        = real seconds (wallet.used_seconds — unchanged).
-  //   Hidden real balance after display exhaustion is internal margin buffer ONLY —
-  //   it MUST NOT restore stream access on reconnect or heartbeat continuation.
+  // ── Exhaustion check ──────────────────────────────────────────────────────
+  // incrementSec is already billing-rate-compressed so the wallet drains at the
+  // right speed. Kill the stream the moment the compressed wallet hits zero.
   const newUsed = used + Math.min(incrementSec, remaining);
   const newRealRemaining = Math.max(0, allocated - newUsed);
 
-  // Compute displayRemainingSeconds using TCE compression factor (non-fatal fallback = real)
-  let displayRemainingAfterDebit = newRealRemaining;
-  try {
-    const billingRate = await getBillingRateForLicense(freshLicense.id);
-    displayRemainingAfterDebit = computeDisplaySeconds(newRealRemaining, computeCompressionFactor(billingRate));
-  } catch { /* non-fatal — fall back to real seconds */ }
-
-  if (displayRemainingAfterDebit <= 0) {
+  if (newRealRemaining <= 0) {
     // Display time is exhausted — commercial entitlement ends here.
     // Auto-stop the session so reconnects and future /token calls are denied.
     const totalDuration = Math.floor((now.getTime() - billingStart.getTime()) / 1000);
