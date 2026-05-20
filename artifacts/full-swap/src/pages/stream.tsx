@@ -68,6 +68,133 @@ function formatTime(secs: number) {
 
 type DecartClient = Awaited<ReturnType<ReturnType<typeof createDecartClient>["realtime"]["connect"]>>;
 
+
+// ─── Electron Update Banner ───────────────────────────────────────────────────
+
+declare global {
+  interface Window {
+    isElectron?: boolean;
+    electronAPI?: {
+      forceRefresh: () => void;
+      installUpdate: () => void;
+      checkForUpdates: () => void;
+      markLaunched: () => void;
+      getTheme: () => Promise<string>;
+      onUpdateAvailable: (cb: (info: unknown) => void) => void;
+      onUpdateDownloaded: (cb: (info: unknown) => void) => void;
+      onThemeChanged: (cb: (theme: string) => void) => void;
+    };
+  }
+}
+
+function useElectronUpdateBanner() {
+  const [showBanner, setShowBanner] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.isElectron) return;
+
+    let initialEtag: string | null = null;
+    let dismissed = false;
+
+    const checkVersion = async () => {
+      if (dismissed) return;
+      try {
+        const res = await fetch('/', { method: 'HEAD', cache: 'no-store' });
+        const tag =
+          res.headers.get('etag') ||
+          res.headers.get('last-modified') ||
+          res.headers.get('x-deployment-id');
+        if (initialEtag === null) {
+          initialEtag = tag;
+        } else if (tag && tag !== initialEtag) {
+          setShowBanner(true);
+        }
+      } catch {
+        // network error — ignore, retry next interval
+      }
+    };
+
+    checkVersion();
+    const id = setInterval(checkVersion, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const dismiss = useCallback(() => setShowBanner(false), []);
+  const refresh = useCallback(() => {
+    window.electronAPI?.forceRefresh();
+  }, []);
+
+  return { showBanner, dismiss, refresh };
+}
+
+function ElectronRefreshBanner({ onRefresh, onDismiss }: { onRefresh: () => void; onDismiss: () => void }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 99999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '10px 20px',
+        background: 'linear-gradient(90deg, hsl(222 44% 8%) 0%, hsl(222 44% 10%) 100%)',
+        borderBottom: '1px solid hsl(187 100% 52% / 0.3)',
+        boxShadow: '0 2px 16px rgba(0,229,255,0.08)',
+        fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+        gap: '12px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+        <span style={{ fontSize: '15px', flexShrink: 0 }}>⚡</span>
+        <div style={{ minWidth: 0 }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
+            New version available —{' '}
+          </span>
+          <span style={{ fontSize: '13px', color: '#64748b' }}>
+            your site has been updated. Refresh to get the latest.
+          </span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        <button
+          onClick={onRefresh}
+          style={{
+            background: 'linear-gradient(135deg, #00e5ff, #0098b3)',
+            color: '#0a0f1a',
+            border: 'none',
+            borderRadius: '8px',
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Refresh Now
+        </button>
+        <button
+          onClick={onDismiss}
+          title='Dismiss'
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#475569',
+            cursor: 'pointer',
+            fontSize: '18px',
+            lineHeight: 1,
+            padding: '4px 6px',
+          }}
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TrialLockedOverlay() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -120,6 +247,8 @@ function TrialLockedOverlay() {
 
 
 export default function StreamPage() {
+  const { showBanner, dismiss: dismissBanner, refresh: refreshElectron } = useElectronUpdateBanner();
+
   const [, setLocation] = useLocation();
     const { data: _brData } = useQuery<{ rate: number } | null>({
       queryKey: ["/api/admin/billing-rate"],
@@ -1133,6 +1262,9 @@ export default function StreamPage() {
 
   return (
     <AppLayout>
+      {showBanner && (
+        <ElectronRefreshBanner onRefresh={refreshElectron} onDismiss={dismissBanner} />
+      )}
       {isElectron && licenseLoading && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "hsl(222 47% 4%)" }}>
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
