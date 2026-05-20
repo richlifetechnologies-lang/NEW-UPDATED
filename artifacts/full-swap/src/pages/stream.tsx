@@ -147,6 +147,7 @@ export default function StreamPage() {
   const refImageInputRef      = useRef<HTMLInputElement>(null);
   const trialLimitRef         = useRef<number>(Infinity);
   const streamStartRemRef     = useRef<number>(0);   // remaining secs captured at stream start for smooth countdown
+  const displayStartRemRef    = useRef<number>(0);   // TCE display secs at stream start (UI timer only — never billing)
   const activeSessionRef      = useRef<string | null>(null);
   const connectionStatusRef   = useRef<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
   // Wall-clock start for elapsed timer (avoids setInterval drift when tab is hidden/throttled)
@@ -614,6 +615,11 @@ export default function StreamPage() {
       // freshly-entered key (prevents countdown from immediately showing 0).
       const remainingAtStart     = licenseStatus.data?.remainingSeconds ?? validatedRemainingRef.current;
       streamStartRemRef.current  = remainingAtStart;
+      // TCE DISPLAY LAYER: seed display countdown from server's displayRemainingSeconds.
+      // Falls back to compressed real seconds if field not yet available.
+      const cfNow = liveRate != null && liveRate > 0 ? Math.round((liveRate / 2.3) * 1000) / 1000 : 1;
+      displayStartRemRef.current = (licenseStatus.data as any)?.displayRemainingSeconds
+        ?? Math.round(remainingAtStart * cfNow);
       // trialLimitRef intentionally not set: exhaustion is determined ONLY
       // by the server heartbeat returning { ok: false, reason: "no_time" }.
       // DO NOT kill the stream from the client-side elapsed timer — that would
@@ -948,7 +954,14 @@ export default function StreamPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (isStreaming && licenseStatus.data?.remainingSeconds !== undefined) {
+      // BILLING LAYER: resync real-seconds anchor every 5s server poll
       streamStartRemRef.current = licenseStatus.data.remainingSeconds + elapsedSecsRef.current;
+      // TCE DISPLAY LAYER: resync display-seconds anchor from server every 5s
+      // Keeps UI timer accurate without relying on client-side compression math
+      const serverDisplay = (licenseStatus.data as any)?.displayRemainingSeconds;
+      if (serverDisplay !== undefined) {
+        displayStartRemRef.current = serverDisplay + elapsedSecsRef.current;
+      }
     }
   }, [licenseStatus.data]); // re-run only when server data updates (every 5s)
 
@@ -971,6 +984,10 @@ export default function StreamPage() {
         // even before the new licenseStatus query finishes loading.
         validatedRemainingRef.current = data.remainingSeconds ?? 0;
         streamStartRemRef.current     = data.remainingSeconds ?? 0;
+        // Seed display ref immediately on key renewal (pre-load before status poll lands)
+        const cfRenew = liveRate != null && liveRate > 0 ? Math.round((liveRate / 2.3) * 1000) / 1000 : 1;
+        displayStartRemRef.current = data.displayRemainingSeconds
+          ?? Math.round((data.remainingSeconds ?? 0) * cfRenew);
         setLicenseExhausted(false); // reset exhaustion state on new license
         setRenewOk(true);
         const remMins = Math.floor((data.remainingSeconds ?? 0) / 60);
@@ -1060,32 +1077,50 @@ export default function StreamPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [stopStreamInternally, openPopout]);
 
-  // Smooth per-second countdown: streamStartRemRef anchors remaining secs at stream start.
-  // elapsedSecs ticks every second (client timer). Server polls every 5s recalibrate the ref.
-  // Formula: remaining = (remainingAtStart + elapsedAtLastPoll) - elapsedNow
-  //        = initialRemaining - elapsedSecs  ← exact Decart billing: 1s = 5 credits = $0.05
+  // ══════════════════════════════════════════════════════════════════════
+  // THREE-LAYER ARCHITECTURE (HOTFIX — FINAL CORRECT MODEL)
+  //
+  //  LAYER 1 — BILLING (real seconds, backend-only):
+  //    paidSecsRemaining = streamStartRemRef - elapsedSecs
+  //    → used ONLY for cost / Decart burn tracking — NEVER displayed
+  //
+  //  LAYER 2 — LICENSE CONTROL (server authority):
+  //    realRemainingSeconds + licenseStatus from /api/license/status
+  //    → access gating ONLY (noAccess, licenseExhausted) — NEVER for UI timer
+  //
+  //  LAYER 3 — TCE DISPLAY (UX experience — what users see):
+  //    displayPaidSecsRemaining = displayStartRemRef - elapsedSecs
+  //    Seeded from server's displayRemainingSeconds at stream start.
+  //    Resyncs from server every 5s heartbeat.
+  //    Counts down 1 display-second per real second.
+  //    NEVER used for stream termination, billing, or license checks.
+  // ══════════════════════════════════════════════════════════════════════
+
+  // LAYER 1: Real seconds — for billing tracking only, not rendered
   const paidSecsRemaining = isStreaming
     ? Math.max(0, streamStartRemRef.current - elapsedSecs)
     : remainingSeconds;
-
-  // ── License deduction bar ────────────────────────────────────────────────
-  // totalCapacitySecs = all minutes ever allocated on this key (1 min = 120 Decart credits)
   const totalCapacitySecs    = Math.max(1, minutesAllocated * 60);
   const liveRemainingBarSecs = Math.max(0, paidSecsRemaining);
-  const barPct = Math.max(0, Math.min(1, liveRemainingBarSecs / totalCapacitySecs));
 
-  // ── Time Compression Engine (TCE) — UX display layer ─────────────────────
-  // wallet.used_seconds and billing math are ALWAYS based on real seconds only.
-  // The TCE layer applies the compression_factor = billing_rate / 2.3 to the
-  // DISPLAYED remaining/total times so users see "virtual" compressed time.
-  // barPct is unchanged (still real-seconds based) so the visual bar is honest.
+  // TCE compression factor (billing_rate / 2.3 base rate)
   const TCE_BASE_RATE = 2.3;
   const tceCompressionFactor = liveRate != null && liveRate > 0
     ? Math.round((liveRate / TCE_BASE_RATE) * 1000) / 1000
     : 1;
-  const displayRemainingBarSecs  = Math.max(0, Math.round(liveRemainingBarSecs * tceCompressionFactor));
-  const displayTotalCapacitySecs = Math.max(1, Math.round(totalCapacitySecs * tceCompressionFactor));
-  const displayPaidSecsRemaining = Math.max(0, Math.round(paidSecsRemaining * tceCompressionFactor));
+
+  // LAYER 3: TCE display — all UI timers and bars use this exclusively
+  // Streaming: displayStartRemRef (server-seeded) minus real elapsed = 1 display-sec/tick
+  // Idle:      server's displayRemainingSeconds (or compressed real as fallback)
+  const displayPaidSecsRemaining: number = isStreaming
+    ? Math.max(0, displayStartRemRef.current - elapsedSecs)
+    : Math.max(0, (licenseStatus.data as any)?.displayRemainingSeconds
+        ?? Math.round(remainingSeconds * tceCompressionFactor));
+
+  // Bar and label all derive from the TCE display layer
+  const displayTotalCapacitySecs = Math.max(1, Math.round(minutesAllocated * 60 * tceCompressionFactor));
+  const displayRemainingBarSecs  = displayPaidSecsRemaining;
+  const barPct = Math.max(0, Math.min(1, displayPaidSecsRemaining / displayTotalCapacitySecs));
 
   return (
     <AppLayout>
