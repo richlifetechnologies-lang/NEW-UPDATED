@@ -1570,19 +1570,7 @@ export default function StreamPage() {
 
               {/* Step 4 */}
               <div className="space-y-1.5">
-                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 4 — OBS Audio Settings</p>
-                <ul className="space-y-0.5 text-xs text-muted-foreground list-none">
-                  <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />Settings → Audio → Sample Rate: <span className="text-foreground font-medium">44100 Hz</span>, Channels: <span className="text-foreground font-medium">Stereo</span></li>
-                  <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />Mic: your <span className="text-foreground font-medium">physical microphone</span></li>
-                  <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />Desktop Audio: set to <span className="text-foreground font-medium">Disabled</span> (prevents browser alert sounds leaking in)</li>
-                </ul>
-              </div>
-
-              <div className="border-t border-border" />
-
-              {/* Step 5 */}
-              <div className="space-y-1.5">
-                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 5 — Fine-tune sync</p>
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 4 — Fine-tune sync</p>
                 <ol className="space-y-1 text-xs text-muted-foreground list-none">
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
