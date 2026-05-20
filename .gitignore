@@ -48,3 +48,4 @@ Thumbs.db
 .cache/
 .local/
 # Railway deployment trigger
+# deploy
