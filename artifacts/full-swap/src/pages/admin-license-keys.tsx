@@ -125,11 +125,29 @@ export default function AdminLicenseKeysPage() {
     try {
       const res = await fetch(API("/admin/decart-keys"), { headers: authH() });
       if (res.ok) {
-        const allApis = await res.json();
-        setAvailableApis(allApis.filter((a: any) => a.isActive));
+        const body = await res.json();
+        // The endpoint returns { keys: [...] } — unwrap before filtering
+        const keysArray: any[] = Array.isArray(body) ? body : (body.keys ?? []);
+        setAvailableApis(
+          keysArray
+            .filter((a: any) => a.isActive)
+            .map((a: any) => ({
+              id: a.id,
+              label: a.label,
+              isActive: a.isActive,
+              // API returns assignedLicenseKeyCount; map to the frontend field name
+              assignedLicenseKeys: a.assignedLicenseKeyCount ?? a.assignedLicenseKeys ?? 0,
+              // API returns maxUsers; map to the frontend field name
+              maxLicenseKeys: a.maxUsers ?? a.maxLicenseKeys ?? null,
+            }))
+        );
+      } else {
+        toast({ title: "Failed to load API keys", description: `Status ${res.status} — check your admin session.`, variant: "destructive" });
       }
-    } catch {} finally { setLoadingApis(false); }
-  }, []);
+    } catch (err: any) {
+      toast({ title: "Failed to load API keys", description: err?.message ?? "Network error", variant: "destructive" });
+    } finally { setLoadingApis(false); }
+  }, [toast]);
 
   const fetchPricings = useCallback(async () => {
     setLoadingPricings(true);
