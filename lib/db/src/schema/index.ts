@@ -4,6 +4,7 @@ export * from "./invoices";
 export * from "./pricing";
 export * from "./settings";
 export * from "./device-fingerprints";
+export * from "./device-security-events";
 export * from "./chat-messages";
 export * from "./sub-admin-audit";
 export * from "./sub-admin-pricing";

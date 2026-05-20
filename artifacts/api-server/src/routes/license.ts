@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, licenseKeysTable, decartApiKeysTable, sessionsTable, pricingTable, financialTransactionsTable } from "@workspace/db";
+import { db, licenseKeysTable, decartApiKeysTable, sessionsTable, pricingTable, financialTransactionsTable, deviceSecurityEventsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { requireAdmin, requireLicense } from "../lib/auth";
 import { notifyLicenseActivated } from "../lib/notifications";
@@ -31,13 +31,34 @@ router.post("/validate", async (req, res) => {
 
     if (effectiveDeviceId) {
       if (license.deviceId && license.deviceId !== effectiveDeviceId) {
-        // Key is already bound to a different device
+        // Key is already bound to a different device — BLOCK and FLAG SECURITY EVENT
+        const clientIp = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.ip ?? null;
+        const userAgent = (req.headers["user-agent"] as string | undefined) ?? null;
+        db.insert(deviceSecurityEventsTable).values({
+          licenseKey: normalizedKey,
+          eventType: "blocked",
+          attemptedDeviceId: effectiveDeviceId,
+          boundDeviceId: license.deviceId,
+          ipAddress: clientIp,
+          userAgent,
+        }).catch(() => {});
         return res.json({ valid: false, error: "This license key is already activated on another device. Contact your admin to unbind it." });
       }
       if (!license.deviceId) {
         // First-time binding — attach device and record activation timestamp
         const now = new Date();
         await db.update(licenseKeysTable).set({ deviceId: effectiveDeviceId, activatedAt: now }).where(eq(licenseKeysTable.key, normalizedKey));
+        // Log the binding event so admin can see device metadata
+        const clientIp = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.ip ?? null;
+        const userAgent = (req.headers["user-agent"] as string | undefined) ?? null;
+        db.insert(deviceSecurityEventsTable).values({
+          licenseKey: normalizedKey,
+          eventType: "bound",
+          attemptedDeviceId: effectiveDeviceId,
+          boundDeviceId: null,
+          ipAddress: clientIp,
+          userAgent,
+        }).catch(() => {});
         notifyLicenseActivated({ key: normalizedKey, minutesAllocated: license.minutesAllocated ?? 0, activatedAt: now, deviceId: effectiveDeviceId }).catch(() => {});
       }
     } else if (!license.activatedAt) {

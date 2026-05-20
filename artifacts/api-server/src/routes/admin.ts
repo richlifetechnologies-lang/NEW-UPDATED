@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTable, chatMessagesTable, deviceFingerprintsTable, subAdminAuditTable, subAdminPricingTable, decartApiKeysTable, licenseKeysTable, financialTransactionsTable, decartCreditSettingsTable, billingRateAuditTable } from "@workspace/db";
+import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTable, chatMessagesTable, deviceFingerprintsTable, subAdminAuditTable, subAdminPricingTable, decartApiKeysTable, licenseKeysTable, financialTransactionsTable, decartCreditSettingsTable, billingRateAuditTable, deviceSecurityEventsTable } from "@workspace/db";
 import { eq, desc, sql, and, gte, isNotNull, lte } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth";
 import { hashPassword, generateToken } from "../lib/auth";
@@ -2324,6 +2324,39 @@ router.get("/billing-rate/audit", requireAdmin, async (_req, res) => {
     })));
   } catch (err) {
     res.status(500).json({ error: "Failed to load billing rate audit log" });
+  }
+});
+
+// GET /admin/device-security-events
+// Returns device binding and blocked-access events for admin review.
+// Query params: limit (default 100), licenseKey (optional filter)
+router.get("/device-security-events", requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+    const licenseKeyFilter = (req.query.licenseKey as string | undefined)?.trim().toUpperCase();
+
+    const rows = await db
+      .select()
+      .from(deviceSecurityEventsTable)
+      .orderBy(desc(deviceSecurityEventsTable.createdAt))
+      .limit(limit);
+
+    const filtered = licenseKeyFilter
+      ? rows.filter(r => r.licenseKey === licenseKeyFilter)
+      : rows;
+
+    res.json(filtered.map(r => ({
+      id: r.id,
+      licenseKey: r.licenseKey,
+      eventType: r.eventType,
+      attemptedDeviceId: r.attemptedDeviceId,
+      boundDeviceId: r.boundDeviceId,
+      ipAddress: r.ipAddress,
+      userAgent: r.userAgent,
+      createdAt: r.createdAt.toISOString(),
+    })));
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load device security events" });
   }
 });
 

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Key, Plus, Trash2, Unplug, Plug, RefreshCw, Copy, CheckCircle, XCircle, Clock, Monitor, Wifi, Repeat } from "lucide-react";
+import { Key, Plus, Trash2, Unplug, Plug, RefreshCw, Copy, CheckCircle, XCircle, Clock, Monitor, Wifi, Repeat, ShieldAlert, ShieldCheck, ChevronDown, ChevronUp } from "lucide-react";
 
 const API = (p: string) => `/api${p}`;
 const token = () => localStorage.getItem("fullswap_admin_token") ?? localStorage.getItem("fullswap_token") ?? "";
@@ -19,6 +19,17 @@ type LicenseKey = {
   usedSeconds?: number;
   remainingSeconds?: number;
   assignedDecartKeyId?: number | null;
+};
+
+type DeviceSecurityEvent = {
+  id: number;
+  licenseKey: string;
+  eventType: "bound" | "blocked";
+  attemptedDeviceId: string;
+  boundDeviceId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
 };
 
 type DecartApiKey = {
@@ -89,6 +100,9 @@ export default function AdminLicenseKeysPage() {
   const [bindingKey, setBindingKey] = useState<string | null>(null);
   const [bindDeviceId, setBindDeviceId] = useState("");
   const [binding, setBinding] = useState(false);
+  const [securityEvents, setSecurityEvents] = useState<DeviceSecurityEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [showSecurityPanel, setShowSecurityPanel] = useState(false);
 
   const fetchKeys = useCallback(async () => {
     setLoading(true);
@@ -96,6 +110,14 @@ export default function AdminLicenseKeysPage() {
       const res = await fetch(API("/license/list"), { headers: authH() });
       if (res.ok) setKeys(await res.json());
     } catch {} finally { setLoading(false); }
+  }, []);
+
+  const fetchSecurityEvents = useCallback(async () => {
+    setLoadingEvents(true);
+    try {
+      const res = await fetch(API("/admin/device-security-events?limit=100"), { headers: authH() });
+      if (res.ok) setSecurityEvents(await res.json());
+    } catch {} finally { setLoadingEvents(false); }
   }, []);
 
   const fetchApis = useCallback(async () => {
@@ -121,6 +143,10 @@ export default function AdminLicenseKeysPage() {
   }, []);
 
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
+
+  useEffect(() => {
+    if (showSecurityPanel) fetchSecurityEvents();
+  }, [showSecurityPanel, fetchSecurityEvents]);
 
   useEffect(() => {
     if (showGen) {
@@ -390,6 +416,89 @@ export default function AdminLicenseKeysPage() {
             </TableBody>
           </Table>
         </div>
+      </div>
+
+      {/* Device Security Events Panel */}
+      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
+        <button
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-foreground hover:bg-white/5 transition-colors"
+          style={{ background: "hsl(222 44% 6%)" }}
+          onClick={() => setShowSecurityPanel(v => !v)}
+        >
+          <span className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-amber-400" />
+            Device Security Events
+            {securityEvents.filter(e => e.eventType === "blocked").length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">
+                {securityEvents.filter(e => e.eventType === "blocked").length} blocked
+              </span>
+            )}
+          </span>
+          <span className="flex items-center gap-2 text-muted-foreground">
+            <span className="text-xs font-normal">License key → device mapping &amp; violation log</span>
+            {showSecurityPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </span>
+        </button>
+
+        {showSecurityPanel && (
+          <div className="border-t" style={{ borderColor: "hsl(222 40% 11%)" }}>
+            <div className="flex items-center justify-between px-4 py-2" style={{ background: "hsl(222 47% 4%)" }}>
+              <p className="text-xs text-muted-foreground font-mono">Last 100 events · newest first</p>
+              <Button variant="ghost" size="sm" onClick={fetchSecurityEvents} disabled={loadingEvents} className="h-6 px-2 text-xs">
+                <RefreshCw className={`w-3 h-3 mr-1 ${loadingEvents ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow style={{ background: "hsl(222 44% 6%)" }}>
+                  <TableHead className="text-muted-foreground font-mono text-xs">Event</TableHead>
+                  <TableHead className="text-muted-foreground font-mono text-xs">License Key</TableHead>
+                  <TableHead className="text-muted-foreground font-mono text-xs">Attempted Device</TableHead>
+                  <TableHead className="text-muted-foreground font-mono text-xs hidden md:table-cell">Bound Device</TableHead>
+                  <TableHead className="text-muted-foreground font-mono text-xs hidden lg:table-cell">IP</TableHead>
+                  <TableHead className="text-muted-foreground font-mono text-xs hidden lg:table-cell">User Agent</TableHead>
+                  <TableHead className="text-muted-foreground font-mono text-xs">Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingEvents ? (
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />Loading...
+                  </TableCell></TableRow>
+                ) : securityEvents.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <ShieldCheck className="w-6 h-6 mx-auto mb-2 text-emerald-400 opacity-60" />
+                    No security events yet. Events are logged when devices bind or are blocked.
+                  </TableCell></TableRow>
+                ) : securityEvents.map(ev => (
+                  <TableRow key={ev.id} style={{ borderColor: "hsl(222 40% 11%)" }}>
+                    <TableCell>
+                      {ev.eventType === "blocked" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-red-500/10 text-red-400 border-red-500/20">
+                          <ShieldAlert className="w-3 h-3" /> BLOCKED
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                          <ShieldCheck className="w-3 h-3" /> BOUND
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-primary">{ev.licenseKey}</TableCell>
+                    <TableCell className="font-mono text-xs text-foreground">{ev.attemptedDeviceId.slice(0, 20)}{ev.attemptedDeviceId.length > 20 ? "…" : ""}</TableCell>
+                    <TableCell className="hidden md:table-cell font-mono text-xs text-muted-foreground">
+                      {ev.boundDeviceId ? `${ev.boundDeviceId.slice(0, 16)}…` : "—"}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell font-mono text-xs text-muted-foreground">{ev.ipAddress ?? "—"}</TableCell>
+                    <TableCell className="hidden lg:table-cell text-xs text-muted-foreground max-w-48 truncate" title={ev.userAgent ?? ""}>
+                      {ev.userAgent ? ev.userAgent.slice(0, 40) + (ev.userAgent.length > 40 ? "…" : "") : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmt(ev.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </div>
 
       {/* Generate Dialog */}
