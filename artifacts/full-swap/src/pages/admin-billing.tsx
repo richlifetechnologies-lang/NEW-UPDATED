@@ -1,18 +1,25 @@
 /**
- * admin-billing.tsx — Time Compression Engine Global Control Center
- * Controls the global compression profile (billing rate).
- * UI: operational control room — NOT a billing/pricing page.
+ * admin-billing.tsx — Billing Rate Control Center
+ *
+ * The global billing rate controls how fast wallet minutes drain relative to
+ * the real Decart API cost (2.3 cr/s).
+ *
+ * Key formula:
+ *   deduction_rate   = billing_rate / 2.3
+ *   real_stream_min  = wallet_min × (2.3 / billing_rate)
+ *   profit_per_sec   = billing_rate - 2.3   (credits)
+ *   margin %         = (billing_rate - 2.3) / billing_rate × 100
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AdminLayout } from "@/components/admin-layout";
 import { useToast } from "@/hooks/use-toast";
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, CheckCircle2,
-  ChevronRight, Clock, Loader2, RefreshCw, RotateCcw, Save,
-  Timer, TrendingUp, Wifi, Zap,
+  Clock, Loader2, RefreshCw, RotateCcw, Save,
+  Timer, TrendingUp, Wifi, Zap, DollarSign,
 } from "lucide-react";
 
-const COST_RATE = 2.3;
+const COST_RATE = 2.3; // Decart API fixed cost — never changes
 
 const authH = () => ({
   "Content-Type": "application/json",
@@ -31,8 +38,8 @@ async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T | null> {
 interface RateInfo { rate: number; apiCostRate: number; realStreamMinutesPerLicenseHour: number; }
 interface BrkKey {
   licenseKeyId: number; licenseKey: string; isActive: boolean;
-  effectiveRate: number; compressionFactor: number; usedSeconds: number;
-  displaySecondsUsed: number; displaySecondsRemaining: number; remainingSeconds: number;
+  effectiveRate: number; usedSeconds: number;
+  remainingSeconds: number;
   isLive: boolean; activeSessionCount: number; rateSource: string;
 }
 interface BrkResponse { keys: BrkKey[]; globalBillingRate: number; apiCostRate: number; }
@@ -41,19 +48,32 @@ interface AuditRow {
   changedByEmail: string | null; note: string | null; createdAt: string;
 }
 
-// ── Compression Profiles ──────────────────────────────────────────────────────
+// ── Rate Profiles ─────────────────────────────────────────────────────────────
+// Each profile sets the billing rate. Higher rate = more profit margin but
+// shorter real streaming time per wallet-minute.
 const PROFILES = [
-  { id: "realtime",   label: "REAL-TIME",  rate: 2.3,  desc: "No compression · 1:1 display",     color: "hsl(215 20% 55%)" },
-  { id: "light",      label: "LIGHT",      rate: 3,    desc: "Light acceleration · 1.30× factor", color: "#26de81" },
-  { id: "normal",     label: "NORMAL",     rate: 4,    desc: "Standard profile · 1.74× factor",  color: "hsl(187 100% 52%)" },
-  { id: "aggressive", label: "AGGRESSIVE", rate: 6,    desc: "High compression · 2.61× factor",  color: "#fed330" },
-  { id: "extreme",    label: "EXTREME",    rate: 10,   desc: "Max compression · 4.35× factor",   color: "#fc5c65" },
+  { id: "breakeven",  label: "BREAKEVEN", rate: 2.3,  color: "hsl(215 20% 55%)" },
+  { id: "light",      label: "LIGHT",     rate: 3,    color: "#26de81"           },
+  { id: "standard",   label: "STANDARD",  rate: 4,    color: "hsl(187 100% 52%)"},
+  { id: "high",       label: "HIGH",      rate: 6,    color: "#fed330"           },
+  { id: "max",        label: "MAX",       rate: 10,   color: "#fc5c65"           },
 ] as const;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function cf(rate: number): number {
-  return Math.round((rate / COST_RATE) * 1000) / 1000;
+// ── Math helpers ──────────────────────────────────────────────────────────────
+/** Profit margin at a given billing rate */
+function margin(rate: number): number {
+  return rate > 0 ? Math.round(((rate - COST_RATE) / rate) * 1000) / 10 : 0;
 }
+/** Real streaming minutes a wallet-hour yields at this billing rate */
+function realMinPerWalletHour(rate: number): number {
+  return rate > 0 ? Math.round((60 * COST_RATE / rate) * 10) / 10 : 60;
+}
+/** Real streaming seconds remaining from wallet seconds remaining */
+function realStreamRemaining(walletSec: number, rate: number): number {
+  return rate > 0 ? Math.round(walletSec * COST_RATE / rate) : walletSec;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtSec(s: number): string {
   if (!s || s <= 0) return "0s";
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -68,18 +88,6 @@ function fmtKey(k: string): string {
 function fmtDate(iso: string): string {
   try { return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
   catch { return iso; }
-}
-function healthFor(factor: number, globalCF: number): "good" | "warn" | "drift" {
-  const diff = Math.abs(factor - globalCF);
-  if (diff < 0.05) return "good";
-  if (diff < 0.2) return "warn";
-  return "drift";
-}
-function hColor(h: "good" | "warn" | "drift"): string {
-  return h === "good" ? "#26de81" : h === "warn" ? "#fed330" : "#fc5c65";
-}
-function hBg(h: "good" | "warn" | "drift"): string {
-  return h === "good" ? "rgba(38,222,129,0.1)" : h === "warn" ? "rgba(254,211,48,0.1)" : "rgba(252,92,101,0.1)";
 }
 
 function SCard({ label, value, sub, color, icon: Icon, pulse }: {
@@ -142,13 +150,10 @@ export default function AdminBillingPage() {
 
   useEffect(() => { if (tab === "audit") loadAudit(); }, [tab, loadAudit]);
 
-  const currentRate = rateInfo?.rate ?? null;
-  const inputVal    = parseFloat(inputRate);
-  // previewRate is null until the live rate loads — NEVER falls back to a hardcoded number.
-  // Only two valid sources: (1) a valid number the admin typed, (2) the live DB rate.
+  const currentRate  = rateInfo?.rate ?? null;
+  const inputVal     = parseFloat(inputRate);
   const previewRate: number | null = Number.isFinite(inputVal) && inputVal > 0 ? inputVal : currentRate;
-  const previewCF: number | null   = previewRate != null ? cf(previewRate) : null;
-  const dirty       = currentRate !== null && inputVal !== currentRate;
+  const dirty        = currentRate !== null && inputVal !== currentRate;
 
   const save = async () => {
     if (!Number.isFinite(inputVal) || inputVal < 0.1 || inputVal > 100) {
@@ -163,7 +168,10 @@ export default function AdminBillingPage() {
     });
     setSaving(false);
     if (res.ok) {
-      toast({ title: "Compression profile updated", description: `New rate: ${inputVal} cr/s · CF: ${cf(inputVal)}×` });
+      toast({
+        title: "Billing rate updated",
+        description: `New rate: ${inputVal} cr/s · Margin: ${margin(inputVal)}% · ${realMinPerWalletHour(inputVal)}m real stream per wallet-hour`,
+      });
       fetchLive();
       if (tab === "audit") loadAudit();
     } else {
@@ -172,21 +180,20 @@ export default function AdminBillingPage() {
     }
   };
 
-  // Aggregate metrics from per-key data
-  const keys          = Array.isArray(brkData?.keys) ? brkData!.keys : [];
-  const globalCFNow   = currentRate ? cf(currentRate) : 1;
-  const totalReal     = keys.reduce((a, k) => a + k.usedSeconds, 0);
-  const totalDisplay  = keys.reduce((a, k) => a + k.displaySecondsUsed, 0);
-  const timeSaved     = Math.max(0, totalDisplay - totalReal);
-  const activeStreams  = keys.filter(k => k.isLive).length;
-  const liveDecartBurn = Math.round(totalReal * COST_RATE * 100) / 100;
-  const driftAlerts   = keys.filter(k => {
-    if (!k.usedSeconds) return false;
-    const actualCF = k.displaySecondsUsed / k.usedSeconds;
-    return Math.abs(actualCF - globalCFNow) > 0.15;
-  }).length;
+  // Aggregate per-key data
+  const keys         = Array.isArray(brkData?.keys) ? brkData!.keys : [];
+  const activeStreams = keys.filter(k => k.isLive).length;
+  const totalWalletUsed = keys.reduce((a, k) => a + k.usedSeconds, 0);
+  // Total revenue = SUM(used_seconds × effective_rate) per key
+  const totalRevenue = Math.round(keys.reduce((a, k) => a + k.usedSeconds * k.effectiveRate, 0) * 100) / 100;
+  // Total Decart cost = SUM(real_stream_sec × 2.3) per key
+  const totalCost    = Math.round(keys.reduce((a, k) => {
+    const realSec = k.effectiveRate > 0 ? k.usedSeconds * COST_RATE / k.effectiveRate : k.usedSeconds;
+    return a + realSec * COST_RATE;
+  }, 0) * 100) / 100;
+  const totalProfit  = Math.round((totalRevenue - totalCost) * 100) / 100;
 
-  // Nearest profile — null until live rate loads; never uses a hardcoded default.
+  // Nearest profile for current rate
   const nearestProfile = currentRate != null
     ? PROFILES.reduce((best, p) =>
         Math.abs(p.rate - currentRate) < Math.abs(best.rate - currentRate) ? p : best
@@ -198,18 +205,20 @@ export default function AdminBillingPage() {
       )
     : null;
 
-  // Preview math — null until previewCF is known; never display stale/fake numbers.
-  const realMinFor60Display = previewCF != null && previewCF > 0
-    ? Math.round(60 / previewCF * 10) / 10
+  // Preview metrics for the "Rate Impact" panel
+  const previewMargin     = previewRate != null ? margin(previewRate)              : null;
+  const previewRealMin    = previewRate != null ? realMinPerWalletHour(previewRate): null;
+  const previewProfit60   = previewRate != null
+    ? Math.round((previewRate - COST_RATE) * 3600 * 100) / 100  // credits profit per wallet-hour
     : null;
-  const displayMinFor60Real = previewCF != null
-    ? Math.round(60 * previewCF * 10) / 10
+  const previewDecartCost60 = previewRate != null && previewRealMin != null
+    ? Math.round(previewRealMin * 60 * COST_RATE * 100) / 100  // Decart credits for 1 wallet-hour
     : null;
 
   const tabs: { id: TabId; label: string; icon: any }[] = [
-    { id: "control", label: "Engine Control",  icon: Zap },
-    { id: "keys",    label: "Per-Key Monitor", icon: Activity },
-    { id: "audit",   label: "Change Log",      icon: RotateCcw },
+    { id: "control", label: "Rate Control",   icon: Zap      },
+    { id: "keys",    label: "Per-Key Monitor",icon: Activity  },
+    { id: "audit",   label: "Change Log",     icon: RotateCcw},
   ];
 
   return (
@@ -220,11 +229,11 @@ export default function AdminBillingPage() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Timer className="w-6 h-6 text-primary" />
-              Time Compression Engine
+              <DollarSign className="w-6 h-6 text-primary" />
+              Billing Rate Control Center
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Global compression control · Real vs display time · Operational control center
+              Set the billing rate · Controls wallet drain speed &amp; profit margin vs Decart API cost (2.3 cr/s)
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -248,16 +257,66 @@ export default function AdminBillingPage() {
           <>
             {/* ── Live Summary Cards ── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <SCard label="Global Compression Factor" value={`${globalCFNow}×`} sub={`${currentRate} cr/s global rate`} color="hsl(187 100% 52%)" icon={Timer} pulse />
-              <SCard label="Real Seconds Burned"       value={fmtSec(totalReal)}    sub="wallet.used_seconds truth"    color="hsl(var(--foreground))" icon={Clock} />
-              <SCard label="Display Seconds Presented" value={fmtSec(totalDisplay)} sub="user-facing TCE time"          color="hsl(187 100% 52%)"      icon={TrendingUp} />
-              <SCard label="Time Saved via TCE"        value={fmtSec(timeSaved)}    sub={`${timeSaved > 0 ? "+" : ""}${Math.round((timeSaved / Math.max(1, totalReal)) * 100)}% expansion`} color="#26de81" icon={Zap} />
+              <SCard
+                label="Global Billing Rate"
+                value={currentRate != null ? `${currentRate} cr/s` : "—"}
+                sub={nearestProfile?.label ?? "Loading…"}
+                color="hsl(187 100% 52%)"
+                icon={Zap}
+                pulse
+              />
+              <SCard
+                label="Profit Margin"
+                value={currentRate != null ? `${margin(currentRate)}%` : "—"}
+                sub={currentRate != null ? `${Math.round((currentRate - COST_RATE) * 100) / 100} cr/s profit` : ""}
+                color={currentRate != null && currentRate > COST_RATE ? "#26de81" : "#fc5c65"}
+                icon={TrendingUp}
+              />
+              <SCard
+                label="Real Stream per Wallet-Hour"
+                value={currentRate != null ? `${realMinPerWalletHour(currentRate)}m` : "—"}
+                sub="real streaming minutes per 60 wallet-min"
+                color="hsl(var(--foreground))"
+                icon={Clock}
+              />
+              <SCard
+                label="Active Streams"
+                value={String(activeStreams)}
+                sub="live right now"
+                color={activeStreams > 0 ? "#26de81" : "hsl(215 20% 55%)"}
+                icon={Wifi}
+                pulse={activeStreams > 0}
+              />
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <SCard label="Active Streams"     value={String(activeStreams)}    sub="live right now"        color={activeStreams > 0 ? "#26de81" : "hsl(215 20% 55%)"}  icon={Wifi}  pulse={activeStreams > 0} />
-              <SCard label="Compression Health" value={nearestProfile?.label ?? "—"}   sub={nearestProfile?.desc ?? "Loading…"}   color={nearestProfile?.color ?? "hsl(215 20% 55%)"}   icon={BarChart3} />
-              <SCard label="Live Decart Burn"   value={`${liveDecartBurn} cr`}   sub="real_sec × 2.3 fixed"  color="hsl(215 20% 55%)"                                     icon={Zap} />
-              <SCard label="Drift Alerts"       value={String(driftAlerts)}      sub="TCE factor mismatch"   color={driftAlerts > 0 ? "#fed330" : "hsl(215 20% 55%)"}    icon={AlertTriangle} />
+              <SCard
+                label="Total Wallet Seconds Used"
+                value={fmtSec(totalWalletUsed)}
+                sub="billing seconds across all keys"
+                color="hsl(var(--foreground))"
+                icon={Timer}
+              />
+              <SCard
+                label="Total Revenue"
+                value={`${totalRevenue} cr`}
+                sub="wallet_used × billing_rate"
+                color="hsl(187 100% 52%)"
+                icon={BarChart3}
+              />
+              <SCard
+                label="Total Decart Cost"
+                value={`${totalCost} cr`}
+                sub="real_stream_sec × 2.3 fixed"
+                color="hsl(215 20% 55%)"
+                icon={Zap}
+              />
+              <SCard
+                label="Net Profit"
+                value={`${totalProfit} cr`}
+                sub="revenue − decart cost"
+                color={totalProfit >= 0 ? "#26de81" : "#fc5c65"}
+                icon={DollarSign}
+              />
             </div>
 
             {/* ── Tab Nav ── */}
@@ -274,39 +333,36 @@ export default function AdminBillingPage() {
               ))}
             </div>
 
-            {/* ════════ ENGINE CONTROL ════════ */}
+            {/* ════════ RATE CONTROL ════════ */}
             {tab === "control" && (
               <div className="space-y-6">
 
-                {/* Current State Banner */}
+                {/* Current Rate Banner */}
                 <div className="rounded-xl p-5 flex items-center gap-6 flex-wrap"
                   style={{ background: "hsl(222 44% 5%)", border: `2px solid ${nearestProfile?.color ?? "hsl(222 40% 14%)"}30` }}>
                   <div>
-                    <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1">Active Compression Profile</p>
+                    <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1">Active Billing Profile</p>
                     <p className="text-4xl font-black font-mono" style={{ color: nearestProfile?.color ?? "hsl(215 20% 55%)" }}>
                       {nearestProfile?.label ?? "—"}
                     </p>
                   </div>
                   <div className="flex flex-col gap-1 text-xs font-mono">
                     <span className="text-muted-foreground">Rate: <span className="text-foreground font-bold">{currentRate ?? "—"} cr/s</span></span>
-                    <span className="text-muted-foreground">Factor: <span style={{ color: "hsl(187 100% 52%)" }} className="font-bold">{globalCFNow}×</span></span>
-                    <span className="text-muted-foreground">API Cost: <span className="text-foreground font-bold">{COST_RATE} cr/s fixed</span></span>
+                    <span className="text-muted-foreground">Margin: <span style={{ color: nearestProfile?.color ?? "hsl(215 20% 55%)" }} className="font-bold">{currentRate != null ? `${margin(currentRate)}%` : "—"}</span></span>
+                    <span className="text-muted-foreground">Decart Cost: <span className="text-foreground font-bold">{COST_RATE} cr/s fixed</span></span>
                   </div>
-                  <div className="ml-auto">
-                    {/* Animated compression meter */}
-                    <div className="flex flex-col items-end gap-1">
-                      <p className="text-[10px] font-mono text-muted-foreground">Compression Intensity</p>
-                      <div className="w-48 h-3 rounded-full overflow-hidden" style={{ background: "hsl(222 44% 11%)" }}>
-                        <div className="h-full rounded-full transition-all duration-700"
-                          style={{
-                            width: `${Math.min(100, ((globalCFNow - 1) / 3.35) * 100)}%`,
-                            background: `linear-gradient(90deg, #26de81, ${nearestProfile?.color ?? "hsl(215 20% 55%)"})`,
-                          }} />
-                      </div>
-                      <p className="text-[10px] font-mono" style={{ color: nearestProfile?.color ?? "hsl(215 20% 55%)" }}>
-                        {globalCFNow.toFixed(3)}× expansion factor
-                      </p>
+                  <div className="ml-auto flex flex-col items-end gap-1">
+                    <p className="text-[10px] font-mono text-muted-foreground">Profit Margin Meter</p>
+                    <div className="w-48 h-3 rounded-full overflow-hidden" style={{ background: "hsl(222 44% 11%)" }}>
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, currentRate != null ? margin(currentRate) : 0))}%`,
+                          background: `linear-gradient(90deg, #26de81, ${nearestProfile?.color ?? "hsl(215 20% 55%)"})`,
+                        }} />
                     </div>
+                    <p className="text-[10px] font-mono" style={{ color: nearestProfile?.color ?? "hsl(215 20% 55%)" }}>
+                      {currentRate != null ? `${margin(currentRate)}% margin` : "—"}
+                    </p>
                   </div>
                 </div>
 
@@ -314,14 +370,18 @@ export default function AdminBillingPage() {
                 <div className="rounded-xl p-5 space-y-5"
                   style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
                   <div>
-                    <p className="text-sm font-bold font-mono text-foreground mb-1">Global Compression Profile</p>
-                    <p className="text-xs text-muted-foreground font-mono">Select a profile or enter a custom rate. Changes apply immediately on next heartbeat.</p>
+                    <p className="text-sm font-bold font-mono text-foreground mb-1">Billing Rate Profiles</p>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      Higher rate = faster wallet drain + more profit. Changes apply immediately on next heartbeat.
+                    </p>
                   </div>
 
                   {/* Profile buttons */}
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                     {PROFILES.map(p => {
                       const isActive = Math.abs(inputVal - p.rate) < 0.05;
+                      const m = margin(p.rate);
+                      const realMin = realMinPerWalletHour(p.rate);
                       return (
                         <button key={p.id}
                           onClick={() => setInputRate(String(p.rate))}
@@ -332,10 +392,11 @@ export default function AdminBillingPage() {
                           <p className="text-xs font-mono font-black" style={{ color: isActive ? p.color : "hsl(215 20% 55%)" }}>
                             {p.label}
                           </p>
-                          <p className="text-lg font-bold font-mono" style={{ color: isActive ? p.color : "hsl(var(--foreground))" }}>
-                            {cf(p.rate)}×
+                          <p className="text-base font-bold font-mono" style={{ color: isActive ? p.color : "hsl(var(--foreground))" }}>
+                            {m}%
                           </p>
                           <p className="text-[10px] font-mono text-muted-foreground text-center leading-tight">{p.rate} cr/s</p>
+                          <p className="text-[9px] font-mono text-muted-foreground text-center">{realMin}m/hr real</p>
                         </button>
                       );
                     })}
@@ -344,13 +405,13 @@ export default function AdminBillingPage() {
                   {/* Slider */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-                      <span>2.3 cr/s (1.0×)</span>
+                      <span>2.3 cr/s (0% margin)</span>
                       <span className="font-bold" style={{ color: inputProfile?.color ?? "hsl(215 20% 55%)" }}>
                         {previewRate != null
-                          ? `${Number.isFinite(inputVal) ? inputVal : previewRate} cr/s → ${previewCF}× compression`
+                          ? `${Number.isFinite(inputVal) ? inputVal : previewRate} cr/s → ${margin(previewRate)}% margin`
                           : "Loading…"}
                       </span>
-                      <span>10+ cr/s (4.35×+)</span>
+                      <span>10+ cr/s (77%+ margin)</span>
                     </div>
                     <input
                       type="range" min="2.3" max="12" step="0.1"
@@ -378,8 +439,8 @@ export default function AdminBillingPage() {
                     </div>
                     <div className="text-xs font-mono text-muted-foreground">
                       → <span style={{ color: "hsl(187 100% 52%)" }} className="font-bold">
-                        {previewCF != null ? `${previewCF}×` : "—"}
-                      </span> compression
+                        {previewRate != null ? `${margin(previewRate)}% margin` : "—"}
+                      </span>
                     </div>
                     <button onClick={save} disabled={saving || !dirty}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40"
@@ -387,7 +448,7 @@ export default function AdminBillingPage() {
                         ? { background: `${inputProfile.color}18`, color: inputProfile.color, border: `1px solid ${inputProfile.color}40` }
                         : { background: "hsl(222 44% 4%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
                       {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                      {saving ? "Applying…" : dirty ? "Apply Profile" : "Saved"}
+                      {saving ? "Applying…" : dirty ? "Apply Rate" : "Saved"}
                     </button>
                     {dirty && currentRate !== null && (
                       <button onClick={() => setInputRate(String(currentRate))}
@@ -401,81 +462,81 @@ export default function AdminBillingPage() {
                     <div className="flex items-center gap-2 text-xs font-mono p-3 rounded-lg"
                       style={{ background: "rgba(252,92,101,0.08)", border: "1px solid rgba(252,92,101,0.25)", color: "#fc5c65" }}>
                       <AlertTriangle className="w-4 h-4 shrink-0" />
-                      Extreme compression. License keys will deplete much faster than displayed time. Confirm intent before applying.
+                      Very high billing rate. Wallet minutes will drain much faster than real time. Confirm intent before applying.
                     </div>
                   )}
                 </div>
 
-                {/* Live Preview Panel */}
+                {/* Rate Impact Preview */}
                 <div className="rounded-xl p-5 space-y-4"
                   style={{ background: "hsl(222 44% 5%)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                     <p className="text-xs font-mono font-bold uppercase tracking-wider" style={{ color: "hsl(187 100% 52%)" }}>
-                      Live Compression Preview — {inputProfile?.label ?? "Loading…"} profile
+                      Rate Impact Preview — {inputProfile?.label ?? "Loading…"} ({previewRate} cr/s)
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Real → Display */}
+                    {/* Wallet → Real Stream */}
                     <div className="rounded-lg p-4 space-y-3" style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 12%)" }}>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">60 Real Minutes →</p>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">60 Wallet-Minutes gives →</p>
                       <div className="flex items-center gap-3">
                         <div>
                           <p className="text-3xl font-black font-mono text-foreground">60<span className="text-lg">m</span></p>
-                          <p className="text-[10px] font-mono text-muted-foreground">real consumed</p>
+                          <p className="text-[10px] font-mono text-muted-foreground">wallet allocation</p>
                         </div>
-                        <ChevronRight className="w-5 h-5 text-primary shrink-0" />
+                        <ArrowRight className="w-5 h-5 text-primary shrink-0" />
                         <div>
                           <p className="text-3xl font-black font-mono" style={{ color: "hsl(187 100% 52%)" }}>
-                            {displayMinFor60Real != null ? <>{displayMinFor60Real}<span className="text-lg">m</span></> : "—"}
+                            {previewRealMin != null ? <>{previewRealMin}<span className="text-lg">m</span></> : "—"}
                           </p>
-                          <p className="text-[10px] font-mono text-muted-foreground">displayed to user</p>
+                          <p className="text-[10px] font-mono text-muted-foreground">real streaming minutes</p>
                         </div>
                       </div>
-                      <div className="h-1.5 rounded-full" style={{ background: "hsl(222 44% 11%)" }}>
-                        <div className="h-full rounded-full" style={{ width: "100%", background: "hsl(215 20% 45%)" }} />
-                      </div>
-                      <div className="h-1.5 rounded-full" style={{ background: "hsl(222 44% 11%)" }}>
-                        <div className="h-full rounded-full transition-all duration-700"
-                          style={{ width: `${Math.min(100, (previewCF ?? 0) * 100)}%`, background: "hsl(187 100% 52%)" }} />
-                      </div>
+                      <p className="text-[11px] font-mono text-muted-foreground">
+                        Deduction speed: <span className="text-foreground font-bold">
+                          {previewRate != null ? `${Math.round(previewRate / COST_RATE * 1000) / 1000}× faster` : "—"}
+                        </span> than real time at {COST_RATE} cr/s base
+                      </p>
                     </div>
 
-                    {/* Display → Real */}
+                    {/* Profit breakdown */}
                     <div className="rounded-lg p-4 space-y-3" style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 12%)" }}>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">60 Display Minutes consumed by →</p>
-                      <div className="flex items-center gap-3">
-                        <div>
-                          <p className="text-3xl font-black font-mono text-foreground">60<span className="text-lg">m</span></p>
-                          <p className="text-[10px] font-mono text-muted-foreground">displayed time</p>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Per 60 Wallet-Minutes Sold</p>
+                      <div className="space-y-2 font-mono text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Revenue charged</span>
+                          <span className="text-foreground font-bold">{previewRate != null ? `${Math.round(previewRate * 3600)} cr` : "—"}</span>
                         </div>
-                        <ChevronRight className="w-5 h-5 text-primary shrink-0" />
-                        <div>
-                          <p className="text-3xl font-black font-mono" style={{ color: previewCF != null ? (previewCF > 1 ? "#26de81" : "#fc5c65") : "hsl(215 20% 55%)" }}>
-                            {realMinFor60Display != null ? <>{realMinFor60Display}<span className="text-lg">m</span></> : "—"}
-                          </p>
-                          <p className="text-[10px] font-mono text-muted-foreground">real seconds consumed</p>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Decart API cost</span>
+                          <span className="text-foreground font-bold">{previewDecartCost60 != null ? `${previewDecartCost60} cr` : "—"}</span>
+                        </div>
+                        <div className="h-px" style={{ background: "hsl(222 40% 14%)" }} />
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Net profit</span>
+                          <span className="font-bold" style={{ color: previewProfit60 != null && previewProfit60 >= 0 ? "#26de81" : "#fc5c65" }}>
+                            {previewProfit60 != null ? `${previewProfit60} cr` : "—"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Margin</span>
+                          <span className="font-bold" style={{ color: "hsl(187 100% 52%)" }}>
+                            {previewMargin != null ? `${previewMargin}%` : "—"}
+                          </span>
                         </div>
                       </div>
-                      <p className="text-[11px] font-mono text-muted-foreground leading-relaxed">
-                        {realMinFor60Display != null ? (
-                          <>
-                            Decart cost: <span className="text-foreground font-bold">{Math.round(realMinFor60Display * 60 * COST_RATE)} cr</span>
-                            {" "}for 60 display-min · Compression efficiency: <span style={{ color: "#26de81" }} className="font-bold">{Math.round((1 - realMinFor60Display / 60) * 100)}% savings</span>
-                          </>
-                        ) : "Loading…"}
-                      </p>
                     </div>
                   </div>
 
-                  {/* Metrics row */}
+                  {/* Quick metric row */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
                     {[
-                      { label: "Display Acceleration",     value: previewCF != null ? `${previewCF}×`                                              : "—" },
-                      { label: "Real per Display Min",     value: previewCF != null ? `${Math.round(60 / previewCF * 10) / 10}s`                   : "—" },
-                      { label: "Est. Decart / hr display", value: previewCF != null ? `${Math.round((3600 / previewCF) * COST_RATE)} cr`            : "—" },
-                      { label: "Compression Efficiency",   value: previewCF != null ? `${Math.max(0, Math.round((1 - 1 / previewCF) * 100))}%`     : "—" },
+                      { label: "Billing Rate",          value: previewRate != null ? `${previewRate} cr/s`                                               : "—" },
+                      { label: "Decart Base Cost",       value: `${COST_RATE} cr/s`                                                                        },
+                      { label: "Profit per Hr Streamed", value: previewRate != null ? `${Math.round((previewRate - COST_RATE) * 3600)} cr`                : "—" },
+                      { label: "Margin",                 value: previewMargin != null ? `${previewMargin}%`                                               : "—" },
                     ].map(m => (
                       <div key={m.label} className="rounded-lg px-3 py-2 text-center"
                         style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 12%)" }}>
@@ -493,7 +554,8 @@ export default function AdminBillingPage() {
               <div className="space-y-4">
                 <div className="rounded-lg p-4" style={{ background: "hsl(222 44% 5%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}>
                   <p className="text-xs font-mono" style={{ color: "hsl(187 100% 52%)" }}>
-                    <strong>Live TCE Monitor.</strong> Per-key compression state derived from wallet.used_seconds. TCE NEVER affects billing — display time only.
+                    <strong>Per-Key Billing Monitor.</strong> Revenue = wallet_used × billing_rate. Decart cost = real_stream_sec × 2.3.
+                    Real stream remaining = wallet_remaining × 2.3 / billing_rate.
                   </p>
                 </div>
                 <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
@@ -501,7 +563,7 @@ export default function AdminBillingPage() {
                     <table className="w-full text-xs">
                       <thead>
                         <tr style={{ background: "hsl(222 44% 6%)" }}>
-                          {["Licence Key","Source","CF×","Real Used","Display Used","Real Rem","Display Rem","Time Saved","TCE Drift","Health","Live"].map(h => (
+                          {["Licence Key","Source","Rate","Wallet Used","Wallet Rem","Real Stream Rem","Revenue","Decart Cost","Profit","Margin","Live"].map(h => (
                             <th key={h} className="px-3 py-3 text-muted-foreground font-mono text-[11px] font-medium whitespace-nowrap text-right first:text-left">{h}</th>
                           ))}
                         </tr>
@@ -510,11 +572,13 @@ export default function AdminBillingPage() {
                         {keys.length === 0 ? (
                           <tr><td colSpan={11} className="text-center py-12 text-muted-foreground font-mono text-sm">No licence keys found</td></tr>
                         ) : keys.map(k => {
-                          const timeSavedK = Math.max(0, k.displaySecondsUsed - k.usedSeconds);
-                          const h = healthFor(k.compressionFactor, globalCFNow);
-                          const driftPct = k.usedSeconds > 0
-                            ? Math.round(Math.abs((k.displaySecondsUsed / Math.max(1, k.usedSeconds)) - k.compressionFactor) / k.compressionFactor * 10000) / 100
-                            : 0;
+                          const rate      = k.effectiveRate;
+                          const realRemSec = realStreamRemaining(k.remainingSeconds, rate);
+                          const revenue   = Math.round(k.usedSeconds * rate * 100) / 100;
+                          const realUsed  = rate > 0 ? k.usedSeconds * COST_RATE / rate : k.usedSeconds;
+                          const cost      = Math.round(realUsed * COST_RATE * 100) / 100;
+                          const profit    = Math.round((revenue - cost) * 100) / 100;
+                          const marginPct = margin(rate);
                           return (
                             <tr key={k.licenseKeyId} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}
                               className={k.isLive ? "bg-green-400/[0.02]" : ""}>
@@ -530,28 +594,26 @@ export default function AdminBillingPage() {
                                   {k.rateSource === "custom" ? "CUSTOM" : "GLOBAL"}
                                 </span>
                               </td>
-                              <td className="px-3 py-2.5 text-right font-mono font-bold"
-                                style={{ color: k.compressionFactor > 1 ? "hsl(187 100% 52%)" : k.compressionFactor < 1 ? "#fc5c65" : "hsl(215 20% 55%)" }}>
-                                {k.compressionFactor}×
-                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono text-foreground">{rate} cr/s</td>
                               <td className="px-3 py-2.5 text-right font-mono text-foreground">{fmtSec(k.usedSeconds)}</td>
-                              <td className="px-3 py-2.5 text-right font-mono text-primary">{fmtSec(k.displaySecondsUsed)}</td>
                               <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{fmtSec(k.remainingSeconds)}</td>
                               <td className="px-3 py-2.5 text-right font-mono"
                                 style={{ color: k.remainingSeconds > 0 ? "#26de81" : "#fc5c65" }}>
-                                {fmtSec(k.displaySecondsRemaining)}
+                                {fmtSec(realRemSec)}
                               </td>
-                              <td className="px-3 py-2.5 text-right font-mono" style={{ color: timeSavedK > 0 ? "#26de81" : "hsl(215 20% 55%)" }}>
-                                {timeSavedK > 0 ? `+${fmtSec(timeSavedK)}` : "—"}
+                              <td className="px-3 py-2.5 text-right font-mono" style={{ color: "hsl(187 100% 52%)" }}>
+                                {revenue} cr
                               </td>
-                              <td className="px-3 py-2.5 text-right font-mono" style={{ color: hColor(h) }}>
-                                {driftPct}%
+                              <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">
+                                {cost} cr
                               </td>
-                              <td className="px-3 py-2.5 text-right">
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
-                                  style={{ background: hBg(h), color: hColor(h), border: `1px solid ${hColor(h)}40` }}>
-                                  {h === "good" ? "🟢 SYNC" : h === "warn" ? "🟡 LAG" : "🔴 DRIFT"}
-                                </span>
+                              <td className="px-3 py-2.5 text-right font-mono"
+                                style={{ color: profit >= 0 ? "#26de81" : "#fc5c65" }}>
+                                {profit >= 0 ? `+${profit}` : profit} cr
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono"
+                                style={{ color: marginPct > 0 ? "#26de81" : "#fc5c65" }}>
+                                {marginPct}%
                               </td>
                               <td className="px-3 py-2.5 text-right">
                                 {k.isLive
@@ -576,7 +638,7 @@ export default function AdminBillingPage() {
                 <div className="flex items-center justify-between px-4 py-3"
                   style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
                   <p className="text-sm font-mono font-bold text-foreground flex items-center gap-2">
-                    <RotateCcw className="w-4 h-4" /> Compression Profile Change History
+                    <RotateCcw className="w-4 h-4" /> Billing Rate Change History
                   </p>
                   <button onClick={loadAudit} disabled={auditLoading}
                     className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
@@ -590,19 +652,18 @@ export default function AdminBillingPage() {
                 ) : auditRows.length === 0 ? (
                   <div className="py-12 text-center">
                     <CheckCircle2 className="w-7 h-7 mx-auto mb-3 text-muted-foreground opacity-40" />
-                    <p className="text-sm font-mono text-muted-foreground">No profile changes recorded yet</p>
+                    <p className="text-sm font-mono text-muted-foreground">No rate changes recorded yet</p>
                   </div>
                 ) : auditRows.map(row => (
                   <div key={row.id} className="flex items-start gap-4 px-4 py-4"
                     style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
                     <div className="flex items-center gap-2 shrink-0 font-mono text-sm">
-                      <span className="text-muted-foreground">{row.previousRate}</span>
+                      <span className="text-muted-foreground">{row.previousRate} cr/s</span>
                       <ArrowRight className="w-3.5 h-3.5 text-primary shrink-0" />
-                      <span className="font-bold text-foreground">{row.newRate}</span>
-                      <span className="text-[10px] text-muted-foreground">cr/s</span>
+                      <span className="font-bold text-foreground">{row.newRate} cr/s</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-mono ml-1"
                         style={{ background: "hsl(187 100% 52% / 0.1)", color: "hsl(187 100% 52%)" }}>
-                        {cf(row.previousRate)}× → {cf(row.newRate)}×
+                        {margin(row.previousRate)}% → {margin(row.newRate)}% margin
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
