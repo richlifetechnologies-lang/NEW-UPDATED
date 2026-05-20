@@ -1117,8 +1117,16 @@ export default function StreamPage() {
     : Math.max(0, (licenseStatus.data as any)?.displayRemainingSeconds
         ?? Math.round(remainingSeconds * tceCompressionFactor));
 
-  // Bar and label all derive from the TCE display layer
-  const displayTotalCapacitySecs = Math.max(1, Math.round(minutesAllocated * 60 * tceCompressionFactor));
+  // Bar and label all derive from the TCE display layer.
+  // displayTotalCapacitySecs must equal displayStartRemRef + displaySecondsUsed at stream start
+  // so that remaining/total is always consistent (avoids bar > 100% when server display seconds
+  // are seeded per-key and don't match the global tceCompressionFactor approximation).
+  // We read the server's own displayAllocatedSeconds when available; fall back to compressed real.
+  const displayTotalCapacitySecs = Math.max(
+    1,
+    (licenseStatus.data as any)?.displayAllocatedSeconds
+      ?? Math.round(minutesAllocated * 60 * tceCompressionFactor)
+  );
   const displayRemainingBarSecs  = displayPaidSecsRemaining;
   const barPct = Math.max(0, Math.min(1, displayPaidSecsRemaining / displayTotalCapacitySecs));
 

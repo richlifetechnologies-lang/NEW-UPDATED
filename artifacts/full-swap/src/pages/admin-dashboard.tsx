@@ -48,12 +48,12 @@ interface DecartUsage {
 
 function useDecartStatus() {
   const [status, setStatus] = useState<DecartStatus | null>(null);
-    const [billingRate, setBillingRate] = useState(5);
+    const [billingRate, setBillingRate] = useState<number | null>(null);
     useEffect(() => {
       const t = localStorage.getItem("fullswap_admin_token") ?? localStorage.getItem("fullswap_token") ?? "";
       fetch("/api/admin/billing-rate", { headers: { Authorization: `Bearer ${t}` } })
-        .then(r => r.ok ? r.json() : { rate: 5 })
-        .then(d => setBillingRate(d.rate ?? 5))
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.rate != null) setBillingRate(d.rate); })
         .catch(() => {});
     }, []);
   const [loading, setLoading] = useState(false);

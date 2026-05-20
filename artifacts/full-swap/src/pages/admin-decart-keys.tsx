@@ -323,7 +323,7 @@ export default function AdminDecartKeysPage() {
     const res = await fetch(`/api/admin/decart-keys/${id}/topup`, {
       method: "POST",
       headers: authH(),
-      body: JSON.stringify({ amount: val }),
+      body: JSON.stringify({ credits: val }),  // backend /topup expects `credits` — NOT `amount`
     });
     setSavingBalance(p => ({ ...p, [id]: false }));
     if (res.ok) { toast({ title: "Starting balance saved" }); fetchAll(); }

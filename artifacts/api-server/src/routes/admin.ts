@@ -1333,6 +1333,38 @@ router.delete("/decart-keys/:id", requireAdmin, async (req, res) => {
 
 
 
+/** POST /api/admin/decart-keys/:id/activate */
+router.post("/decart-keys/:id/activate", requireAdmin, async (req, res) => {
+  const keyId = parseInt(req.params["id"] as string);
+  if (isNaN(keyId)) { res.status(400).json({ error: "Invalid key ID" }); return; }
+  try {
+    const [updated] = await db.update(decartApiKeysTable)
+      .set({ isActive: true, updatedAt: new Date() })
+      .where(eq(decartApiKeysTable.id, keyId))
+      .returning({ id: decartApiKeysTable.id, isActive: decartApiKeysTable.isActive });
+    if (!updated) { res.status(404).json({ error: "Key not found" }); return; }
+    res.json({ success: true, id: updated.id, isActive: updated.isActive });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? "Failed to activate key" });
+  }
+});
+
+/** POST /api/admin/decart-keys/:id/deactivate */
+router.post("/decart-keys/:id/deactivate", requireAdmin, async (req, res) => {
+  const keyId = parseInt(req.params["id"] as string);
+  if (isNaN(keyId)) { res.status(400).json({ error: "Invalid key ID" }); return; }
+  try {
+    const [updated] = await db.update(decartApiKeysTable)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(decartApiKeysTable.id, keyId))
+      .returning({ id: decartApiKeysTable.id, isActive: decartApiKeysTable.isActive });
+    if (!updated) { res.status(404).json({ error: "Key not found" }); return; }
+    res.json({ success: true, id: updated.id, isActive: updated.isActive });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? "Failed to deactivate key" });
+  }
+});
+
 // ── Section-Level Pricing Visibility Controls ───────────────────────────
 
 // GET /admin/pricing-settings — returns which package sections are visible per user type

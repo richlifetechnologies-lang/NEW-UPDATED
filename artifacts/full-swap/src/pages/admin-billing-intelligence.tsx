@@ -1645,7 +1645,7 @@ export default function AdminBillingIntelligencePage() {
         )}
 
         {tab === "sessions" && (
-          <SessionsTable billingRate={summary?.billingRate ?? 5} />
+          <SessionsTable billingRate={summary?.billingRate ?? 0} />
         )}
 
         {tab === "ghost" && <GhostSessionsPanel />}

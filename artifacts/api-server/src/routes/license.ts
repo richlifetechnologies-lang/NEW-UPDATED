@@ -105,9 +105,10 @@ router.get("/status", requireLicense, async (req, res) => {
 
     // TCE display layer — compute display_remaining (UX only, NEVER gates access)
     let displayRemainingSeconds = remainingSeconds;
+    let cachedBillingRate: number | null = null;
     try {
-      const billingRate = await getBillingRateForLicense(license.id);
-      displayRemainingSeconds = Math.round(remainingSeconds * computeCompressionFactor(billingRate));
+      cachedBillingRate = await getBillingRateForLicense(license.id);
+      displayRemainingSeconds = Math.round(remainingSeconds * computeCompressionFactor(cachedBillingRate));
     } catch { /* non-fatal — fall back to real seconds */ }
 
     let assignedApiKey: string | null = null;
@@ -154,6 +155,12 @@ router.get("/status", requireLicense, async (req, res) => {
       realRemainingSeconds: remainingSeconds,
       realUsedSeconds:      effectiveUsedSeconds,
       displayRemainingSeconds,
+      displayAllocatedSeconds: Math.round(
+        (license.minutesAllocated ?? 0) * 60
+        * (cachedBillingRate != null && cachedBillingRate > 0
+            ? computeCompressionFactor(cachedBillingRate)
+            : 1)
+      ),
       licenseStatus: ((): string => {
         if (!license.isActive) return "revoked";
         if (license.expiresAt && license.expiresAt < new Date()) return "date_expired";
