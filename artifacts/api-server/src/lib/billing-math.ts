@@ -316,3 +316,79 @@ export function creditsToMinutes(credits: number): number {
 export function minutesToCredits(minutes: number): number {
   return minutes * DECART_CREDITS_PER_MIN;
 }
+
+// ── Time Compression Engine (TCE) ─────────────────────────────────────────
+//
+// The TCE is a USER EXPERIENCE LAYER only.
+// It does NOT affect wallet.used_seconds, billing math, or Decart costs.
+//
+// DEFINITION:
+//   base_reference_rate  = 2.3 cr/s  (= DECART_API_COST_PER_SEC)
+//   compression_factor   = effective_billing_rate / 2.3
+//   display_seconds      = real_seconds × compression_factor
+//   real_seconds         = display_seconds ÷ compression_factor
+//
+// EFFECT:
+//   billing_rate > 2.3 → compression_factor > 1 → user sees MORE time than consumed
+//   billing_rate = 2.3 → compression_factor = 1 → display time = real time
+//   billing_rate < 2.3 → compression_factor < 1 → user sees LESS time than consumed
+//
+// ISOLATION RULES:
+//   ✔ wallet.used_seconds always tracks real heartbeat seconds
+//   ✔ api_cost always computed from real_seconds × 2.3
+//   ✔ revenue always computed from real_seconds × billing_rate
+//   ✔ TCE only affects frontend display of remaining/elapsed time
+//   ✗ NEVER apply compression_factor to billing or cost math
+
+/**
+ * Base reference rate for the Time Compression Engine.
+ * Equal to the fixed Decart API cost rate — 2.3 cr/s.
+ * compression_factor = 1.0 when billing_rate = 2.3 (breakeven, no compression).
+ */
+export const TCE_BASE_REFERENCE_RATE = DECART_API_COST_PER_SEC; // 2.3
+
+/**
+ * Compute the Time Compression Factor for a given effective billing rate.
+ *
+ * compression_factor = effective_billing_rate / 2.3
+ *
+ * A factor > 1 means the user's displayed time is stretched relative to
+ * real Decart consumption (higher billing rate = more profitable, user
+ * sees their allocation last longer).
+ *
+ * Returns 1.0 as a safe fallback when rate ≤ 0.
+ *
+ * @param effectiveBillingRate  Live per-key or global billing rate (admin-controlled)
+ */
+export function computeCompressionFactor(effectiveBillingRate: number): number {
+  if (effectiveBillingRate <= 0) return 1.0;
+  return Math.round((effectiveBillingRate / TCE_BASE_REFERENCE_RATE) * 1000) / 1000;
+}
+
+/**
+ * Convert real (wallet) seconds to display seconds for the frontend UX layer.
+ *
+ * display_seconds = real_seconds × compression_factor
+ *
+ * NEVER use this value for billing, cost, or profit calculations.
+ *
+ * @param realSeconds        wallet.used_seconds or remaining wallet seconds
+ * @param compressionFactor  from computeCompressionFactor()
+ */
+export function computeDisplaySeconds(realSeconds: number, compressionFactor: number): number {
+  if (realSeconds <= 0) return 0;
+  return Math.round(realSeconds * compressionFactor);
+}
+
+/**
+ * Convert display seconds back to real (wallet) seconds.
+ *
+ * real_seconds = display_seconds ÷ compression_factor
+ *
+ * @param displaySeconds     User-facing compressed time
+ * @param compressionFactor  from computeCompressionFactor()
+ */
+export function computeRealFromDisplay(displaySeconds: number, compressionFactor: number): number {
+  if (compressionFactor <= 0 || displaySeconds <= 0) return 0;
+  return Math.round(displaySeconds / compressionFactor);
+}

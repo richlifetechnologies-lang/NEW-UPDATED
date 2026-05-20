@@ -1,28 +1,16 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, DollarSign, Wallet, LogOut, Shield, Activity, Bell, ShieldCheck, MessageCircle, Menu, X, UserCog, KeyRound, FileKey, BarChart3, Zap, BrainCircuit, Radio, TrendingUp, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer } from "lucide-react";
 import { clearAdminToken, clearAdminProfile, getAdminProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/sessions", label: "Live Streams", icon: Activity },
-  { href: "/admin/users", label: "Licensed Keys", icon: FileKey },
-  { href: "/admin/license-keys", label: "Generated License Keys", icon: FileKey },
-  { href: "/admin/analytics", label: "Financial Analytics", icon: BarChart3 },
-  { href: "/admin/pricing", label: "Pricing", icon: DollarSign },
-  { href: "/admin/billing", label: "Billing Rate", icon: Zap },
-  { href: "/admin/billing-intelligence", label: "Billing Intelligence", icon: BrainCircuit },
-  { href: "/admin/observatory", label: "Live Observatory", icon: Radio },
-  { href: "/admin/profit-dashboard", label: "Live Profit", icon: TrendingUp },
-  { href: "/admin/billing-integrity", label: "Billing Integrity", icon: ShieldAlert },
-  { href: "/admin/billing-rate-per-key", label: "Rate per Key", icon: Zap },
-  { href: "/admin/wallet", label: "Wallet", icon: Wallet },
-  { href: "/admin/decart-keys", label: "API Keys", icon: KeyRound },
-  { href: "/admin/admin-sessions", label: "Admin Audit", icon: ShieldCheck },
-  { href: "/admin/notifications", label: "Notifications", icon: Bell },
-  { href: "/admin/chat", label: "Support Chat", icon: MessageCircle },
-  { href: "/admin/sub-admins", label: "Sub Admins", icon: UserCog },
+  { href: "/admin/dashboard",          label: "Overview",                icon: LayoutDashboard },
+  { href: "/admin/license-keys",       label: "Licence Keys",            icon: FileKey },
+  { href: "/admin/billing-rate-per-key", label: "Billing Rate per Key",  icon: Zap },
+  { href: "/admin/time-compression",   label: "Time Compression",        icon: Timer },
+  { href: "/admin/analytics",          label: "Billing Analytics",       icon: BarChart3 },
+  { href: "/admin/sessions",           label: "Session Monitor",         icon: Activity },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {

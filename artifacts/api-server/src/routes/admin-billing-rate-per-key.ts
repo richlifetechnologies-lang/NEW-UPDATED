@@ -29,6 +29,7 @@ import {
   DECART_API_COST_PER_SEC,
   BASE_BILLING_RATE,
   computeBurnMultiplier,
+  computeCompressionFactor,
   licenseRemainingSeconds,
 } from "../lib/billing-math";
 import { logger } from "../lib/logger";
@@ -124,8 +125,10 @@ router.get("/", requireAdmin, async (req, res) => {
         billingRateLastUpdatedAt:  lk.billing_rate_last_updated_at ?? null,
         effectiveRate:             effRate,
         rateSource:                useCustom && customRate != null ? "custom" : "global",
-        // Burn system (spec §3)
-        burnMultiplier:            burnMul,
+        // TCE — Time Compression Engine
+        compressionFactor:         computeCompressionFactor(effRate),
+        displaySecondsUsed:        Math.round(usedSec * computeCompressionFactor(effRate)),
+        displaySecondsRemaining:   Math.round(remainingSec * computeCompressionFactor(effRate)),
         // Stream duration estimate (wallet-based; rate doesn't change duration, only revenue)
         remainingSeconds:          remainingSec,
         estimatedStreamDurationMin: estimatedStreamDurationMin(remainingSec, effRate),
@@ -203,15 +206,15 @@ router.get("/:keyId", requireAdmin, async (req, res) => {
       billingRateLastUpdatedAt:  lk.billingRateLastUpdatedAt ?? null,
       effectiveRate:             effRate,
       rateSource:                useCustom && customRate != null ? "custom" : "global",
-      burnMultiplier:            burnMul,
+      compressionFactor:         computeCompressionFactor(effRate),
       remainingSeconds:          remainSec,
+      displaySecondsRemaining:   Math.round(remainSec * computeCompressionFactor(effRate)),
       estimatedStreamDurationMin: estimatedStreamDurationMin(remainSec, effRate),
       projectedProfitPct:        projectedProfitPct(effRate),
       profitPerSecond:           Math.round((effRate - DECART_API_COST_PER_SEC) * 100) / 100,
       isLive:                    Number(activeRow?.count ?? 0) > 0,
       activeSessionCount:        Number(activeRow?.count ?? 0),
       apiCostRate:               DECART_API_COST_PER_SEC,
-      baseRate:                  BASE_BILLING_RATE,
       checkedAt:                 new Date().toISOString(),
     });
   } catch (err) {
@@ -302,7 +305,7 @@ router.put("/:keyId", requireAdmin, async (req, res) => {
       effectiveRate:        effRate,
       rateSource:           Boolean(updated?.useCustomBillingRate) && updated?.customBillingRate != null
                               ? "custom" : "global",
-      burnMultiplier:       computeBurnMultiplier(effRate),
+      compressionFactor:    computeCompressionFactor(effRate),
       projectedProfitPct:   projectedProfitPct(effRate),
       updatedAt:            updated?.billingRateLastUpdatedAt ?? new Date(),
       propagatedAt:         new Date().toISOString(),

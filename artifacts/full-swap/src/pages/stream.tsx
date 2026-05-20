@@ -1064,6 +1064,19 @@ export default function StreamPage() {
   const liveRemainingBarSecs = Math.max(0, paidSecsRemaining);
   const barPct = Math.max(0, Math.min(1, liveRemainingBarSecs / totalCapacitySecs));
 
+  // ── Time Compression Engine (TCE) — UX display layer ─────────────────────
+  // wallet.used_seconds and billing math are ALWAYS based on real seconds only.
+  // The TCE layer applies the compression_factor = billing_rate / 2.3 to the
+  // DISPLAYED remaining/total times so users see "virtual" compressed time.
+  // barPct is unchanged (still real-seconds based) so the visual bar is honest.
+  const TCE_BASE_RATE = 2.3;
+  const tceCompressionFactor = liveRate != null && liveRate > 0
+    ? Math.round((liveRate / TCE_BASE_RATE) * 1000) / 1000
+    : 1;
+  const displayRemainingBarSecs  = Math.max(0, Math.round(liveRemainingBarSecs * tceCompressionFactor));
+  const displayTotalCapacitySecs = Math.max(1, Math.round(totalCapacitySecs * tceCompressionFactor));
+  const displayPaidSecsRemaining = Math.max(0, Math.round(paidSecsRemaining * tceCompressionFactor));
+
   return (
     <AppLayout>
       {isElectron && licenseLoading && (
@@ -1088,16 +1101,16 @@ export default function StreamPage() {
               <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
                 <CreditCard className="w-4 h-4 text-green-400" />
                 <span className="text-green-400 text-sm font-semibold font-mono">
-                  {isStreaming ? formatTime(paidSecsRemaining) : `${paidMinsRemaining.toFixed(1)} min`}
+                  {isStreaming ? formatTime(displayPaidSecsRemaining) : `${Math.floor(displayPaidSecsRemaining / 60).toFixed(0)}m ${displayPaidSecsRemaining % 60}s`}
                 </span>
-                <span className="text-muted-foreground text-xs">{isStreaming ? "paid time left" : "paid time"}</span>
+                <span className="text-muted-foreground text-xs">{isStreaming ? "time left" : "time"}</span>
               </div>
             )}
             {/* Live session timer */}
             {isStreaming && (
               <div className="flex items-center gap-3 px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-lg" data-testid="status-live">
                 <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-                <span className="text-red-400 font-mono font-bold text-sm">{isAdminUser ? formatTime(elapsedSecs) : formatTime(Math.max(0, paidSecsRemaining))}</span>
+                <span className="text-red-400 font-mono font-bold text-sm">{isAdminUser ? formatTime(elapsedSecs) : formatTime(displayPaidSecsRemaining)}</span>
                 {connectionStatus === "connecting" && (
                   <span className="text-xs text-yellow-400 flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" /> Connecting...
@@ -1125,13 +1138,14 @@ export default function StreamPage() {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className={`text-sm font-mono font-bold tabular-nums ${barPct <= 0.15 ? "text-red-400 animate-pulse" : barPct <= 0.3 ? "text-amber-400" : "text-green-400"}`}>
-                  {formatTime(liveRemainingBarSecs)}
+                  {formatTime(displayRemainingBarSecs)}
                 </span>
-                <span className="text-xs text-muted-foreground">/ {formatTime(totalCapacitySecs)}</span>
+                <span className="text-xs text-muted-foreground">/ {formatTime(displayTotalCapacitySecs)}</span>
               </div>
             </div>
 
             {/* The bar itself — shrinks left-to-right as minutes are consumed */}
+            {/* barPct is always based on REAL wallet seconds — billing truth */}
             <div className="relative h-4 bg-muted/50 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-1000 ease-linear ${
@@ -1153,10 +1167,10 @@ export default function StreamPage() {
                   <span className="text-yellow-500/70 font-mono font-medium">⚡ Live billing active</span>
                 )}
               </span>
-              {barPct <= 0.15 && liveRemainingBarSecs > 0 ? (
+              {barPct <= 0.15 && displayRemainingBarSecs > 0 ? (
                 <span className="text-red-400 font-medium">⚠ Running low — contact admin</span>
               ) : (
-                <span>{Math.floor(liveRemainingBarSecs / 60)}m {liveRemainingBarSecs % 60}s left</span>
+                <span>{Math.floor(displayRemainingBarSecs / 60)}m {displayRemainingBarSecs % 60}s left</span>
               )}
             </div>
           </div>

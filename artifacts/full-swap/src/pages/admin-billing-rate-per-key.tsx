@@ -52,7 +52,7 @@ interface LicenseKeyRate {
   billingRateLastUpdatedAt: string | null;
   effectiveRate: number;
   rateSource: "custom" | "global";
-  burnMultiplier: number;
+  compressionFactor: number;
   remainingSeconds: number;
   estimatedStreamDurationMin: number;
   projectedProfitPct: number;
@@ -80,7 +80,7 @@ interface UpdateResponse {
   useCustomBillingRate: boolean;
   effectiveRate: number;
   rateSource: "custom" | "global";
-  burnMultiplier: number;
+  compressionFactor: number;
   projectedProfitPct: number;
   updatedAt: string;
   note: string;
@@ -145,10 +145,10 @@ function EditModal({ row, globalRate, apiCostRate, onClose, onSaved }: EditModal
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
-  const rateNum   = parseFloat(rateInput) || 0;
-  const burnMul   = rateNum > 0 ? Math.round((rateNum / apiCostRate) * 1000) / 1000 : 1;
-  const profitPct = rateNum > 0 ? Math.round(((rateNum - apiCostRate) / rateNum) * 10000) / 100 : 0;
-  const profitPs  = Math.round((rateNum - apiCostRate) * 100) / 100;
+  const rateNum        = parseFloat(rateInput) || 0;
+  const compressionFac = rateNum > 0 ? Math.round((rateNum / apiCostRate) * 1000) / 1000 : 1;
+  const profitPct      = rateNum > 0 ? Math.round(((rateNum - apiCostRate) / rateNum) * 10000) / 100 : 0;
+  const profitPs       = Math.round((rateNum - apiCostRate) * 100) / 100;
 
   const handleSave = async () => {
     if (useCustom && (rateNum < 0.1 || !Number.isFinite(rateNum))) {
@@ -266,9 +266,9 @@ function EditModal({ row, globalRate, apiCostRate, onClose, onSaved }: EditModal
             </p>
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
-                <p className="text-[10px] text-muted-foreground font-mono">Burn×</p>
-                <p className={`text-sm font-bold font-mono ${burnMul > 1 ? "text-orange-400" : burnMul < 1 ? "text-blue-400" : "text-foreground"}`}>
-                  {burnMul}×
+                <p className="text-[10px] text-muted-foreground font-mono">Compress×</p>
+                <p className={`text-sm font-bold font-mono ${compressionFac > 1 ? "text-primary" : compressionFac < 1 ? "text-red-400" : "text-foreground"}`}>
+                  {compressionFac}×
                 </p>
               </div>
               <div>
@@ -496,7 +496,7 @@ export default function AdminBillingRatePerKeyPage() {
                     "Custom Rate",
                     "Effective Rate",
                     "Custom Active",
-                    "Burn ×",
+                    "Compress×",
                     "Wallet Remaining",
                     "Stream Duration",
                     "Live",
@@ -582,10 +582,10 @@ export default function AdminBillingRatePerKeyPage() {
                         )}
                       </td>
 
-                      {/* Burn multiplier */}
+                      {/* Compression Factor */}
                       <td className="px-3 py-2.5 text-right font-mono">
-                        <span className={`font-semibold text-xs ${row.burnMultiplier > 1 ? "text-orange-400" : row.burnMultiplier < 1 ? "text-blue-400" : "text-foreground"}`}>
-                          {row.burnMultiplier}×
+                        <span className={`font-semibold text-xs ${row.compressionFactor > 1 ? "text-primary" : row.compressionFactor < 1 ? "text-red-400" : "text-foreground"}`}>
+                          {row.compressionFactor}×
                         </span>
                       </td>
 
@@ -651,7 +651,7 @@ export default function AdminBillingRatePerKeyPage() {
               { label: "API cost rate", value: "Fixed at 2.3 cr/s — infrastructure cost, NOT billing rate", color: "text-foreground" },
               { label: "Rate propagation", value: "Changes take effect instantly — fetched live on every call", color: "text-green-400" },
               { label: "Stream duration", value: "NOT affected by billing rate — controlled by wallet allocation only", color: "text-foreground" },
-              { label: "Burn multiplier", value: "effective_rate ÷ api_cost_rate — analytics only, not wallet deduction", color: "text-orange-400" },
+              { label: "Compression factor", value: "effective_rate ÷ 2.3 — TCE display multiplier, UX only, never affects billing", color: "text-primary" },
             ].map(item => (
               <div
                 key={item.label}
