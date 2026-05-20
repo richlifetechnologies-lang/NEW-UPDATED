@@ -1448,6 +1448,41 @@ export default function StreamPage() {
               )}
             </div>)}
 
+            {/* Start / Stop button */}
+            <div className="flex items-center gap-3">
+              {isStreaming ? (
+                <Button
+                  data-testid="button-stop-stream"
+                  onClick={handleStopStream}
+                  variant="destructive"
+                  disabled={stopSession.isPending}
+                  className="gap-2 flex-1 h-12 text-base font-bold"
+                >
+                  <Square className="w-5 h-5" />
+                  {stopSession.isPending ? "Stopping..." : "Stop Session"}
+                </Button>
+              ) : (noAccess || licenseExhausted) ? (
+                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-amber-300">No streaming time remaining</p>
+                    <p className="text-xs text-amber-400/70 truncate">Contact your admin to add more minutes — @rich_life2k15</p>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  data-testid="button-start-stream"
+                  onClick={handleStartStream}
+                  disabled={startSession.isPending || !cameraReady}
+                  className="gap-2 flex-1 h-12 text-base font-bold tracking-wide"
+                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.25)" }}
+                >
+                  <Play className="w-5 h-5" />
+                  {startSession.isPending ? "Starting..." : "Stream Now"}
+                </Button>
+              )}
+            </div>
+
           </div>
 
           {/* ── RIGHT-SIDE CONTROL PANEL ─────────────────────────────── */}
@@ -1629,42 +1664,7 @@ export default function StreamPage() {
               <p className="text-xs text-muted-foreground">Changes apply in real-time. Leave blank to use style default.</p>
             </div>
 
-            {/* 4. Start / Stop button */}
-            <div className="flex items-center gap-3">
-              {isStreaming ? (
-                <Button
-                  data-testid="button-stop-stream"
-                  onClick={handleStopStream}
-                  variant="destructive"
-                  disabled={stopSession.isPending}
-                  className="gap-2 flex-1 h-12 text-base font-bold"
-                >
-                  <Square className="w-5 h-5" />
-                  {stopSession.isPending ? "Stopping..." : "Stop Session"}
-                </Button>
-              ) : (noAccess || licenseExhausted) ? (
-                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
-                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-amber-300">No streaming time remaining</p>
-                    <p className="text-xs text-amber-400/70 truncate">Contact your admin to add more minutes — @rich_life2k15</p>
-                  </div>
-                </div>
-              ) : (
-                <Button
-                  data-testid="button-start-stream"
-                  onClick={handleStartStream}
-                  disabled={startSession.isPending || !cameraReady}
-                  className="gap-2 flex-1 h-12 text-base font-bold tracking-wide"
-                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.25)" }}
-                >
-                  <Play className="w-5 h-5" />
-                  {startSession.isPending ? "Starting..." : "Stream Now"}
-                </Button>
-              )}
-            </div>
-
-            {/* 5. Transformation Style */}
+            {/* 4. Transformation Style */}
             <div className="bg-card border border-border rounded-xl p-5">
               <h3 className="font-semibold text-foreground mb-1 tracking-wide">Transformation Style</h3>
               <p className="text-xs text-muted-foreground mb-4">Pick a style to apply</p>
