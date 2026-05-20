@@ -543,7 +543,16 @@ function createMainWindow() {
     return { action: 'allow' };
   });
 
-  mainWindow.loadURL(SERVER_URL);
+  // Clear this window's session cache before loading to guarantee fresh UI
+  var winSession = mainWindow.webContents.session;
+  Promise.all([
+    winSession.clearCache().catch(function() {}),
+    winSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage', 'appcache'] }).catch(function() {}),
+  ]).then(function() {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(SERVER_URL);
+  }).catch(function() {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(SERVER_URL);
+  });
 
   mainWindow.once('ready-to-show', function() {
     if (splashWindow) { splashWindow.close(); splashWindow = null; }
