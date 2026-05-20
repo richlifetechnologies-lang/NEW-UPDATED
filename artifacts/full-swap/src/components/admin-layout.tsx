@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer, DollarSign, Key } from "lucide-react";
 import { clearAdminToken, clearAdminProfile, getAdminProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
   { href: "/admin/dashboard",          label: "Overview",                icon: LayoutDashboard },
   { href: "/admin/license-keys",       label: "Licence Keys",            icon: FileKey },
+  { href: "/admin/decart-keys",        label: "API Keys",                icon: Key },
+  { href: "/admin/pricing",            label: "Pricing",                 icon: DollarSign },
   { href: "/admin/billing-rate-per-key", label: "Billing Rate per Key",  icon: Zap },
   { href: "/admin/time-compression",   label: "Time Compression",        icon: Timer },
   { href: "/admin/analytics",          label: "Billing Analytics",       icon: BarChart3 },
@@ -124,7 +126,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         {/* Main content area */}
         <main className="flex-1 min-w-0 lg:ml-0 overflow-hidden">
           {/* Padding for mobile top bar */}
-          <div className="lg�ph-0 h-14"></div>
+          <div className="lg\u00e9ph-0 h-14"></div>
           {children}
         </main>
       </div>
