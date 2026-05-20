@@ -1543,19 +1543,25 @@ export default function StreamPage() {
 
               {/* Step 3 */}
               <div className="space-y-1.5">
-                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 3 — Audio routing (no echo)</p>
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 3 — Audio routing (no setup needed)</p>
+                <div className="rounded-lg px-3 py-2.5 text-xs space-y-2" style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.18)" }}>
+                  <p className="text-foreground font-semibold">The app handles your mic — do not add a mic in OBS.</p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Full Swap captures your microphone directly and applies the <span className="text-foreground font-medium">Audio Sync</span> delay automatically. OBS simply receives the app's audio output through the window or display capture — no extra mic source required.
+                  </p>
+                </div>
                 <ol className="space-y-1 text-xs text-muted-foreground list-none">
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
-                    OBS <span className="text-foreground font-medium">Audio Mixer</span> → add <span className="text-foreground font-medium">Mic/Aux</span> pointing to your physical microphone.
+                    In OBS <span className="text-foreground font-medium">Audio Mixer</span>, make sure <span className="text-foreground font-medium">no separate Mic/Aux source</span> is added — adding one causes double audio and echo.
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
-                    Right-click your mic in OBS Mixer → <span className="text-foreground font-medium">Advanced Audio Settings</span> → set <span className="text-foreground font-medium">Sync Offset to +300ms</span> (adjust to match lips).
+                    OBS Settings → Audio → set <span className="text-foreground font-medium">Desktop Audio to Disabled</span> and <span className="text-foreground font-medium">Mic/Auxiliary to Disabled</span> — the app's capture already carries the synced audio.
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
-                    <span className="text-amber-400 font-medium">Avoid echo:</span> never have both OBS and the browser capturing the same mic simultaneously — pick one source only.
+                    The audio you hear in OBS preview should come only from the <span className="text-foreground font-medium">Window/Display Capture</span> source — that's the correctly synced output.
                   </li>
                 </ol>
               </div>
