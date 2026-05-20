@@ -660,6 +660,7 @@ app.whenReady().then(async function() {
   ipcMain.on('install-update', function() { autoUpdater.quitAndInstall(false, true); });
   ipcMain.on('check-for-updates', function() { autoUpdater.checkForUpdates().catch(function() {}); });
   ipcMain.on('mark-launched', function() { markLaunched(); });
+  ipcMain.on('force-refresh', function() { forceRefresh(); });
   ipcMain.handle('get-theme', function() { return getThemeLabel(); });
 
   // Window controls
