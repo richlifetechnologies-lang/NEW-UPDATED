@@ -144,8 +144,10 @@ export default function AdminBillingPage() {
 
   const currentRate = rateInfo?.rate ?? null;
   const inputVal    = parseFloat(inputRate);
-  const previewRate = Number.isFinite(inputVal) && inputVal > 0 ? inputVal : (currentRate ?? 4);
-  const previewCF   = cf(previewRate);
+  // previewRate is null until the live rate loads — NEVER falls back to a hardcoded number.
+  // Only two valid sources: (1) a valid number the admin typed, (2) the live DB rate.
+  const previewRate: number | null = Number.isFinite(inputVal) && inputVal > 0 ? inputVal : currentRate;
+  const previewCF: number | null   = previewRate != null ? cf(previewRate) : null;
   const dirty       = currentRate !== null && inputVal !== currentRate;
 
   const save = async () => {
@@ -184,17 +186,25 @@ export default function AdminBillingPage() {
     return Math.abs(actualCF - globalCFNow) > 0.15;
   }).length;
 
-  // Nearest profile
-  const nearestProfile = PROFILES.reduce((best, p) =>
-    Math.abs(p.rate - (currentRate ?? 4)) < Math.abs(best.rate - (currentRate ?? 4)) ? p : best
-  );
-  const inputProfile = PROFILES.reduce((best, p) =>
-    Math.abs(p.rate - previewRate) < Math.abs(best.rate - previewRate) ? p : best
-  );
+  // Nearest profile — null until live rate loads; never uses a hardcoded default.
+  const nearestProfile = currentRate != null
+    ? PROFILES.reduce((best, p) =>
+        Math.abs(p.rate - currentRate) < Math.abs(best.rate - currentRate) ? p : best
+      )
+    : null;
+  const inputProfile = previewRate != null
+    ? PROFILES.reduce((best, p) =>
+        Math.abs(p.rate - previewRate) < Math.abs(best.rate - previewRate) ? p : best
+      )
+    : null;
 
-  // Preview: how many real minutes = 60 display minutes
-  const realMinFor60Display = previewCF > 0 ? Math.round(60 / previewCF * 10) / 10 : 60;
-  const displayMinFor60Real = Math.round(60 * previewCF * 10) / 10;
+  // Preview math — null until previewCF is known; never display stale/fake numbers.
+  const realMinFor60Display = previewCF != null && previewCF > 0
+    ? Math.round(60 / previewCF * 10) / 10
+    : null;
+  const displayMinFor60Real = previewCF != null
+    ? Math.round(60 * previewCF * 10) / 10
+    : null;
 
   const tabs: { id: TabId; label: string; icon: any }[] = [
     { id: "control", label: "Engine Control",  icon: Zap },
@@ -245,7 +255,7 @@ export default function AdminBillingPage() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <SCard label="Active Streams"     value={String(activeStreams)}    sub="live right now"        color={activeStreams > 0 ? "#26de81" : "hsl(215 20% 55%)"}  icon={Wifi}  pulse={activeStreams > 0} />
-              <SCard label="Compression Health" value={nearestProfile.label}     sub={nearestProfile.desc}   color={nearestProfile.color}                                 icon={BarChart3} />
+              <SCard label="Compression Health" value={nearestProfile?.label ?? "—"}   sub={nearestProfile?.desc ?? "Loading…"}   color={nearestProfile?.color ?? "hsl(215 20% 55%)"}   icon={BarChart3} />
               <SCard label="Live Decart Burn"   value={`${liveDecartBurn} cr`}   sub="real_sec × 2.3 fixed"  color="hsl(215 20% 55%)"                                     icon={Zap} />
               <SCard label="Drift Alerts"       value={String(driftAlerts)}      sub="TCE factor mismatch"   color={driftAlerts > 0 ? "#fed330" : "hsl(215 20% 55%)"}    icon={AlertTriangle} />
             </div>
@@ -270,13 +280,15 @@ export default function AdminBillingPage() {
 
                 {/* Current State Banner */}
                 <div className="rounded-xl p-5 flex items-center gap-6 flex-wrap"
-                  style={{ background: "hsl(222 44% 5%)", border: `2px solid ${nearestProfile.color}30` }}>
+                  style={{ background: "hsl(222 44% 5%)", border: `2px solid ${nearestProfile?.color ?? "hsl(222 40% 14%)"}30` }}>
                   <div>
                     <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1">Active Compression Profile</p>
-                    <p className="text-4xl font-black font-mono" style={{ color: nearestProfile.color }}>{nearestProfile.label}</p>
+                    <p className="text-4xl font-black font-mono" style={{ color: nearestProfile?.color ?? "hsl(215 20% 55%)" }}>
+                      {nearestProfile?.label ?? "—"}
+                    </p>
                   </div>
                   <div className="flex flex-col gap-1 text-xs font-mono">
-                    <span className="text-muted-foreground">Rate: <span className="text-foreground font-bold">{currentRate} cr/s</span></span>
+                    <span className="text-muted-foreground">Rate: <span className="text-foreground font-bold">{currentRate ?? "—"} cr/s</span></span>
                     <span className="text-muted-foreground">Factor: <span style={{ color: "hsl(187 100% 52%)" }} className="font-bold">{globalCFNow}×</span></span>
                     <span className="text-muted-foreground">API Cost: <span className="text-foreground font-bold">{COST_RATE} cr/s fixed</span></span>
                   </div>
@@ -288,10 +300,10 @@ export default function AdminBillingPage() {
                         <div className="h-full rounded-full transition-all duration-700"
                           style={{
                             width: `${Math.min(100, ((globalCFNow - 1) / 3.35) * 100)}%`,
-                            background: `linear-gradient(90deg, #26de81, ${nearestProfile.color})`,
+                            background: `linear-gradient(90deg, #26de81, ${nearestProfile?.color ?? "hsl(215 20% 55%)"})`,
                           }} />
                       </div>
-                      <p className="text-[10px] font-mono" style={{ color: nearestProfile.color }}>
+                      <p className="text-[10px] font-mono" style={{ color: nearestProfile?.color ?? "hsl(215 20% 55%)" }}>
                         {globalCFNow.toFixed(3)}× expansion factor
                       </p>
                     </div>
@@ -333,17 +345,20 @@ export default function AdminBillingPage() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
                       <span>2.3 cr/s (1.0×)</span>
-                      <span className="font-bold" style={{ color: inputProfile.color }}>
-                        {Number.isFinite(inputVal) ? inputVal : previewRate} cr/s → {previewCF}× compression
+                      <span className="font-bold" style={{ color: inputProfile?.color ?? "hsl(215 20% 55%)" }}>
+                        {previewRate != null
+                          ? `${Number.isFinite(inputVal) ? inputVal : previewRate} cr/s → ${previewCF}× compression`
+                          : "Loading…"}
                       </span>
                       <span>10+ cr/s (4.35×+)</span>
                     </div>
                     <input
                       type="range" min="2.3" max="12" step="0.1"
-                      value={Number.isFinite(inputVal) ? inputVal : previewRate}
+                      value={Number.isFinite(inputVal) ? inputVal : (previewRate ?? "")}
                       onChange={e => setInputRate(e.target.value)}
-                      className="w-full accent-primary"
-                      style={{ accentColor: inputProfile.color }}
+                      disabled={previewRate == null}
+                      className="w-full accent-primary disabled:opacity-40"
+                      style={{ accentColor: inputProfile?.color ?? "hsl(var(--primary))" }}
                     />
                   </div>
 
@@ -357,16 +372,18 @@ export default function AdminBillingPage() {
                         value={inputRate}
                         onChange={e => setInputRate(e.target.value)}
                         className="w-16 bg-transparent text-sm font-mono font-bold text-foreground focus:outline-none"
-                        style={{ color: inputProfile.color }}
+                        style={{ color: inputProfile?.color ?? "hsl(215 20% 55%)" }}
                       />
                       <span className="text-[10px] font-mono text-muted-foreground">cr/s</span>
                     </div>
                     <div className="text-xs font-mono text-muted-foreground">
-                      → <span style={{ color: "hsl(187 100% 52%)" }} className="font-bold">{previewCF}×</span> compression
+                      → <span style={{ color: "hsl(187 100% 52%)" }} className="font-bold">
+                        {previewCF != null ? `${previewCF}×` : "—"}
+                      </span> compression
                     </div>
                     <button onClick={save} disabled={saving || !dirty}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40"
-                      style={dirty
+                      style={dirty && inputProfile
                         ? { background: `${inputProfile.color}18`, color: inputProfile.color, border: `1px solid ${inputProfile.color}40` }
                         : { background: "hsl(222 44% 4%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
                       {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -395,7 +412,7 @@ export default function AdminBillingPage() {
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                     <p className="text-xs font-mono font-bold uppercase tracking-wider" style={{ color: "hsl(187 100% 52%)" }}>
-                      Live Compression Preview — {inputProfile.label} profile
+                      Live Compression Preview — {inputProfile?.label ?? "Loading…"} profile
                     </p>
                   </div>
 
@@ -411,7 +428,7 @@ export default function AdminBillingPage() {
                         <ChevronRight className="w-5 h-5 text-primary shrink-0" />
                         <div>
                           <p className="text-3xl font-black font-mono" style={{ color: "hsl(187 100% 52%)" }}>
-                            {displayMinFor60Real}<span className="text-lg">m</span>
+                            {displayMinFor60Real != null ? <>{displayMinFor60Real}<span className="text-lg">m</span></> : "—"}
                           </p>
                           <p className="text-[10px] font-mono text-muted-foreground">displayed to user</p>
                         </div>
@@ -421,7 +438,7 @@ export default function AdminBillingPage() {
                       </div>
                       <div className="h-1.5 rounded-full" style={{ background: "hsl(222 44% 11%)" }}>
                         <div className="h-full rounded-full transition-all duration-700"
-                          style={{ width: `${Math.min(100, previewCF * 100)}%`, background: "hsl(187 100% 52%)" }} />
+                          style={{ width: `${Math.min(100, (previewCF ?? 0) * 100)}%`, background: "hsl(187 100% 52%)" }} />
                       </div>
                     </div>
 
@@ -435,15 +452,19 @@ export default function AdminBillingPage() {
                         </div>
                         <ChevronRight className="w-5 h-5 text-primary shrink-0" />
                         <div>
-                          <p className="text-3xl font-black font-mono" style={{ color: previewCF > 1 ? "#26de81" : "#fc5c65" }}>
-                            {realMinFor60Display}<span className="text-lg">m</span>
+                          <p className="text-3xl font-black font-mono" style={{ color: previewCF != null ? (previewCF > 1 ? "#26de81" : "#fc5c65") : "hsl(215 20% 55%)" }}>
+                            {realMinFor60Display != null ? <>{realMinFor60Display}<span className="text-lg">m</span></> : "—"}
                           </p>
                           <p className="text-[10px] font-mono text-muted-foreground">real seconds consumed</p>
                         </div>
                       </div>
                       <p className="text-[11px] font-mono text-muted-foreground leading-relaxed">
-                        Decart cost: <span className="text-foreground font-bold">{Math.round(realMinFor60Display * 60 * COST_RATE)} cr</span>
-                        {" "}for 60 display-min · Compression efficiency: <span style={{ color: "#26de81" }} className="font-bold">{Math.round((1 - realMinFor60Display / 60) * 100)}% savings</span>
+                        {realMinFor60Display != null ? (
+                          <>
+                            Decart cost: <span className="text-foreground font-bold">{Math.round(realMinFor60Display * 60 * COST_RATE)} cr</span>
+                            {" "}for 60 display-min · Compression efficiency: <span style={{ color: "#26de81" }} className="font-bold">{Math.round((1 - realMinFor60Display / 60) * 100)}% savings</span>
+                          </>
+                        ) : "Loading…"}
                       </p>
                     </div>
                   </div>
@@ -451,10 +472,10 @@ export default function AdminBillingPage() {
                   {/* Metrics row */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
                     {[
-                      { label: "Display Acceleration", value: `${previewCF}×` },
-                      { label: "Real per Display Min", value: `${Math.round(60 / previewCF * 10) / 10}s` },
-                      { label: "Est. Decart / hr display", value: `${Math.round((3600 / previewCF) * COST_RATE)} cr` },
-                      { label: "Compression Efficiency", value: `${Math.max(0, Math.round((1 - 1 / previewCF) * 100))}%` },
+                      { label: "Display Acceleration",     value: previewCF != null ? `${previewCF}×`                                              : "—" },
+                      { label: "Real per Display Min",     value: previewCF != null ? `${Math.round(60 / previewCF * 10) / 10}s`                   : "—" },
+                      { label: "Est. Decart / hr display", value: previewCF != null ? `${Math.round((3600 / previewCF) * COST_RATE)} cr`            : "—" },
+                      { label: "Compression Efficiency",   value: previewCF != null ? `${Math.max(0, Math.round((1 - 1 / previewCF) * 100))}%`     : "—" },
                     ].map(m => (
                       <div key={m.label} className="rounded-lg px-3 py-2 text-center"
                         style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 12%)" }}>
