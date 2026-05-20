@@ -108,7 +108,6 @@ router.get("/", requireAdmin, async (req, res) => {
       const customRate      = lk.custom_billing_rate != null ? Number(lk.custom_billing_rate) : null;
       const useCustom       = Boolean(lk.use_custom_billing_rate);
       const effRate         = effectiveRate(useCustom, customRate, globalRate);
-      const burnMul         = computeBurnMultiplier(effRate);
       const isLive          = Number(lk.active_session_count) > 0;
 
       return {
@@ -184,7 +183,6 @@ router.get("/:keyId", requireAdmin, async (req, res) => {
     const customRate = lk.customBillingRate != null ? Number(lk.customBillingRate) : null;
     const useCustom  = Boolean(lk.useCustomBillingRate);
     const effRate    = effectiveRate(useCustom, customRate, globalRate);
-    const burnMul    = computeBurnMultiplier(effRate);
     const remainSec  = licenseRemainingSeconds(Number(lk.minutesAllocated ?? 0), Number(lk.usedSeconds ?? 0));
 
     // Active session check
