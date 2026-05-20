@@ -468,6 +468,24 @@ function setupPermissions(win) {
 
 // ─── System tray ──────────────────────────────────────────────────────────────
 
+// ─── Force refresh ────────────────────────────────────────────────────────────
+
+function forceRefresh() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.show();
+  mainWindow.focus();
+  var win = mainWindow;
+  var winSession = win.webContents.session;
+  Promise.all([
+    winSession.clearCache().catch(function() {}),
+    winSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage', 'appcache'] }).catch(function() {}),
+  ]).then(function() {
+    if (!win.isDestroyed()) win.loadURL(SERVER_URL);
+  }).catch(function() {
+    if (!win.isDestroyed()) win.reload();
+  });
+}
+
 function setupTray() {
   var iconPath = process.platform === 'win32'
     ? path.join(__dirname, '..', 'build', 'icon.ico')
@@ -479,6 +497,7 @@ function setupTray() {
   var contextMenu = Menu.buildFromTemplate([
     { label: 'Open Full Swap', click: function() { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } else { createMainWindow(); } } },
     { type: 'separator' },
+    { label: 'Force Refresh', click: function() { forceRefresh(); } },
     { label: 'Check for Updates', click: function() { autoUpdater.checkForUpdates().catch(function() {}); } },
     { type: 'separator' },
     { label: 'Quit', click: function() { app.isQuiting = true; app.quit(); } },
