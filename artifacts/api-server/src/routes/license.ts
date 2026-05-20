@@ -97,19 +97,22 @@ router.get("/status", requireLicense, async (req, res) => {
         .limit(1);
       if (activeSession) {
         const billingStart = activeSession.billingStartedAt ?? activeSession.startedAt;
-        const sessionSeconds = Math.max(0, Math.floor((Date.now() - billingStart.getTime()) / 1000));
+        const rawSessionSeconds = Math.max(0, Math.floor((Date.now() - billingStart.getTime()) / 1000));
+        // Apply same billing-rate compression as heartbeat deductions so live status matches drain speed
+        let statusCompressionFactor = 1.0;
+        try {
+          const statusRate = await getBillingRateForLicense(license.id);
+          statusCompressionFactor = statusRate > 0 ? Math.round((statusRate / 2.3) * 1000) / 1000 : 1;
+        } catch { /* non-fatal */ }
+        const sessionSeconds = Math.round(rawSessionSeconds * statusCompressionFactor);
         effectiveUsedSeconds = Math.min(allocatedSeconds, usedSeconds + sessionSeconds);
       }
     } catch { /* non-fatal */ }
     const remainingSeconds = Math.max(0, allocatedSeconds - effectiveUsedSeconds);
 
-    // TCE display layer — compute display_remaining (UX only, NEVER gates access)
-    let displayRemainingSeconds = remainingSeconds;
-    let cachedBillingRate: number | null = null;
-    try {
-      cachedBillingRate = await getBillingRateForLicense(license.id);
-      displayRemainingSeconds = Math.round(remainingSeconds * computeCompressionFactor(cachedBillingRate));
-    } catch { /* non-fatal — fall back to real seconds */ }
+    // displayRemainingSeconds: wallet remaining (usedSeconds drains at billing-rate speed already)
+    // No additional TCE multiplication needed — compression is baked into the deduction layer.
+    const displayRemainingSeconds = remainingSeconds;
 
     let assignedApiKey: string | null = null;
     try {
@@ -155,18 +158,12 @@ router.get("/status", requireLicense, async (req, res) => {
       realRemainingSeconds: remainingSeconds,
       realUsedSeconds:      effectiveUsedSeconds,
       displayRemainingSeconds,
-      displayAllocatedSeconds: Math.round(
-        (license.minutesAllocated ?? 0) * 60
-        * (cachedBillingRate != null && cachedBillingRate > 0
-            ? computeCompressionFactor(cachedBillingRate)
-            : 1)
-      ),
+      displayAllocatedSeconds: Math.round((license.minutesAllocated ?? 0) * 60),
       licenseStatus: ((): string => {
         if (!license.isActive) return "revoked";
         if (license.expiresAt && license.expiresAt < new Date()) return "date_expired";
-        // DISPLAY-BOUND exhaustion: commercial entitlement is controlled by displayRemainingSeconds.
-        // realRemainingSeconds > 0 does NOT restore access once display time is exhausted.
-        if (displayRemainingSeconds <= 0) return "exhausted";
+        // Exhaustion: wallet is empty (usedSeconds drains at billing-rate speed)
+        if (remainingSeconds <= 0) return "exhausted";
         return "active";
       })(),
     });
