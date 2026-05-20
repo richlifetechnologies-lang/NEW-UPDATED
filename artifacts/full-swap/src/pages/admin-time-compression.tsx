@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AdminLayout } from "@/components/admin-layout";
 import {
-  Timer, Activity, TrendingUp, Zap, RefreshCw,
-  Search, X, AlertTriangle, Loader2, ShieldCheck,
+  Timer, Activity, TrendingUp, Zap, Search, X,
+  AlertTriangle, Loader2, ShieldCheck,
 } from "lucide-react";
 
 const API_BASE = `/api/admin/billing-rate-per-key`;
@@ -28,15 +28,14 @@ interface KeyRow {
   effectiveRate: number;
   compressionFactor: number;
   usedSeconds: number;
-  displaySecondsUsed: number;
   remainingSeconds: number;
   displaySecondsRemaining: number;
+  allocatedSeconds: number;
   isLive: boolean;
   activeSessionCount: number;
   projectedProfitPct: number;
   profitPerSecond: number;
   rateSource: "custom" | "global";
-  allocatedSeconds: number;
 }
 
 interface ListResponse {
@@ -82,12 +81,12 @@ function CompressionBadge({ factor }: { factor: number }) {
 }
 
 export default function AdminTimeCompressionPage() {
-  const [data, setData]           = useState<ListResponse | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [apiError, setApiError]   = useState<string | null>(null);
-  const [search, setSearch]       = useState("");
-  const [lastPoll, setLastPoll]   = useState<Date | null>(null);
-  const intervalRef               = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [data, setData]         = useState<ListResponse | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [search, setSearch]     = useState("");
+  const [lastPoll, setLastPoll] = useState<Date | null>(null);
+  const intervalRef             = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(async (q?: string) => {
     const s = (q ?? search).trim();
@@ -109,15 +108,22 @@ export default function AdminTimeCompressionPage() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
-  const keys         = data?.keys ?? [];
-  const globalRate   = data?.globalBillingRate ?? 0;
-  const apiCostRate  = data?.apiCostRate ?? 2.3;
-  const globalCF     = compressionFactor(globalRate);
+  const keys        = data?.keys ?? [];
+  const globalRate  = data?.globalBillingRate ?? 0;
+  const apiCostRate = data?.apiCostRate ?? 2.3;
+  const globalCF    = compressionFactor(globalRate);
 
-  const totalRealSecs    = keys.reduce((a, k) => a + k.usedSeconds, 0);
-  const totalDisplaySecs = keys.reduce((a, k) => a + (k.displaySecondsUsed ?? Math.round(k.usedSeconds * compressionFactor(k.effectiveRate))), 0);
-  const liveKeys         = keys.filter(k => k.isLive).length;
-  const customKeys       = keys.filter(k => k.rateSource === "custom").length;
+  const totalRealSecs = keys.reduce((a, k) => a + k.usedSeconds, 0);
+
+  // Display Allocation = total of (allocatedSeconds × compressionFactor) per key
+  // This is the compressed UX allocation shown to licence holders
+  const totalDisplayAllocSecs = keys.reduce(
+    (a, k) => a + Math.round(k.allocatedSeconds * compressionFactor(k.effectiveRate)),
+    0
+  );
+
+  const liveKeys   = keys.filter(k => k.isLive).length;
+  const customKeys = keys.filter(k => k.rateSource === "custom").length;
 
   const filtered = search
     ? keys.filter(k => k.licenseKey.toLowerCase().includes(search.toLowerCase()))
@@ -179,14 +185,14 @@ export default function AdminTimeCompressionPage() {
               <p className="text-muted-foreground mt-1 text-[10px]">Global: {globalRate} ÷ {apiCostRate} = <span className="text-primary font-bold">{globalCF}×</span></p>
             </div>
             <div className="rounded-lg p-3" style={{ background: "hsl(142 76% 36% / 0.05)", border: "1px solid hsl(142 76% 36% / 0.15)" }}>
-              <p className="text-muted-foreground mb-1">display_seconds</p>
-              <p className="text-foreground font-bold">= real_seconds × factor</p>
-              <p className="text-muted-foreground mt-1 text-[10px]">User sees compressed virtual time</p>
+              <p className="text-muted-foreground mb-1">display_remaining</p>
+              <p className="text-foreground font-bold">= real_remaining × factor</p>
+              <p className="text-muted-foreground mt-1 text-[10px]">ONLY remaining time is compressed for UX</p>
             </div>
             <div className="rounded-lg p-3" style={{ background: "hsl(0 84% 60% / 0.05)", border: "1px solid hsl(0 84% 60% / 0.15)" }}>
               <p className="text-muted-foreground mb-1">wallet truth</p>
               <p className="text-foreground font-bold">= real heartbeat seconds</p>
-              <p className="text-muted-foreground mt-1 text-[10px]">Billing always uses real_seconds only</p>
+              <p className="text-muted-foreground mt-1 text-[10px]">Elapsed time is NEVER inflated by TCE</p>
             </div>
           </div>
         </div>
@@ -196,19 +202,19 @@ export default function AdminTimeCompressionPage() {
           <div className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
             <div className="flex items-center gap-2 mb-2">
               <Timer className="w-4 h-4 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Total Real Time</p>
+              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Total Real Used</p>
             </div>
             <p className="text-2xl font-bold text-foreground font-mono">{fmtSec(totalRealSecs)}</p>
-            <p className="text-[10px] text-muted-foreground font-mono mt-1">wallet.used_seconds truth</p>
+            <p className="text-[10px] text-muted-foreground font-mono mt-1">wallet.used_seconds — billing truth</p>
           </div>
 
           <div className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(187 100% 52% / 0.25)" }}>
             <div className="flex items-center gap-2 mb-2">
               <Zap className="w-4 h-4 text-primary" />
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Total Display Time</p>
+              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Display Allocation</p>
             </div>
-            <p className="text-2xl font-bold text-primary font-mono">{fmtSec(totalDisplaySecs)}</p>
-            <p className="text-[10px] text-muted-foreground font-mono mt-1">compressed UX time shown to users</p>
+            <p className="text-2xl font-bold text-primary font-mono">{fmtSec(totalDisplayAllocSecs)}</p>
+            <p className="text-[10px] text-muted-foreground font-mono mt-1">total compressed UX allocation</p>
           </div>
 
           <div className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(142 76% 36% / 0.25)" }}>
@@ -264,7 +270,6 @@ export default function AdminTimeCompressionPage() {
                     "Effective Rate",
                     "Compress×",
                     "Real Used",
-                    "Display Used",
                     "Real Remaining",
                     "Display Remaining",
                     "Revenue",
@@ -285,14 +290,14 @@ export default function AdminTimeCompressionPage() {
               <tbody>
                 {loading && !data ? (
                   <tr>
-                    <td colSpan={12} className="text-center py-16">
+                    <td colSpan={11} className="text-center py-16">
                       <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" />
                       <p className="text-muted-foreground text-xs font-mono mt-2">Loading compression data…</p>
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="text-center py-16">
+                    <td colSpan={11} className="text-center py-16">
                       <Timer className="w-8 h-8 mx-auto mb-3 opacity-20 text-foreground" />
                       <p className="text-muted-foreground font-mono text-sm">
                         {search ? "No keys match your search" : "No licence keys found"}
@@ -301,15 +306,16 @@ export default function AdminTimeCompressionPage() {
                   </tr>
                 ) : (
                   filtered.map(row => {
-                    const cf           = row.compressionFactor ?? compressionFactor(row.effectiveRate);
-                    const realUsed     = row.usedSeconds;
-                    const dispUsed     = row.displaySecondsUsed ?? Math.round(realUsed * cf);
-                    const realRem      = row.remainingSeconds;
-                    const dispRem      = row.displaySecondsRemaining ?? Math.round(realRem * cf);
-                    const revenue      = Math.round(realUsed * row.effectiveRate * 100) / 100;
-                    const apiCost      = Math.round(realUsed * apiCostRate * 100) / 100;
-                    const profitPs     = row.profitPerSecond;
-                    const profitable   = profitPs >= 0;
+                    const cf       = row.compressionFactor ?? compressionFactor(row.effectiveRate);
+                    const realUsed = row.usedSeconds;
+                    const realRem  = row.remainingSeconds;
+                    // display_remaining = real_remaining × compression_factor (UX only)
+                    // elapsed/used time is NEVER inflated by TCE
+                    const dispRem  = row.displaySecondsRemaining ?? Math.round(realRem * cf);
+                    const revenue  = Math.round(realUsed * row.effectiveRate * 100) / 100;
+                    const apiCost  = Math.round(realUsed * apiCostRate * 100) / 100;
+                    const profitPs = row.profitPerSecond;
+                    const profitable = profitPs >= 0;
 
                     return (
                       <tr
@@ -343,14 +349,9 @@ export default function AdminTimeCompressionPage() {
                           </div>
                         </td>
 
-                        {/* Real Used */}
+                        {/* Real Used — NEVER inflated by TCE */}
                         <td className="px-3 py-2.5 text-right font-mono text-muted-foreground whitespace-nowrap">
                           {fmtSec(realUsed)}
-                        </td>
-
-                        {/* Display Used */}
-                        <td className="px-3 py-2.5 text-right font-mono text-primary whitespace-nowrap">
-                          {fmtSec(dispUsed)}
                         </td>
 
                         {/* Real Remaining */}
@@ -358,7 +359,7 @@ export default function AdminTimeCompressionPage() {
                           {fmtSec(realRem)}
                         </td>
 
-                        {/* Display Remaining */}
+                        {/* Display Remaining — only this column is TCE-compressed */}
                         <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap">
                           <span className={realRem <= 0 ? "text-red-400" : "text-green-400"}>
                             {fmtSec(dispRem)}
@@ -419,16 +420,22 @@ export default function AdminTimeCompressionPage() {
           className="rounded-xl p-4 text-xs font-mono space-y-1.5"
           style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 11%)" }}
         >
-          <p className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px] mb-2">Legend</p>
+          <p className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px] mb-2">Legend — TCE Correct Behaviour</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
             <p><span className="text-primary">Compress×</span> = effective_billing_rate ÷ {apiCostRate} (TCE factor)</p>
-            <p><span className="text-foreground">Real Used</span> = wallet.used_seconds (billing truth)</p>
-            <p><span className="text-primary">Display Used</span> = real_used × compress× (user UX only)</p>
-            <p><span className="text-green-400">Display Remaining</span> = real_remaining × compress× (shown to user)</p>
+            <p><span className="text-foreground">Real Used</span> = wallet.used_seconds (billing truth — NEVER TCE-inflated)</p>
+            <p><span className="text-foreground">Real Remaining</span> = allocated − real_used (wallet truth)</p>
+            <p><span className="text-green-400">Display Remaining</span> = real_remaining × compress× (shown to licence holder)</p>
             <p><span className="text-foreground">Revenue</span> = real_seconds × billing_rate</p>
             <p><span className="text-red-400/70">API Cost</span> = real_seconds × {apiCostRate} (fixed Decart rate)</p>
             <p><span className="text-green-400">Profit/s</span> = billing_rate − {apiCostRate} (per real second)</p>
             <p><span className="text-[#a0aec0]">C badge</span> = key has custom billing rate override</p>
+          </div>
+          <div className="mt-3 p-3 rounded-lg" style={{ background: "hsl(187 100% 52% / 0.04)", border: "1px solid hsl(187 100% 52% / 0.12)" }}>
+            <p className="text-[10px] text-primary font-bold mb-1">TCE RULE: ONLY display_remaining is compressed</p>
+            <p className="text-[10px] text-muted-foreground">
+              real_used, billing, cost, and profit are ALWAYS computed from wallet.used_seconds. TCE NEVER inflates elapsed time.
+            </p>
           </div>
         </div>
 
