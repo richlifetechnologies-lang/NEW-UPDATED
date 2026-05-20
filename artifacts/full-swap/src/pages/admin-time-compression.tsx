@@ -394,13 +394,15 @@ export default function AdminTimeCompressionPage() {
                           )}
                         </td>
 
-                        {/* Health */}
+                        {/* Commercial Status (display-bound exhaustion) */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           {!row.isActive ? (
                             <span className="text-[10px] font-mono text-red-400/70">inactive</span>
-                          ) : realRem <= 0 ? (
-                            <span className="text-[10px] font-mono text-red-400">depleted</span>
-                          ) : realRem < 300 ? (
+                          ) : dispRem <= 0 ? (
+                            // DISPLAY-BOUND: exhausted when displayRemainingSeconds <= 0
+                            // even if realRem > 0 (hidden margin buffer — not customer-usable)
+                            <span className="text-[10px] font-mono text-red-400">exhausted</span>
+                          ) : dispRem < 300 ? (
                             <span className="text-[10px] font-mono text-amber-400">low</span>
                           ) : (
                             <span className="text-[10px] font-mono text-green-400/70">healthy</span>
@@ -432,9 +434,10 @@ export default function AdminTimeCompressionPage() {
             <p><span className="text-[#a0aec0]">C badge</span> = key has custom billing rate override</p>
           </div>
           <div className="mt-3 p-3 rounded-lg" style={{ background: "hsl(187 100% 52% / 0.04)", border: "1px solid hsl(187 100% 52% / 0.12)" }}>
-            <p className="text-[10px] text-primary font-bold mb-1">TCE RULE: ONLY display_remaining is compressed</p>
+            <p className="text-[10px] text-primary font-bold mb-1">FINAL TCE EXHAUSTION MODEL — DISPLAY-BOUND</p>
             <p className="text-[10px] text-muted-foreground">
-              real_used, billing, cost, and profit are ALWAYS computed from wallet.used_seconds. TCE NEVER inflates elapsed time.
+              <strong className="text-foreground">Commercial exhaustion = displayRemainingSeconds ≤ 0</strong> — stream terminates, reconnects blocked, even if realRemainingSeconds &gt; 0.
+              Real balance after display exhaustion is internal margin buffer only. Billing truth, profit, and Decart burn always use real seconds (wallet.used_seconds).
             </p>
           </div>
         </div>

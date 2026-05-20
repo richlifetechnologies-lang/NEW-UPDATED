@@ -7,12 +7,11 @@ import { getDecartKeyIdFromCache } from "./decart";
 import { notifySessionDead } from "../lib/notifications";
 import { logger } from "../lib/logger";
 import { emitSessionStarted, emitSessionSettled, emitWalletUpdated } from "../lib/billing-ws";
+import { getBillingRate } from "../lib/billing-rate-cache";
 
 // ── All billing/timing constants imported from single source of truth ──────
-// Billing rate is NOT needed in session deduction paths:
-// spec §2: wallet.used_seconds += real_stream_active_seconds (no rate scaling)
-// spec §3: revenue = used_seconds × effective_rate is computed in analytics endpoints only
-// import { getBillingRate, getBillingRateForLicense } from "../lib/billing-rate-cache"; -- intentionally unused here
+// Billing rate IS needed for heartbeat exhaustion check (DISPLAY-BOUND model):
+//   displayRemainingSeconds controls exhaustion — wallet.used_seconds drives billing only.
 import {
   HEARTBEAT_GRACE_MS,
   ORPHAN_GRACE_MS,
@@ -26,6 +25,8 @@ import {
   creditBasedIncrement,
   wallClockIncrement,
   licenseRemainingSeconds,
+  computeCompressionFactor,
+  computeDisplaySeconds,
 } from "../lib/billing-math";
 
 const router = Router();
@@ -277,7 +278,17 @@ router.post("/", requireLicense, async (req, res) => {
   const allocatedSeconds = (license.minutesAllocated ?? 0) * 60;
   const usedSeconds      = license.usedSeconds ?? 0;
   const remainingSeconds = Math.max(0, allocatedSeconds - usedSeconds);
-  if (remainingSeconds <= 0) {
+
+  // FINAL TCE EXHAUSTION MODEL (DISPLAY-BOUND):
+  // Session creation is gated on displayRemainingSeconds, NOT realRemainingSeconds.
+  // Reconnect after display exhaustion MUST fail — hidden real balance must NOT restore access.
+  let displayRemainingForCreate = remainingSeconds;
+  try {
+    const billingRate = await getBillingRate();
+    displayRemainingForCreate = computeDisplaySeconds(remainingSeconds, computeCompressionFactor(billingRate));
+  } catch { /* non-fatal — fall back to real seconds */ }
+
+  if (displayRemainingForCreate <= 0) {
     res.status(402).json({ error: "No streaming time remaining on this license." });
     return;
   }
@@ -454,16 +465,30 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
     })
     .where(eq(sessionsTable.id, sessionId));
 
-  // After this debit, is the license exhausted?
+  // After this debit, is the license display-exhausted?
+  // FINAL TCE EXHAUSTION MODEL (DISPLAY-BOUND):
+  //   Exhaustion authority = displayRemainingSeconds, NOT realRemainingSeconds.
+  //   Billing truth        = real seconds (wallet.used_seconds — unchanged).
+  //   Hidden real balance after display exhaustion is internal margin buffer ONLY —
+  //   it MUST NOT restore stream access on reconnect or heartbeat continuation.
   const newUsed = used + Math.min(incrementSec, remaining);
-  if (newUsed >= allocated) {
-    // Auto-stop the session server-side too, so the next /heartbeat or
-    // /token call can't sneak through before the client gets the 'no_time'.
+  const newRealRemaining = Math.max(0, allocated - newUsed);
+
+  // Compute displayRemainingSeconds using TCE compression factor (non-fatal fallback = real)
+  let displayRemainingAfterDebit = newRealRemaining;
+  try {
+    const billingRate = await getBillingRate();
+    displayRemainingAfterDebit = computeDisplaySeconds(newRealRemaining, computeCompressionFactor(billingRate));
+  } catch { /* non-fatal — fall back to real seconds */ }
+
+  if (displayRemainingAfterDebit <= 0) {
+    // Display time is exhausted — commercial entitlement ends here.
+    // Auto-stop the session so reconnects and future /token calls are denied.
     const totalDuration = Math.floor((now.getTime() - billingStart.getTime()) / 1000);
     await db.update(sessionsTable)
       .set({ status: "stopped", stoppedAt: now, durationSeconds: totalDuration })
       .where(eq(sessionsTable.id, sessionId));
-    // Fire Telegram alert: license ran out during active stream
+    // Fire Telegram alert: display time ran out during active stream
     notifySessionDead({ sessionId, licenseKey: license?.key ?? null, durationSecs: totalDuration, reason: "out_of_time", killedAt: now }).catch(() => {});
     res.json({ ok: false, reason: "no_time" });
     return;

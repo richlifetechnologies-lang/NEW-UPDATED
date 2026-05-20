@@ -141,16 +141,25 @@ router.get("/status", requireLicense, async (req, res) => {
       activatedAt: license.activatedAt ?? null,
       lastUsedAt: license.lastUsedAt ?? null,
       createdAt: license.createdAt,
-      // ── Consistency fields (patch: user/admin MUST agree on license validity) ──
-      // Access gating MUST use realRemainingSeconds ONLY — never displayRemainingSeconds.
-      // displayRemainingSeconds is UX-only (TCE compressed time for visual timers).
+      // ── Consistency fields ────────────────────────────────────────────────────
+      // FINAL TCE EXHAUSTION MODEL (DISPLAY-BOUND):
+      //   Commercial exhaustion authority = displayRemainingSeconds (NOT realRemainingSeconds).
+      //   Billing truth                   = real seconds (wallet.used_seconds).
+      //   Profit analytics                = real seconds.
+      //   Decart burn                     = real seconds.
+      //   UX countdown / licenseStatus    = display seconds.
+      //
+      //   licenseStatus = "exhausted" when displayRemainingSeconds <= 0, even if
+      //   realRemainingSeconds > 0 (hidden real balance is internal margin buffer only).
       realRemainingSeconds: remainingSeconds,
       realUsedSeconds:      effectiveUsedSeconds,
       displayRemainingSeconds,
       licenseStatus: ((): string => {
         if (!license.isActive) return "revoked";
         if (license.expiresAt && license.expiresAt < new Date()) return "date_expired";
-        if (remainingSeconds <= 0) return "exhausted";
+        // DISPLAY-BOUND exhaustion: commercial entitlement is controlled by displayRemainingSeconds.
+        // realRemainingSeconds > 0 does NOT restore access once display time is exhausted.
+        if (displayRemainingSeconds <= 0) return "exhausted";
         return "active";
       })(),
     });

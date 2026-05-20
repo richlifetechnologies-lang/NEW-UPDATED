@@ -4,6 +4,8 @@ import { requireLicense } from "../lib/auth";
 import { decartPool } from "../lib/decart-pool";
 import { db, decartApiKeysTable, sessionsTable, licenseKeysTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
+import { getBillingRate } from "../lib/billing-rate-cache";
+import { computeCompressionFactor, computeDisplaySeconds } from "../lib/billing-math";
 
 const router = Router();
 
@@ -95,7 +97,17 @@ router.get("/token", requireLicense, async (req, res) => {
   const usedSeconds      = license.usedSeconds ?? 0;
   const remainingSeconds = Math.max(0, allocatedSeconds - usedSeconds);
 
-  if (remainingSeconds <= 0) {
+  // FINAL TCE EXHAUSTION MODEL (DISPLAY-BOUND):
+  // Token issuance is gated on displayRemainingSeconds, NOT realRemainingSeconds.
+  // Hidden real balance after display exhaustion is internal margin buffer only —
+  // it MUST NOT grant a new streaming token. Billing/wallet remain unchanged.
+  let displayRemainingSeconds = remainingSeconds;
+  try {
+    const billingRate = await getBillingRate();
+    displayRemainingSeconds = computeDisplaySeconds(remainingSeconds, computeCompressionFactor(billingRate));
+  } catch { /* non-fatal — fall back to real seconds */ }
+
+  if (displayRemainingSeconds <= 0) {
     res.status(402).json({ error: "No streaming time remaining on this license.", code: "LICENSE_EXHAUSTED" });
     return;
   }
