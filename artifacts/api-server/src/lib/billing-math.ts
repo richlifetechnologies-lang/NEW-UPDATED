@@ -5,9 +5,9 @@
  * This makes them trivially testable and portable across hosting platforms.
  *
  * ── Constants ──────────────────────────────────────────────────────────────
- *   DECART_CREDITS_PER_SEC       = 5     (Lucy 2.1 charges 5 credits/second —
- *                                         used for wallet deduction only)
- *   DECART_CREDITS_PER_MIN       = 300   (5 × 60)
+ *   DECART_CREDITS_PER_SEC       = 2.3   (Lucy 2.1 actual charge rate —
+ *                                         used for Decart cost tracking and credit-to-seconds conversion)
+ *   DECART_CREDITS_PER_MIN       = 138   (2.3 × 60)
  *   DECART_REAL_API_COST_RATE    = 2.3   (safe default API cost rate — analytics
  *                                         and profit calculations ONLY)
  *   DECART_API_COST_PER_SEC      = 2.3   (alias for DECART_REAL_API_COST_RATE)
@@ -52,7 +52,7 @@
  * stored separately in the `settings` table and retrieved via getBillingRate().
  */
 
-export const DECART_CREDITS_PER_SEC   = 5;
+export const DECART_CREDITS_PER_SEC   = 2.3;  // Decart Lucy 2.1 actual charge rate (cr/s)
 export const DECART_CREDITS_PER_MIN   = DECART_CREDITS_PER_SEC * 60; // 300
 
 /**
@@ -203,17 +203,35 @@ export function computeNormalisedMetrics(billableSeconds: number, dynamicRate: n
   profitCredits: number;
   effectiveCreditsPerSec: number;
 } {
-  // API cost: billableSeconds × 2.3 cr/s (safe Decart rate — analytics only)
-  // NEVER use billing rate for API cost; NEVER use session duration or compute_seconds
-  const apiCostCredits  = Math.round(billableSeconds * DECART_API_COST_PER_SEC * 100) / 100;
+  // ── Compression-aware analytics ─────────────────────────────────────────────
+  // billableSeconds = wallet.used_seconds (rate-compressed — drains at billingRate/2.3 speed)
+  // realStreamSeconds = actual wall-clock streaming time (what Decart bills)
+  //   = billableSeconds ÷ compressionFactor = billableSeconds × 2.3 / dynamicRate
+  //
+  // At billingRate = 3 cr/s (factor = 1.304):
+  //   60 wallet-min → ~46 real stream min → Decart cost = 46 × 60 × 2.3 cr ≈ 6,348 cr
+  //   vs naïve: 60 × 60 × 2.3 = 8,280 cr  →  savings ≈ 23%
+  //
+  // profit = retailCredits − apiCostCredits
+  //        = (billableSec × rate) − (realStreamSec × 2.3)
+  //        = billableSec × (rate − 2.3²/rate)
+  // At rate = 2.3 → profit = 0  (breakeven)
+  // At rate > 2.3 → profit > 0  (saves Decart credits AND earns margin)
 
-  // Retail revenue: billableSeconds × billingRate ÷ 2 (admin-controlled rate)
-  // billing rate affects revenue ONLY — stream duration is controlled by wallet
-  const retailSeconds   = Math.round(billableSeconds * dynamicRate / 2);
-  const retailCredits   = retailSeconds * 2;
+  const compressionFactor = dynamicRate > 0 ? dynamicRate / DECART_API_COST_PER_SEC : 1;
+  const realStreamSeconds = compressionFactor > 0
+    ? Math.round(billableSeconds / compressionFactor)
+    : billableSeconds;
 
-  // Profit per license_key: retail - api_cost (both use identical time source)
-  const profitCredits   = Math.round((retailCredits - apiCostCredits) * 100) / 100;
+  // Decart actual cost = realStreamSeconds × 2.3 cr/s (never 5 — user confirmed 2.3)
+  const apiCostCredits = Math.round(realStreamSeconds * DECART_API_COST_PER_SEC * 100) / 100;
+
+  // Retail revenue: compressed wallet seconds × billingRate
+  const retailCredits  = Math.round(billableSeconds * dynamicRate * 100) / 100;
+  const retailSeconds  = Math.round(retailCredits / 2); // legacy half-credit metric
+
+  // Profit per license_key: retail revenue − Decart API cost
+  const profitCredits  = Math.round((retailCredits - apiCostCredits) * 100) / 100;
 
   const effectiveCreditsPerSec = billableSeconds > 0
     ? Math.round((retailCredits / billableSeconds) * 100) / 100
