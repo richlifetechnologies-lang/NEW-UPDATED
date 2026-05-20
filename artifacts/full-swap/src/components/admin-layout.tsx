@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer, DollarSign, Key, Settings } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer, DollarSign, Key, Settings, Cpu } from "lucide-react";
 import { clearAdminToken, clearAdminProfile, getAdminProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/admin/pricing",              label: "Pricing",               icon: DollarSign },
   { href: "/admin/billing",              label: "Billing Rate",          icon: Settings },
   { href: "/admin/billing-rate-per-key", label: "Billing Rate per Key",  icon: Zap },
+  { href: "/admin/control-center",       label: "Control Center",        icon: Cpu },
   { href: "/admin/time-compression",     label: "Time Compression",      icon: Timer },
   { href: "/admin/analytics",            label: "Billing Analytics",     icon: BarChart3 },
   { href: "/admin/sessions",             label: "Session Monitor",       icon: Activity },
