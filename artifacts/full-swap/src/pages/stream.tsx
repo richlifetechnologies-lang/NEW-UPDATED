@@ -1448,7 +1448,12 @@ export default function StreamPage() {
               )}
             </div>)}
 
-            {/* ── Audio Sync ─────────────────────────────────────────── */}
+          </div>
+
+          {/* ── RIGHT-SIDE CONTROL PANEL ─────────────────────────────── */}
+          <div className="space-y-4">
+
+            {/* 1. Audio Sync — fast access at top */}
             {!isFullscreen && (
             <div className="p-3 bg-card border border-border rounded-xl space-y-3">
               {/* Header row */}
@@ -1575,42 +1580,7 @@ export default function StreamPage() {
               )}
             </div>)}
 
-            {/* Start / Stop button */}
-            <div className="flex items-center gap-3">
-              {isStreaming ? (
-                <Button
-                  data-testid="button-stop-stream"
-                  onClick={handleStopStream}
-                  variant="destructive"
-                  disabled={stopSession.isPending}
-                  className="gap-2 flex-1 h-12 text-base font-bold"
-                >
-                  <Square className="w-5 h-5" />
-                  {stopSession.isPending ? "Stopping..." : "Stop Session"}
-                </Button>
-              ) : (noAccess || licenseExhausted) ? (
-                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
-                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-amber-300">No streaming time remaining</p>
-                    <p className="text-xs text-amber-400/70 truncate">Contact your admin to add more minutes — @rich_life2k15</p>
-                  </div>
-                </div>
-              ) : (
-                <Button
-                  data-testid="button-start-stream"
-                  onClick={handleStartStream}
-                  disabled={startSession.isPending || !cameraReady}
-                  className="gap-2 flex-1 h-12 text-base font-bold tracking-wide"
-                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.25)" }}
-                >
-                  <Play className="w-5 h-5" />
-                  {startSession.isPending ? "Starting..." : "Stream Now"}
-                </Button>
-              )}
-            </div>
-
-            {/* Reference image */}
+            {/* 2. Upload Picture / Reference Image */}
             <div className="p-4 bg-card border border-border rounded-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -1646,7 +1616,7 @@ export default function StreamPage() {
               )}
             </div>
 
-            {/* Live prompt */}
+            {/* 3. Live Prompt / Comment input */}
             <div className="p-4 bg-card border border-border rounded-xl space-y-2">
               <label className="text-sm font-medium text-foreground">Live Prompt Override</label>
               <input
@@ -1659,7 +1629,66 @@ export default function StreamPage() {
               <p className="text-xs text-muted-foreground">Changes apply in real-time. Leave blank to use style default.</p>
             </div>
 
-            {/* OBS instructions */}
+            {/* 4. Start / Stop button */}
+            <div className="flex items-center gap-3">
+              {isStreaming ? (
+                <Button
+                  data-testid="button-stop-stream"
+                  onClick={handleStopStream}
+                  variant="destructive"
+                  disabled={stopSession.isPending}
+                  className="gap-2 flex-1 h-12 text-base font-bold"
+                >
+                  <Square className="w-5 h-5" />
+                  {stopSession.isPending ? "Stopping..." : "Stop Session"}
+                </Button>
+              ) : (noAccess || licenseExhausted) ? (
+                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-amber-300">No streaming time remaining</p>
+                    <p className="text-xs text-amber-400/70 truncate">Contact your admin to add more minutes — @rich_life2k15</p>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  data-testid="button-start-stream"
+                  onClick={handleStartStream}
+                  disabled={startSession.isPending || !cameraReady}
+                  className="gap-2 flex-1 h-12 text-base font-bold tracking-wide"
+                  style={{ boxShadow: "0 0 24px hsl(187 100% 52% / 0.25)" }}
+                >
+                  <Play className="w-5 h-5" />
+                  {startSession.isPending ? "Starting..." : "Stream Now"}
+                </Button>
+              )}
+            </div>
+
+            {/* 5. Transformation Style */}
+            <div className="bg-card border border-border rounded-xl p-5">
+              <h3 className="font-semibold text-foreground mb-1 tracking-wide">Transformation Style</h3>
+              <p className="text-xs text-muted-foreground mb-4">Pick a style to apply</p>
+              <div className="space-y-2">
+                {STYLES.map((style) => (
+                  <button
+                    key={style.id}
+                    data-testid={`style-${style.id}`}
+                    onClick={() => handleStyleChange(style.id)}
+                    className={`w-full text-left p-3 rounded-lg border transition-all ${
+                      selectedStyle === style.id
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background hover:border-primary/40 text-foreground"
+                    }`}
+                    style={selectedStyle === style.id ? { boxShadow: "0 0 12px hsl(187 100% 52% / 0.12)" } : {}}
+                  >
+                    <p className="text-sm font-medium">{style.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{style.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 6. OBS Instructions */}
             <div className="p-4 bg-card border border-border rounded-xl space-y-3">
               <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-primary" />
@@ -1684,87 +1713,61 @@ export default function StreamPage() {
                 </li>
               </ol>
             </div>
-          </div>
 
-          {/* Style selector sidebar */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <h3 className="font-semibold text-foreground mb-1 tracking-wide">Transformation Style</h3>
-            <p className="text-xs text-muted-foreground mb-4">Pick a style to apply</p>
-            <div className="space-y-2">
-              {STYLES.map((style) => (
-                <button
-                  key={style.id}
-                  data-testid={`style-${style.id}`}
-                  onClick={() => handleStyleChange(style.id)}
-                  className={`w-full text-left p-3 rounded-lg border transition-all ${
-                    selectedStyle === style.id
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-background hover:border-primary/40 text-foreground"
-                  }`}
-                  style={selectedStyle === style.id ? { boxShadow: "0 0 12px hsl(187 100% 52% / 0.12)" } : {}}
+            {/* 7. Renew / Top Up License Key */}
+            <div className="p-4 rounded-xl space-y-3"
+               style={{ background: "hsl(187 100% 52% / 0.04)", border: "1px solid hsl(187 100% 52% / 0.22)" }}>
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-primary shrink-0" />
+                <p className="text-xs font-bold text-primary tracking-widest font-mono uppercase">
+                  Renew / Top Up License Key Here
+                </p>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Enter a valid license key — minutes will be added to your existing balance instantly.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={renewKey}
+                  onChange={e => { setRenewKey(e.target.value.toUpperCase()); setRenewMsg(null); }}
+                  onKeyDown={e => e.key === "Enter" && !renewLoading && handleRenewLicense()}
+                  placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
+                  className="flex-1 px-3 py-2.5 rounded-lg text-sm font-mono tracking-widest placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition-colors"
+                  style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.3)", color: "hsl(187 100% 90%)" }}
+                  disabled={renewLoading}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <Button
+                  onClick={handleRenewLicense}
+                  disabled={renewLoading || !renewKey.trim()}
+                  size="sm"
+                  className="shrink-0 gap-1.5 font-bold text-xs tracking-wide h-10"
+                  style={{ boxShadow: "0 0 14px hsl(187 100% 52% / 0.2)" }}
                 >
-                  <p className="text-sm font-medium">{style.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{style.description}</p>
-                </button>
-              ))}
+                  {renewLoading
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <RefreshCw className="w-3.5 h-3.5" />}
+                  {renewLoading ? "Validating..." : "Renew License"}
+                </Button>
+              </div>
+              {renewMsg && (
+                <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-xs leading-relaxed ${
+                  renewOk ? "text-emerald-400" : "text-red-400"
+                }`}
+                style={{
+                  background: renewOk ? "hsl(143 72% 42% / 0.08)" : "hsl(0 84% 60% / 0.08)",
+                  border: `1px solid ${renewOk ? "hsl(143 72% 42% / 0.25)" : "hsl(0 84% 60% / 0.25)"}`,
+                }}>
+                  {renewOk
+                    ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                  <span>{renewMsg}</span>
+                </div>
+              )}
             </div>
-          </div>
 
-
-{/* ── RENEW / TOP UP LICENSE KEY ─────────────────────────── */}
-          <div className="p-4 rounded-xl space-y-3"
-             style={{ background: "hsl(187 100% 52% / 0.04)", border: "1px solid hsl(187 100% 52% / 0.22)" }}>
-            <div className="flex items-center gap-2">
-            <Key className="w-4 h-4 text-primary shrink-0" />
-            <p className="text-xs font-bold text-primary tracking-widest font-mono uppercase">
-              Renew / Top Up License Key Here
-            </p>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Enter a valid license key — minutes will be added to your existing balance instantly.
-            </p>
-            <div className="flex gap-2">
-            <input
-              type="text"
-              value={renewKey}
-              onChange={e => { setRenewKey(e.target.value.toUpperCase()); setRenewMsg(null); }}
-              onKeyDown={e => e.key === "Enter" && !renewLoading && handleRenewLicense()}
-              placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
-              className="flex-1 px-3 py-2.5 rounded-lg text-sm font-mono tracking-widest placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition-colors"
-              style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.3)", color: "hsl(187 100% 90%)" }}
-              disabled={renewLoading}
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <Button
-              onClick={handleRenewLicense}
-              disabled={renewLoading || !renewKey.trim()}
-              size="sm"
-              className="shrink-0 gap-1.5 font-bold text-xs tracking-wide h-10"
-              style={{ boxShadow: "0 0 14px hsl(187 100% 52% / 0.2)" }}
-            >
-              {renewLoading
-              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              : <RefreshCw className="w-3.5 h-3.5" />}
-              {renewLoading ? "Validating..." : "Renew License"}
-            </Button>
-            </div>
-            {renewMsg && (
-            <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-xs leading-relaxed ${
-              renewOk
-              ? "text-emerald-400"
-              : "text-red-400"
-            }`}
-            style={{
-              background: renewOk ? "hsl(143 72% 42% / 0.08)" : "hsl(0 84% 60% / 0.08)",
-              border: `1px solid ${renewOk ? "hsl(143 72% 42% / 0.25)" : "hsl(0 84% 60% / 0.25)"}`,
-            }}>
-              {renewOk
-              ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
-              <span>{renewMsg}</span>
-            </div>
-            )}
           </div>
 
         </div>
