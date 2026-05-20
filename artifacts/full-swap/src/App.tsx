@@ -32,6 +32,7 @@ import SubAdminLoginPage from "@/pages/subadmin-login";
 import SubAdminStreamPage from "@/pages/subadmin-stream";
 import AdminBillingRatePerKeyPage from "@/pages/admin-billing-rate-per-key";
 import AdminTimeCompressionPage from "@/pages/admin-time-compression";
+import AdminControlCenterPage from "@/pages/admin-control-center";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,6 +75,7 @@ function Router() {
       <Route path="/admin/billing-integrity" component={AdminBillingIntegrityPage} />
       <Route path="/admin/billing-rate-per-key" component={AdminBillingRatePerKeyPage} />
       <Route path="/admin/time-compression" component={AdminTimeCompressionPage} />
+      <Route path="/admin/control-center" component={AdminControlCenterPage} />
       <Route path="/subadmin" component={SubAdminLoginPage} />
       <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
       <Route path="/subadmin/stream" component={SubAdminStreamPage} />
