@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Dark/light mode
   getTheme: () => ipcRenderer.invoke('get-theme'),
   onThemeChanged: (cb) => ipcRenderer.on('theme-changed', (_e, theme) => cb(theme)),
+
+  // Force refresh — clears cache and reloads the site
+  forceRefresh: () => ipcRenderer.send('force-refresh'),
 });
 
 // Legacy aliases (kept for backward compatibility)
