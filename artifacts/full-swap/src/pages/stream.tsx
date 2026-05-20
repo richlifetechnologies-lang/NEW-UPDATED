@@ -1570,19 +1570,23 @@ export default function StreamPage() {
 
               {/* Step 4 */}
               <div className="space-y-1.5">
-                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 4 — Fine-tune sync</p>
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Step 4 — Audio capture in Full Swap</p>
                 <ol className="space-y-1 text-xs text-muted-foreground list-none">
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
-                    Do a 10-second <span className="text-foreground font-medium">test recording</span> in OBS and play it back.
+                    When the app asks for microphone access, click <span className="text-foreground font-medium">Allow</span> — this lets Full Swap capture your voice directly.
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
-                    Voice before lips → <span className="text-foreground font-medium">increase</span> mic sync offset. Voice after lips → <span className="text-foreground font-medium">decrease</span> it.
+                    If you have multiple microphones, select the correct one from the <span className="text-foreground font-medium">Input Camera Source</span> area before starting your stream.
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">3</span>
-                    Audio Sync adds ~<span className="text-foreground font-medium">200–400ms</span> of delay — match that in OBS's sync offset field.
+                    Toggle <span className="text-foreground font-medium">Audio Sync ON</span> in the right panel — this delays your mic output to stay in perfect sync with the AI face-swap video.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">4</span>
+                    Speak a few words after starting the stream and watch the AI output — your voice and the transformed face should be in sync. If not, toggle Audio Sync off and on again to re-calibrate.
                   </li>
                 </ol>
               </div>
@@ -1592,10 +1596,11 @@ export default function StreamPage() {
                 <p className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Pre-stream checklist</p>
                 <ul className="space-y-1 text-xs text-muted-foreground list-none">
                   {[
-                    "Stream page running with AI output visible",
+                    "Full Swap app open with AI output visible",
+                    "Microphone access allowed in the app",
                     "Audio Sync toggled ON",
-                    "OBS capturing the output window or browser source",
-                    "Only one audio source active (no duplicates)",
+                    "OBS capturing the Full Swap app window",
+                    "No separate mic or desktop audio source added in OBS",
                     "Test recording confirms lips and voice are in sync",
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-2">
