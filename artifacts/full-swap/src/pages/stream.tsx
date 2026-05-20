@@ -1500,7 +1500,7 @@ export default function StreamPage() {
                 <ol className="space-y-1 text-xs text-muted-foreground list-none">
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">1</span>
-                    Open this page in <span className="text-foreground font-medium">Google Chrome</span> — camera APIs work best there.
+                    Open the <span className="text-foreground font-medium">Full Swap Desktop App</span> — everything is built in, no browser needed.
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">2</span>
