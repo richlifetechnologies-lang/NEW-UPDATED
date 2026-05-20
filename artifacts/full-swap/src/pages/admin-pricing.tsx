@@ -6,11 +6,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, RefreshCw, DollarSign, Clock, Coins, Calculator, Users, UserCog } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, DollarSign, Clock, Calculator, Users, UserCog, Info } from "lucide-react";
 
 const API = (p: string) => `/api${p}`;
 const token = () => localStorage.getItem("fullswap_admin_token") ?? localStorage.getItem("fullswap_token") ?? "";
 const authH = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
+
+// Infrastructure constant — Decart API cost per real second.
+// Used ONLY for the display-only cost estimator in the create/edit dialog.
+// This value does NOT affect billing, wallet, or profit calculations.
+const DECART_API_COST_PER_SEC = 2.3;
 
 type Tier = {
   id: number; minutes: number; credits: number;
@@ -24,16 +29,14 @@ type FormData = {
 
 const emptyForm: FormData = { label: "", minutes: "", priceUsd: "", planType: "topup", isActive: true };
 
-const CREDITS_PER_MINUTE = 300;
-const DECART_COST_PER_CREDIT = 0.01;
-
 function calcFromForm(form: FormData, rates: Rates) {
   const mins = parseInt(form.minutes) || 0;
   const usd = parseFloat(form.priceUsd) || 0;
-  const credits = Math.round(mins * CREDITS_PER_MINUTE);
+  // estimated_decart_cost = (minutes_allocated × 60) × 2.3
+  // DISPLAY ONLY — does not affect billing, wallet, profit, or TCE.
+  const estimatedDecartCost = +(mins * 60 * DECART_API_COST_PER_SEC).toFixed(2);
   return {
-    credits,
-    decartCostUsd: +(credits * DECART_COST_PER_CREDIT).toFixed(2),
+    estimatedDecartCost,
     priceUsdt: +(usd * rates.usdtPerUsd).toFixed(2),
     priceGhs: +(usd * rates.ghsPerUsd).toFixed(2),
   };
@@ -66,10 +69,13 @@ function PricingSection({
     setSaving(true);
     try {
       const body = {
-        label: form.label.trim(), minutes: parseInt(form.minutes),
-        credits: calc.credits, priceUsd: form.priceUsd,
-        priceUsdt: String(calc.priceUsdt), priceGhs: String(calc.priceGhs),
-        planType: form.planType, isActive: form.isActive,
+        label: form.label.trim(),
+        minutes: parseInt(form.minutes),
+        priceUsd: form.priceUsd,
+        priceUsdt: String(calc.priceUsdt),
+        priceGhs: String(calc.priceGhs),
+        planType: form.planType,
+        isActive: form.isActive,
       };
       const url = editingId ? API(`${apiBase}/${editingId}`) : API(apiBase);
       const method = editingId ? "PUT" : "POST";
@@ -116,7 +122,6 @@ function PricingSection({
             <TableRow style={{ background: "hsl(222 44% 6%)" }}>
               <TableHead className="text-muted-foreground font-mono text-xs">Package</TableHead>
               <TableHead className="text-muted-foreground font-mono text-xs">Minutes</TableHead>
-              <TableHead className="text-muted-foreground font-mono text-xs">Credits</TableHead>
               <TableHead className="text-muted-foreground font-mono text-xs">USD</TableHead>
               <TableHead className="text-muted-foreground font-mono text-xs">USDT</TableHead>
               <TableHead className="text-muted-foreground font-mono text-xs">GHS</TableHead>
@@ -126,12 +131,11 @@ function PricingSection({
           </TableHeader>
           <TableBody>
             {tiers.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No packages yet. Click Add Package to create one.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No packages yet. Click Add Package to create one.</TableCell></TableRow>
             ) : tiers.map(t => (
               <TableRow key={t.id} style={{ borderColor: "hsl(222 40% 11%)" }}>
                 <TableCell className="font-semibold text-foreground">{t.label}</TableCell>
                 <TableCell className="font-mono text-sm">{t.minutes}</TableCell>
-                <TableCell className="font-mono text-sm text-primary">{t.credits}</TableCell>
                 <TableCell className="font-mono text-sm">${t.priceUsd}</TableCell>
                 <TableCell className="font-mono text-sm">{t.priceUsdt} USDT</TableCell>
                 <TableCell className="font-mono text-sm">GHS {t.priceGhs}</TableCell>
@@ -146,7 +150,7 @@ function PricingSection({
         </Table>
       </div>
 
-      {/* Create/Edit Dialog with Live Calculator */}
+      {/* Create/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent style={{ background: "hsl(222 44% 6%)", border: `1px solid ${color}40`, maxWidth: 520 }}>
           <DialogHeader>
@@ -174,22 +178,20 @@ function PricingSection({
               </div>
             </div>
 
-            {/* Live Calculator Output */}
-            <div className="rounded-lg p-3 space-y-2" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}>
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-2">
-                Auto-Calculated from package settings
-              </p>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
-                  <p className="text-lg font-bold text-primary font-mono">{calc.credits.toLocaleString()}</p>
-                  <p className="text-[10px] text-muted-foreground">Decart Credits</p>
-                </div>
-                <div className="text-center p-2 rounded" style={{ background: "hsl(0 84% 60% / 0.06)" }}>
-                  <p className="text-lg font-bold text-red-400 font-mono">${calc.decartCostUsd}</p>
-                  <p className="text-[10px] text-muted-foreground">Decart Cost (USD)</p>
-                </div>
+            {/* Estimated Decart Cost — DISPLAY ONLY, no billing impact */}
+            <div className="rounded-lg p-3 space-y-2" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(38 92% 50% / 0.25)" }}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <Info className="w-3.5 h-3.5 text-amber-400" />
+                <p className="text-xs font-mono uppercase tracking-wider text-amber-400">
+                  Estimated Decart Cost — Preview Only
+                </p>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="text-center p-2 rounded col-span-1" style={{ background: "hsl(0 84% 60% / 0.06)", border: "1px solid hsl(0 84% 60% / 0.15)" }}>
+                  <p className="text-lg font-bold text-red-400 font-mono">${calc.estimatedDecartCost.toLocaleString()}</p>
+                  <p className="text-[10px] text-muted-foreground">Decart Cost</p>
+                  <p className="text-[9px] text-amber-500/70 mt-0.5">preview only</p>
+                </div>
                 <div className="text-center p-2 rounded" style={{ background: "hsl(187 100% 52% / 0.06)" }}>
                   <p className="text-lg font-bold text-foreground font-mono">{calc.priceUsdt}</p>
                   <p className="text-[10px] text-muted-foreground">Your Price (USDT)</p>
@@ -199,6 +201,9 @@ function PricingSection({
                   <p className="text-[10px] text-muted-foreground">Your Price (GHS)</p>
                 </div>
               </div>
+              <p className="text-[10px] text-muted-foreground/60 font-mono mt-1">
+                Formula: minutes × 60s × $2.3/s · display only · no billing impact
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
