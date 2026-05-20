@@ -14,6 +14,7 @@ import billingIntelligenceRouter from "./admin-billing-intelligence";
 import railwayRouter from "./admin-railway";
 import billingRatePerKeyRouter from "./admin-billing-rate-per-key";
 import adminExtrasRouter from "./admin-extras";
+import controlCenterRouter from "./admin-control-center";
 
 const router: IRouter = Router();
 
@@ -29,6 +30,7 @@ router.use("/admin/api-monitoring", adminMonitoringRouter);
 router.use("/admin/billing-intelligence", billingIntelligenceRouter);
 router.use("/admin/railway", railwayRouter);
 router.use("/admin/billing-rate-per-key", billingRatePerKeyRouter);
+router.use("/admin/control-center", controlCenterRouter);
 router.use(downloadRouter);
 router.use("/subadmin", subAdminRouter);
 router.use("/license", licenseRouter);
