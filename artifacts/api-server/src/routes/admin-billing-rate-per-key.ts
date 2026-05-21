@@ -72,11 +72,11 @@ function estimatedStreamDurationMin(remainingSeconds: number, _effectiveRate: nu
 
 /**
  * Compute projected profit margin % at a given billing rate.
- * profit_pct = (rate - 2.3) / rate * 100
+ * profit_pct = (rate - 2.3) / 2.3 * 100  (profit-on-cost ratio)
  */
 function projectedProfitPct(rate: number): number {
   if (rate <= 0) return 0;
-  return Math.round(((rate - DECART_API_COST_PER_SEC) / rate) * 10000) / 100;
+  return Math.round(((rate - DECART_API_COST_PER_SEC) / DECART_API_COST_PER_SEC) * 10000) / 100;
 }
 
 // ── GET /admin/billing-rate-per-key ──────────────────────────────────────────
