@@ -300,16 +300,50 @@ export default function AdminAnalyticsPage() {
                     <tbody>
                       {filtered.length === 0 ? (
                         <tr>
-
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </>
-                )}
+                          <td colSpan={11} className="px-3 py-8 text-center text-muted-foreground font-mono text-xs">
+                            No keys match filters
+                          </td>
+                        </tr>
+                      ) : (
+                        filtered.map((k, i) => (
+                          <tr key={k.licenseKeyId}
+                            style={{ background: i % 2 === 0 ? "hsl(222 44% 5%)" : "hsl(222 44% 6%)", borderTop: "1px solid hsl(222 40% 10%)" }}>
+                            <td className="px-3 py-2 font-mono text-xs text-left">{fmtKey(k.licenseKey)}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">{k.effectiveRate} cr/s</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">{k.rateSource}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">{fmtSec(k.usedSeconds)}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">{fmtSec(k.usedSeconds)}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">{fmtSec(Math.max(0, k.allocatedSeconds - k.usedSeconds))}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">{k.revenue} cr</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">{k.cost} cr</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right"
+                              style={{ color: k.profit >= 0 ? "#26de81" : "#fc5c65" }}>{k.profit} cr</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">
+                              <span className="px-1.5 py-0.5 rounded text-[10px]"
+                                style={{
+                                  background: driftBg(k.projectedProfitPct >= 0 ? "good" : "bad"),
+                                  color: driftFg(k.projectedProfitPct >= 0 ? "good" : "bad"),
+                                  border: `1px solid ${driftBdr(k.projectedProfitPct >= 0 ? "good" : "bad")}`,
+                                }}>
+                                {k.projectedProfitPct >= 0 ? "OK" : "LOSS"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs text-right">
+                              {k.isLive ? (
+                                <span className="flex items-center justify-end gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                                  <span style={{ color: "#26de81" }}>LIVE</span>
+                                </span>
+                              ) : (
+                                <span style={{ color: "hsl(215 20% 40%)" }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </>
