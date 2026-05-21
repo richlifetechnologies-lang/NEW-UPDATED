@@ -326,6 +326,75 @@ router.get("/my-users", requireSubAdmin, async (req, res) => {
 
 // ── License Key Generation ─────────────────────────────────────────────────────
 // POST /subadmin/license/generate — sub-admin generates a license key with allocated minutes
+// GET /subadmin/license/search?key= — find a licence key by its key string (must belong to this sub-admin)
+router.get("/license/search", requireSubAdmin, async (req, res) => {
+  const subAdmin = (req as any).user;
+  const key = (req.query.key as string)?.trim().toUpperCase();
+  if (!key) { res.status(400).json({ error: "key query param required" }); return; }
+  const result = await db.execute(`
+    SELECT id, key, device_id, is_active, activated_at, created_at,
+           notes, minutes_allocated, minutes_credited
+    FROM license_keys
+    WHERE key = '${key.replace(/'/g, "''")}' AND created_by_sub_admin_id = ${subAdmin.id}
+    LIMIT 1
+  `);
+  if (!result.rows.length) { res.status(404).json({ error: "Licence key not found in your generated keys" }); return; }
+  const r = result.rows[0] as any;
+  res.json({
+    id: r.id, key: r.key, deviceId: r.device_id, isActive: r.is_active,
+    activatedAt: r.activated_at, createdAt: r.created_at,
+    notes: r.notes, minutesAllocated: Number(r.minutes_allocated ?? 0),
+    minutesCredited: r.minutes_credited,
+  });
+});
+
+// POST /subadmin/license/:id/add-minutes — top up a licence key's minutes, deducting from sub-admin balance
+router.post("/license/:id/add-minutes", requireSubAdmin, async (req, res) => {
+  const subAdmin = (req as any).user;
+  const id = parseInt(req.params["id"] as string);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid licence key ID" }); return; }
+  const { minutes, note } = req.body as { minutes?: number; note?: string };
+  if (!minutes || minutes < 1 || !Number.isInteger(minutes)) {
+    res.status(400).json({ error: "minutes must be a positive integer" }); return;
+  }
+  const keyResult = await db.execute(
+    `SELECT id, key, minutes_allocated FROM license_keys WHERE id = ${id} AND created_by_sub_admin_id = ${subAdmin.id}`
+  );
+  if (!keyResult.rows.length) { res.status(404).json({ error: "Licence key not found" }); return; }
+  const keyRow = keyResult.rows[0] as any;
+  const balResult = await db.execute(
+    `SELECT sub_admin_minutes_balance, total_minutes_purchased FROM users WHERE id = ${subAdmin.id}`
+  );
+  const balRow = balResult.rows[0] as any;
+  const allocated = Number(balRow?.sub_admin_minutes_balance ?? 0);
+  const purchased = Number(balRow?.total_minutes_purchased ?? 0);
+  const totalAvail = allocated + purchased;
+  if (totalAvail < minutes) {
+    res.status(400).json({ error: `Insufficient balance. You have ${totalAvail} minutes available.` }); return;
+  }
+  const fromAllocated = Math.min(allocated, minutes);
+  const fromPurchased = minutes - fromAllocated;
+  await db.execute(
+    `UPDATE users SET sub_admin_minutes_balance = sub_admin_minutes_balance - ${fromAllocated},
+     total_minutes_purchased = total_minutes_purchased - ${fromPurchased}
+     WHERE id = ${subAdmin.id}`
+  );
+  await db.execute(`UPDATE license_keys SET minutes_allocated = minutes_allocated + ${minutes} WHERE id = ${id}`);
+  await db.insert(subAdminAuditTable).values({
+    subAdminId: subAdmin.id, action: "credit_user", minutesAmount: minutes,
+    note: note?.trim() || `Added ${minutes} minutes to key ${keyRow.key}`,
+  }).catch(() => {});
+  const newBal = await db.execute(
+    `SELECT sub_admin_minutes_balance, total_minutes_purchased FROM users WHERE id = ${subAdmin.id}`
+  );
+  const nb = newBal.rows[0] as any;
+  res.json({
+    success: true, minutesAdded: minutes, key: keyRow.key,
+    newMinutesAllocated: Number(keyRow.minutes_allocated ?? 0) + minutes,
+    subAdminBalanceRemaining: (Number(nb?.sub_admin_minutes_balance ?? 0)) + (Number(nb?.total_minutes_purchased ?? 0)),
+  });
+});
+
 router.post("/license/generate", requireSubAdmin, async (req, res) => {
   const subAdmin = (req as any).user;
   const { minutes, notes } = req.body as { minutes?: number; notes?: string };
