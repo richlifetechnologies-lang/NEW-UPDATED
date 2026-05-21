@@ -1297,24 +1297,33 @@ router.get("/sub-admins/all-license-keys", requireAdmin, async (_req, res) => {
     ORDER BY lk.created_at DESC
     LIMIT 500
   `);
-  res.json(result.rows.map((r: any) => ({
-    id: r.id,
-    key: r.key,
-    isActive: r.is_active,
-    activatedAt: r.activated_at,
-    createdAt: r.created_at,
-    minutesAllocated: r.minutes_allocated ?? 0,
-    minutesConsumed: Math.round((r.used_seconds ?? 0) / 60 * 10) / 10,
-    notes: r.notes,
-    minutesCredited: r.minutes_credited,
-    assignedDecartKeyId: r.assigned_decart_key_id,
-    decartKeyLabel: r.decart_key_label ?? null,
-    customBillingRate: r.custom_billing_rate,
-    useCustomBillingRate: r.use_custom_billing_rate,
-    createdBySubAdminId: r.created_by_sub_admin_id,
-    subAdminUsername: r.sub_admin_username ?? "Unknown",
-    subAdminEmail: r.sub_admin_email ?? "",
-  })));
+  res.json(result.rows.map((r: any) => {
+    const minutesAllocated = r.minutes_allocated ?? 0;
+    const usedMinutes = Math.round((r.used_seconds ?? 0) / 60 * 10) / 10;
+    const unusedMinutes = Math.max(0, Math.round((minutesAllocated - usedMinutes) * 10) / 10);
+    const burnRate = minutesAllocated > 0 ? Math.min(100, Math.round((usedMinutes / minutesAllocated) * 100)) : 0;
+    return {
+      id: r.id,
+      key: r.key,
+      isActive: r.is_active,
+      activatedAt: r.activated_at,
+      createdAt: r.created_at,
+      minutesAllocated,
+      minutesConsumed: usedMinutes,
+      usedMinutes,
+      unusedMinutes,
+      burnRate,
+      notes: r.notes,
+      minutesCredited: r.minutes_credited,
+      assignedDecartKeyId: r.assigned_decart_key_id,
+      decartKeyLabel: r.decart_key_label ?? null,
+      customBillingRate: r.custom_billing_rate,
+      useCustomBillingRate: r.use_custom_billing_rate,
+      createdBySubAdminId: r.created_by_sub_admin_id,
+      subAdminUsername: r.sub_admin_username ?? "Unknown",
+      subAdminEmail: r.sub_admin_email ?? "",
+    };
+  }));
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

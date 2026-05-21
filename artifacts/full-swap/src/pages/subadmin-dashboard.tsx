@@ -4,8 +4,8 @@ import { useToast } from "@/hooks/use-toast";
 import { getAdminToken, clearAdminToken, clearAdminProfile } from "@/lib/auth";
 import { Coins, Activity, LogOut, RefreshCw, CheckCircle, Zap, Clock,
          UserCog, UserPlus, Eye, EyeOff, Search, CreditCard,
-         Copy, CheckCheck, Wallet, Users, Play, X,
-         CheckCircle2, XCircle, Clock3, Ban, History } from "lucide-react";
+         Copy, CheckCheck, Wallet, Users, X, Key,
+         CheckCircle2, XCircle, Clock3, Ban, History, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const API = (p: string) => `/api${p}`;
@@ -37,7 +37,7 @@ export default function SubAdminDashboardPage() {
   const [creditNote, setCreditNote] = useState("");
   const [searching, setSearching] = useState(false);
   const [crediting, setCrediting] = useState(false);
-  const [tab, setTab] = useState<"credit"|"create"|"sessions"|"activity"|"users"|"billing"|"streaming">("credit");
+  const [tab, setTab] = useState<"credit"|"create"|"sessions"|"activity"|"users"|"billing">("credit");
   const [createForm, setCreateForm] = useState({ email: "", username: "", password: "" });
   const [showCreatePwd, setShowCreatePwd] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -82,6 +82,11 @@ export default function SubAdminDashboardPage() {
   useEffect(() => {
     if (!getAdminToken() || localStorage.getItem("fullswap_sub_admin") !== "1") { setLocation("/subadmin"); return; }
     fetchAll();
+    // Load license keys on mount so the overview counter is populated immediately
+    fetch(API("/subadmin/license/list"), { headers: authH() })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (Array.isArray(data)) setLicenseKeys(data); })
+      .catch(() => {});
     const iv = setInterval(fetchAll, 15000);
     return () => clearInterval(iv);
   }, [fetchAll]);
@@ -303,36 +308,48 @@ export default function SubAdminDashboardPage() {
           </div>
         </div>
 
-        {/* Stream Launch button */}
-        <div className={`${card} flex items-center justify-between gap-4 mb-0`}
-             style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
-          <div>
-            <div className="flex items-center gap-2 mb-1"><Play className="w-4 h-4 text-primary" /><span className="text-sm font-bold text-primary">Streaming Studio</span></div>
-            <p className="text-xs text-muted-foreground">
-              {me.totalMinutesPurchased > 0
-                ? `${me.totalMinutesPurchased} min available — ready to stream`
-                : "Purchase minutes via Billing tab to stream"}
-            </p>
+        {/* Minutes Overview card */}
+        <div className={`${card} mb-0`}>
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingDown className="w-4 h-4 text-primary" />
+            <span className="text-sm font-bold text-foreground">Minutes Overview</span>
           </div>
-          <Button
-            className="gap-2 shrink-0"
-            disabled={me.totalMinutesPurchased <= 0}
-            onClick={() => setLocation("/subadmin/stream")}
-            style={me.totalMinutesPurchased > 0 ? { boxShadow: "0 0 20px hsl(187 100% 52% / 0.3)" } : {}}
-          >
-            <Play className="w-4 h-4" />
-            {me.totalMinutesPurchased > 0 ? "Launch Stream" : "No Minutes"}
-          </Button>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-background rounded-lg p-3 border border-border text-center">
+              <div className="text-2xl font-bold font-mono text-primary">{totalBalance}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Remaining Balance</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 border border-border text-center">
+              <div className="text-2xl font-bold font-mono text-cyan-400">{me.subAdminMinutesBalance}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Admin Allocated</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 border border-border text-center">
+              <div className="text-2xl font-bold font-mono text-green-400">{me.totalMinutesPurchased}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Self Purchased</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 border border-border text-center">
+              <div className="text-2xl font-bold font-mono text-purple-400">{licenseKeys.length}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Keys Generated</div>
+            </div>
+          </div>
+          {totalBalance < 50 && (
+            <div className="mt-3 p-2.5 rounded-lg bg-orange-500/10 border border-orange-500/25 flex items-center gap-2">
+              <Coins className="w-4 h-4 text-orange-400 shrink-0" />
+              <p className="text-xs text-orange-300">
+                <span className="font-bold">Low balance:</span> Only {totalBalance} minutes remaining. Top up via the <button className="underline font-semibold" onClick={() => setTab("billing")}>Billing tab</button>.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
         <div className="flex gap-1 mb-5 bg-card border border-border rounded-lg p-1 flex-wrap">
-          {(["credit","create","sessions","activity","users","billing","streaming"] as const).map(t => (
+          {(["credit","create","sessions","activity","users","billing"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition-all ${tab===t?"bg-primary text-primary-foreground":"text-muted-foreground hover:text-foreground"}`}>
               {t === "credit" ? "Credit Licence Key" : t === "create" ? "Create Licence Key" :
-               t === "sessions" ? `Live (${sessions.length})` : t === "billing" ? "Software License Prices" :
-               t === "users" ? `My Licence Keys (${myUsers.length || "..."})` : t === "streaming" ? "Streaming" : "Activity"}
+               t === "sessions" ? `Live (${sessions.length})` : t === "billing" ? "Top Up" :
+               t === "users" ? `My Licence Keys (${myUsers.length || "..."})` : "Activity"}
             </button>
           ))}
         </div>
@@ -516,60 +533,6 @@ export default function SubAdminDashboardPage() {
                     <p className="text-[10px] text-muted-foreground whitespace-nowrap">{new Date(s.startedAt).toLocaleString()}</p>
                   </div>
                 ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* STREAMING */}
-        {tab === "streaming" && (
-          <div className="space-y-4">
-            {totalBalance > 0 ? (
-              <div className={`${card}`}
-                   style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
-                <div className="flex items-center gap-2 mb-3"><Play className="w-5 h-5 text-primary" /><h3 className="text-sm font-bold text-primary">Streaming Studio</h3></div>
-                <p className="text-sm text-muted-foreground mb-4">
-                  You have <span className="font-bold text-primary">{totalBalance} minutes</span> available. Launch the streaming studio to start your session.
-                </p>
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  {[
-                    { label: "Available Minutes", val: totalBalance, color: "text-primary" },
-                    { label: "Live Streams", val: sessions.length, color: "text-green-400" },
-                    { label: "Recent Sessions", val: recentSessions.length, color: "text-blue-400" },
-                  ].map(s => (
-                    <div key={s.label} className="bg-background rounded-lg p-3 border border-border text-center">
-                      <div className={`text-2xl font-bold font-mono ${s.color}`}>{s.val}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{s.label}</div>
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  className="w-full gap-2"
-                  onClick={() => setLocation("/subadmin/stream")}
-                  style={{ boxShadow: "0 0 20px hsl(187 100% 52% / 0.3)" }}
-                >
-                  <Play className="w-4 h-4" />
-                  Launch Streaming Studio
-                </Button>
-              </div>
-            ) : (
-              <div className={card}>
-                <div className="flex flex-col items-center text-center py-6">
-                  <div className="w-16 h-16 rounded-full bg-orange-500/10 border border-orange-500/25 flex items-center justify-center mb-4">
-                    <Coins className="w-8 h-8 text-orange-400" />
-                  </div>
-                  <h3 className="text-lg font-bold text-foreground mb-2">No Minutes Available</h3>
-                  <p className="text-sm text-muted-foreground mb-4 max-w-sm">
-                    You need to purchase streaming minutes before you can use the Streaming Studio. Head over to the Billing section to top up your account.
-                  </p>
-                  <Button
-                    className="gap-2"
-                    onClick={() => setTab("billing")}
-                  >
-                    <CreditCard className="w-4 h-4" />
-                    Go to Billing
-                  </Button>
-                </div>
               </div>
             )}
           </div>
