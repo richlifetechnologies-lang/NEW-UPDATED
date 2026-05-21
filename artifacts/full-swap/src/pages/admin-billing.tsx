@@ -8,7 +8,7 @@
  *   deduction_rate   = billing_rate / 2.3
  *   real_stream_min  = wallet_min × (2.3 / billing_rate)
  *   profit_per_sec   = billing_rate - 2.3   (credits)
- *   margin %         = (billing_rate - 2.3) / billing_rate × 100
+ *   margin %         = (billing_rate - 2.3) / 2.3 × 100  (profit-on-cost ratio)
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AdminLayout } from "@/components/admin-layout";
@@ -63,7 +63,7 @@ const PROFILES = [
 // ── Math helpers ──────────────────────────────────────────────────────────────
 /** Profit margin at a given billing rate */
 function margin(rate: number): number {
-  return rate > 0 ? Math.round(((rate - COST_RATE) / rate) * 1000) / 10 : 0;
+  return rate > 0 ? Math.round(((rate - COST_RATE) / COST_RATE) * 1000) / 10 : 0;
 }
 /** Real streaming minutes a wallet-hour yields at this billing rate */
 function realMinPerWalletHour(rate: number): number {
