@@ -237,7 +237,7 @@ function BillingEngineTab() {
   };
 
   const rate = rateInfo?.rate ?? 0;
-  const margin = rate > 0 ? Math.round(((rate - COST_RATE) / rate) * 1000) / 10 : 0;
+  const margin = rate > 0 ? Math.round(((rate - COST_RATE) / COST_RATE) * 1000) / 10 : 0;
   const realMin = rate > 0 ? Math.round((60 * COST_RATE / rate) * 10) / 10 : 60;
 
   return (
