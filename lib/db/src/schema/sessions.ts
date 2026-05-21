@@ -21,6 +21,7 @@ export const sessionsTable = pgTable("sessions", {
   lastHeartbeatAt: timestamp("last_heartbeat_at"),
   billingStartedAt: timestamp("billing_started_at"),
   lastDeductedAt: timestamp("last_deducted_at"),
+  billingRateSnapshot: real("billing_rate_snapshot"), // H-02: immutable snapshot of billing rate at session creation
 });
 
 export const insertSessionSchema = createInsertSchema(sessionsTable).omit({ startedAt: true });

@@ -11,6 +11,7 @@ import { DECART_CREDITS_PER_SEC, DECART_API_COST_PER_SEC } from "../lib/billing-
 import { getBillingRate, invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 import { emitBillingRateChanged } from "../lib/billing-ws";
+import { isRateLimited, recordFailedAttempt, clearAttempts, retryAfterSeconds } from "../lib/rate-limiter";
 
 function parseLoginBody(body: unknown): { email: string; password: string } | null {
   if (!body || typeof body !== "object") return null;
@@ -33,6 +34,14 @@ const RegisterBody = { safeParse: (body: unknown) => { const data = parseRegiste
 const router = Router();
 
 router.post("/login", async (req, res) => {
+  // H-03: Rate limit admin login — max 10 failures per 15min per IP
+  const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+  if (isRateLimited(clientIp)) {
+    const wait = retryAfterSeconds(clientIp);
+    res.status(429).json({ error: `Too many login attempts. Try again in ${wait}s.`, retryAfterSeconds: wait });
+    return;
+  }
+
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
@@ -43,6 +52,7 @@ router.post("/login", async (req, res) => {
   const isMainAdmin = user?.isAdmin === 1;
   const isSubAdmin  = user?.isSubAdmin === 1; // isSubAdmin is in usersTable schema — no cast needed
   if (!user || (!isMainAdmin && !isSubAdmin) || user.passwordHash !== hashPassword(password) || user.membership === "suspended") {
+    recordFailedAttempt(clientIp);
     res.status(401).json({ error: "Invalid admin credentials" });
     return;
   }
@@ -54,6 +64,7 @@ router.post("/login", async (req, res) => {
       note: `Login at ${new Date().toISOString()}`,
     }).catch(() => { /* non-fatal */ });
   }
+  clearAttempts(clientIp); // H-03: reset failure counter on success
   const token = generateToken(user.id, isMainAdmin, isSubAdmin);
   res.json({
     user: {

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer, DollarSign, Key, Settings, Cpu } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, Timer, DollarSign, Key, Settings, Cpu, Grid3x3 } from "lucide-react";
 import { clearAdminToken, clearAdminProfile, getAdminProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
+  { href: "/admin/unified",         label: "Admin Dashboard",       icon: Grid3x3 },
   { href: "/admin/dashboard",            label: "Overview",              icon: LayoutDashboard },
   { href: "/admin/license-keys",         label: "Licence Keys",          icon: FileKey },
   { href: "/admin/decart-keys",          label: "API Keys",              icon: Key },

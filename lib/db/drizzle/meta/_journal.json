@@ -15,6 +15,13 @@
       "when": 1748563200000,
       "tag": "0001_device_security_events",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779323411761,
+      "tag": "0002_billing_rate_snapshot",
+      "breakpoints": true
     }
   ]
 }

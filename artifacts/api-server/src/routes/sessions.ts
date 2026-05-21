@@ -342,11 +342,18 @@ router.post("/", requireLicense, async (req, res) => {
       .where(eq(licenseKeysTable.id, license.id));
   }
 
+  // H-02: capture billing rate snapshot at session creation (immutable)
+  let sessionBillingRateSnapshot: number | null = null;
+  try {
+    sessionBillingRateSnapshot = await getBillingRateForLicense(license.id);
+  } catch { /* non-fatal — snapshot null if DB unavailable */ }
+
   const sessionId = randomUUID();
   const [session] = await db.insert(sessionsTable).values({
     id: sessionId, licenseKeyId: license.id, status: "active", style,
     packageLabel: `${license.minutesAllocated ?? 0}min license`,
     decartKeyId: resolvedDecartKeyId,
+    billingRateSnapshot: sessionBillingRateSnapshot,
   }).returning();
 
   // ── BILLING-FIX: Reserve MINIMUM_RESERVATION_SEC upfront ───────────────

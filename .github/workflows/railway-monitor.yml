@@ -1,0 +1,80 @@
+name: Railway Deployment Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes
+  workflow_dispatch:
+
+env:
+  RAILWAY_GQL: https://backboard.railway.app/graphql/v2
+  RAILWAY_PROJECT_ID: 2ba336f7-3178-49fb-983a-2091d509dbfd
+  API_SERVICE_ID: 5976eb3e-f411-41fc-a318-a577d0a62ad1
+  ENVIRONMENT_ID: 2d149ec2-eec1-416e-b012-de3e842f52a2
+
+jobs:
+  monitor:
+    name: Monitor & Auto-Fix Railway Failures
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Railway deployment status
+        id: check
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "⚠️  RAILWAY_TOKEN not set — skipping Railway monitoring"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          RESPONSE=$(curl -s -X POST "$RAILWAY_GQL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -d "{
+              \"query\": \"query { project(id: \\\"$RAILWAY_PROJECT_ID\\\") { services { edges { node { id name deployments(first: 1) { edges { node { id status createdAt } } } } } } } }\"
+            }")
+
+          echo "Railway response: $RESPONSE"
+
+          # Extract the most recent deployment status
+          STATUS=$(echo "$RESPONSE" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+          DEP_ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | tail -1 | cut -d'"' -f4)
+
+          echo "Latest deployment status: $STATUS"
+          echo "Deployment ID: $DEP_ID"
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "deployment_id=$DEP_ID" >> $GITHUB_OUTPUT
+
+      - name: Auto-redeploy on failure
+        if: steps.check.outputs.status == 'FAILED' || steps.check.outputs.status == 'CRASHED'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "🚨 Deployment is ${{ steps.check.outputs.status }} — triggering redeploy..."
+          RESPONSE=$(curl -s -X POST "$RAILWAY_GQL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -d "{
+              \"query\": \"mutation { serviceInstanceDeploy(serviceId: \\\"$API_SERVICE_ID\\\", environmentId: \\\"$ENVIRONMENT_ID\\\") }\"
+            }")
+
+          echo "Redeploy response: $RESPONSE"
+
+          if echo "$RESPONSE" | grep -q '"serviceInstanceDeploy":true'; then
+            echo "✅ Redeploy triggered successfully"
+          else
+            echo "❌ Redeploy trigger failed"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
+      - name: Report healthy status
+        if: steps.check.outputs.status == 'SUCCESS' || steps.check.outputs.status == 'DEPLOYING'
+        run: |
+          echo "✅ Railway deployment is healthy: ${{ steps.check.outputs.status }}"
+
+      - name: Notify on sustained failure
+        if: steps.check.outputs.status == 'FAILED' || steps.check.outputs.status == 'CRASHED'
+        run: |
+          echo "::warning::Railway deployment FAILED. Redeploy was triggered automatically. Check https://railway.app for details."
