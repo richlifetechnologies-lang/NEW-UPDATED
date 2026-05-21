@@ -92,7 +92,7 @@ export const DEDUCTION_FREEZE_MS      = 45_000;
  * Derive billed seconds from Decart's exact generationTick count.
  * Each tick = 1 Decart-billed second = DECART_CREDITS_PER_SEC credits.
  *
- * @param creditsConsumed   Total credits from generationTick × 5
+ * @param creditsConsumed   Total credits from generationTick × DECART_CREDITS_PER_SEC (2.3)
  * @param alreadyBilledSec  Seconds already charged before this settlement
  */
 export function creditBasedIncrement(creditsConsumed: number, alreadyBilledSec: number): {
