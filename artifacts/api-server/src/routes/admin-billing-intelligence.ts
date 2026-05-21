@@ -1170,7 +1170,7 @@ router.post("/wallet/rebuild", requireAdmin, featureGate, walletGate, async (_re
 //   decartFixedRate     — DECART_API_COST_PER_SEC = 2.3 cr/s
 //                         (safe Decart API cost rate used for analytics only —
 //                          actual Decart charge is 5 cr/s via DECART_CREDITS_PER_SEC)
-//   profitMarginAtCurrentRate — (currentRate − 2.3) / currentRate × 100 %
+//   profitMarginAtCurrentRate — (currentRate − 2.3) / 2.3 × 100 % (profit-on-cost ratio)
 //                         e.g. rate=5 → (5−2.3)/5 = 54% margin
 //   totalRateChanges    — number of admin billing rate changes ever recorded
 //   history             — each rate change: who changed it, from what, to what
@@ -1263,11 +1263,11 @@ router.get("/billing-rate", requireAdmin, featureGate, async (_req, res) => {
       : `${syncedSessions} sessions settled at ${billingRate} cr/s. ${staleSessions} sessions used an older rate snapshot (historical — audit-correct).`;
 
     // ── Profit margin at current rate ──────────────────────────────────────
-    // Formula: (retail cr/s − API cost cr/s) / retail cr/s × 100
+    // Formula: (retail cr/s − API cost cr/s) / API cost cr/s × 100 (profit-on-cost)
     //   retail cr/s  = billingRate  (credits charged to licence wallet per second)
     //   API cost cr/s = DECART_API_COST_PER_SEC (2.3 — safe analytics rate)
     const marginPct = billingRate > 0
-      ? (((billingRate - DECART_API_COST_PER_SEC) / billingRate) * 100).toFixed(1)
+      ? (((billingRate - DECART_API_COST_PER_SEC) / DECART_API_COST_PER_SEC) * 100).toFixed(1)
       : "0.0";
 
     res.json({
