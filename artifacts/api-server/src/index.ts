@@ -1,7 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { assertValidEnvironment } from "./lib/startup-validator";
-import { runMigrations } from "@workspace/db";
+import { runMigrations, applyColumnFixes } from "@workspace/db";
 import { attachBillingWebSocket } from "./lib/billing-ws";
 import http from "http";
 
@@ -19,6 +19,15 @@ const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+logger.info("Applying column fixes…");
+try {
+  await applyColumnFixes();
+  logger.info("Column fixes applied ✓");
+} catch (err) {
+  logger.error({ err }, "Column fixes failed — aborting startup");
+  process.exit(1);
 }
 
 logger.info("Running database migrations…");
