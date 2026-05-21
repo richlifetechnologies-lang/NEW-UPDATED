@@ -100,6 +100,7 @@ router.get("/", requireAdmin, async (req, res) => {
         lk.custom_billing_rate,
         lk.use_custom_billing_rate,
         lk.billing_rate_last_updated_at,
+        lk.assigned_decart_key_id,
         lk.created_by_sub_admin_id,
         u.sub_admin_billing_rate,
         u.username AS sub_admin_username,
@@ -163,6 +164,7 @@ router.get("/", requireAdmin, async (req, res) => {
         minutesAllocated:          Math.round(allocatedSec / 60 * 100) / 100,
         allocatedSeconds:          allocatedSec,
         usedSeconds:               usedSec,
+        assignedDecartKeyId:       lk.assigned_decart_key_id != null ? Number(lk.assigned_decart_key_id) : null,
       };
     });
 
