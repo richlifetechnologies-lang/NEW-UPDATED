@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getAdminToken, clearAdminToken, clearAdminProfile } from "@/lib/auth";
 import { Coins, Activity, LogOut, RefreshCw, Zap, Clock,
          UserCog, Search, CreditCard,
-         Wallet, Users, Key,
+         Wallet, Users, Key, Copy,
          TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 

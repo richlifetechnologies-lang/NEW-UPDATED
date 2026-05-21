@@ -247,6 +247,18 @@ export default function AdminSubAdminsPage() {
     if (r.ok) { toast({ title: "Sub admin revoked" }); fetchSubs(); fetchAudit(); }
   }
 
+  async function revokeLicenseKey(key: string) {
+    if (!confirm(`Revoke licence key ${key}?\n\nThis will permanently disable the key — the holder will lose access immediately.`)) return;
+    const r = await fetch(API(`/license/${key}/revoke`), { method: "DELETE", headers: H() });
+    if (r.ok) {
+      toast({ title: "Key revoked", description: `${key} has been disabled` });
+      fetchLicKeys();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      toast({ title: "Error revoking key", description: (d as any).error ?? "Server error", variant: "destructive" });
+    }
+  }
+
   const card = "bg-card border border-border rounded-xl p-5";
   const th = "text-left text-xs font-bold text-muted-foreground uppercase tracking-widest py-2 px-3 whitespace-nowrap";
   const td = "py-2.5 px-3 text-sm border-t border-border";
@@ -558,12 +570,13 @@ export default function AdminSubAdminsPage() {
                         ) : (
                           <div className="divide-y divide-border">
                             {/* Column headers */}
-                            <div className="grid grid-cols-6 gap-2 px-4 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                            <div className="grid grid-cols-7 gap-2 px-4 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
                               <span className="col-span-2">Key</span>
                               <span>Status</span>
                               <span>Used Min</span>
                               <span>Unused Min</span>
                               <span>Burn</span>
+                              <span>Action</span>
                             </div>
                             {keys.map(k => {
                               const kBurn = k.burnRate ?? (k.minutesAllocated > 0 ? Math.min(100, Math.round(((k.usedMinutes ?? k.minutesConsumed) / k.minutesAllocated) * 100)) : 0);
@@ -571,7 +584,7 @@ export default function AdminSubAdminsPage() {
                               const kBurnText = kBurn >= 90 ? "text-red-400" : kBurn >= 60 ? "text-yellow-400" : "text-muted-foreground";
                               const kUnused = k.unusedMinutes ?? Math.max(0, k.minutesAllocated - (k.usedMinutes ?? k.minutesConsumed));
                               return (
-                                <div key={k.id} className="grid grid-cols-6 gap-2 px-4 py-2.5 items-center hover:bg-background/60">
+                                <div key={k.id} className="grid grid-cols-7 gap-2 px-4 py-2.5 items-center hover:bg-background/60">
                                   <div className="col-span-2 min-w-0">
                                     <code className="text-[11px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded truncate block">{k.key}</code>
                                     {k.notes && <p className="text-[9px] text-muted-foreground truncate">{k.notes}</p>}
@@ -590,6 +603,21 @@ export default function AdminSubAdminsPage() {
                                       <div className={`h-full ${kBurnColor} rounded-full`} style={{ width: `${kBurn}%` }} />
                                     </div>
                                     <span className={`text-[10px] font-bold w-7 text-right ${kBurnText}`}>{kBurn}%</span>
+                                  </div>
+                                  <div>
+                                    {k.isActive ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        title="Revoke"
+                                        className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 gap-1"
+                                        onClick={() => revokeLicenseKey(k.key)}
+                                      >
+                                        <XCircle className="w-3 h-3" /> Revoke
+                                      </Button>
+                                    ) : (
+                                      <span className="text-[10px] text-muted-foreground">Revoked</span>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -665,6 +693,7 @@ export default function AdminSubAdminsPage() {
                         <th className={th}>API Key</th>
                         <th className={th}>Rate</th>
                         <th className={th}>Created</th>
+                        <th className={th}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -726,6 +755,21 @@ export default function AdminSubAdminsPage() {
                               <span className="text-xs text-muted-foreground whitespace-nowrap">
                                 {new Date(k.createdAt).toLocaleDateString()}
                               </span>
+                            </td>
+                            <td className={td}>
+                              {k.isActive ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  title="Revoke this licence key"
+                                  className="h-7 px-2 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 hover:border-red-500/40 gap-1"
+                                  onClick={() => revokeLicenseKey(k.key)}
+                                >
+                                  <XCircle className="w-3 h-3" /> Revoke
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground px-2">Revoked</span>
+                              )}
                             </td>
                           </tr>
                         );
