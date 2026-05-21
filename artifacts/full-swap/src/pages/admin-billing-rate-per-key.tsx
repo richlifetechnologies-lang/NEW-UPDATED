@@ -572,7 +572,6 @@ export default function AdminBillingRatePerKeyPage() {
                   ))
                 )}
               </tbody>
-              </tbody>
             </table>
           </div>
         </div>
