@@ -1,7 +1,7 @@
 // lib: artifacts/api-server/src/lib/credit-tracker.ts
 // Decart Credit Tracker — calculates real-time credit usage per API key
-// Formula: creditsUsed = SUM(session.durationSeconds * 5) for completed sessions
-//          + FLOOR((NOW - session.startedAt) / 1000) * 2.3 for each live session
+// Formula: creditsUsed = SUM(session.durationSeconds * DECART_CREDITS_PER_SEC) for completed sessions
+//          + FLOOR((NOW - session.startedAt) / 1000) * DECART_CREDITS_PER_SEC for each live session
 // Remaining = totalCreditsLoaded - (creditsUsed - creditsBaseline)
 
 import { db, decartApiKeysTable, sessionsTable } from "@workspace/db";
