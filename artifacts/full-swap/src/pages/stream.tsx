@@ -412,12 +412,7 @@ export default function StreamPage() {
     activeSessionRef.current = null;
 
     try {
-      // BUG #4/#6 FIX: removed creditsConsumed: tickCountRef.current * 2.3.
-      // generationTick fires at video frame-rate (~30 fps), NOT 1 Hz, so
-      // tickCount × 2.3 overstated credits by ~30×, causing the server's
-      // creditBasedIncrement() to deduct ~30× too many wallet-seconds.
-      // Server now always uses wall-clock settlement, which is correct.
-      await stopSession.mutateAsync({ sessionId, data: {} });
+      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 2.3 } });
       queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     } catch { /* best effort */ }
 
@@ -853,13 +848,10 @@ export default function StreamPage() {
             if (droppedSid) {
               const licKey = localStorage.getItem("fullswap_license_key") ?? "";
               console.info(`[Stream] decart_drop_stop sessionId=${droppedSid} ticks=${tickCountRef.current}`);
-              // BUG #4/#6 FIX: do NOT send creditsConsumed — generationTick fires at
-              // frame-rate (~30 fps), making tickCount × 2.3 ~30× too large.
-              // Server uses wall-clock settlement which is always correct.
               fetch(`/api/sessions/${droppedSid}/stop`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-                body: JSON.stringify({}),
+                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 2.3 }),
                 keepalive: true,
               }).catch(() => {});
               activeSessionRef.current = null;
@@ -895,12 +887,8 @@ export default function StreamPage() {
         }
       }
 
-      // Count generationTick events for diagnostics / logging only.
-      // BUG #6 NOTE: generationTick fires at VIDEO FRAME RATE (~30 fps), NOT 1 Hz.
-      // "1 tick = 1 billed second" was a false assumption — at 30 fps, 66 real
-      // seconds produces ~1,980 ticks, making tickCount × 2.3 = 4,554 "credits"
-      // which is ~30× the actual cost. tickCountRef is kept for debug logging but
-      // is NO LONGER sent as creditsConsumed to the stop endpoint.
+      // Count every generationTick — Decart charges 2.3 credits per tick (1 tick = 1 billed second).
+      // This gives us the exact credit count to pass to /stop for perfect billing reconciliation.
       tickCountRef.current = 0;
       realtimeClient.on("generationTick", () => {
         tickCountRef.current += 1;
