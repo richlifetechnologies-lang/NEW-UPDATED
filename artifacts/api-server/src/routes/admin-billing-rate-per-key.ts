@@ -189,7 +189,7 @@ router.get("/", requireAdmin, async (req, res) => {
 // ── GET /admin/billing-rate-per-key/:keyId ───────────────────────────────────
 router.get("/:keyId", requireAdmin, async (req, res) => {
   try {
-    const keyId = parseInt(req.params.keyId, 10);
+    const keyId = parseInt(req.params.keyId as string, 10);
     if (!Number.isFinite(keyId)) {
       res.status(400).json({ error: "Invalid keyId" });
       return;
@@ -262,7 +262,7 @@ router.get("/:keyId", requireAdmin, async (req, res) => {
 // instantly affects all downstream consumers on the next call.
 router.put("/:keyId", requireAdmin, async (req, res) => {
   try {
-    const keyId = parseInt(req.params.keyId, 10);
+    const keyId = parseInt(req.params.keyId as string, 10);
     if (!Number.isFinite(keyId)) {
       res.status(400).json({ error: "Invalid keyId" });
       return;
@@ -365,7 +365,7 @@ router.put("/:keyId", requireAdmin, async (req, res) => {
 // Disables custom rate for a key — it will revert to global rate.
 router.delete("/:keyId/custom", requireAdmin, async (req, res) => {
   try {
-    const keyId = parseInt(req.params.keyId, 10);
+    const keyId = parseInt(req.params.keyId as string, 10);
     if (!Number.isFinite(keyId)) {
       res.status(400).json({ error: "Invalid keyId" });
       return;

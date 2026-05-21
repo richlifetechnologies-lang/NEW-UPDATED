@@ -119,7 +119,7 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
     .where(eq(sessionsTable.id, sessionId));
 
   // Observability push — does NOT affect billing (non-fatal)
-  emitSessionSettled(sessionId, session.licenseKeyId ?? undefined, totalDuration, debited);
+  emitSessionSettled(sessionId, session.licenseKeyId ?? null, totalDuration, "client_stop");
   if (license) {
     const newUsed = (license.usedSeconds ?? 0) + debited;
     const remaining = Math.max(0, licenseRemainingSeconds(license.minutesAllocated ?? 0, newUsed));

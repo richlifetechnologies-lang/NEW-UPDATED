@@ -65,6 +65,14 @@ export const licenseWalletTable = pgTable("license_wallet", {
   /** Difference between sum(session.duration_seconds) and license_keys.used_seconds */
   consistencyDeltaSeconds: integer("consistency_delta_seconds").default(0),
 
+  // ── Billing analytics (populated by billing-intelligence wallet refresh) ────
+  /** Total billable seconds across all sessions for this key */
+  sessionBillableSeconds: integer("session_billable_seconds").default(0),
+  /** API cost credits at billing rate (billable_seconds × api_cost_rate) */
+  apiCostCredits: real("api_cost_credits").default(0),
+  /** Retail credits charged (billable_seconds × billing_rate) */
+  retailCredits: real("retail_credits").default(0),
+
   snapshotAt: timestamp("snapshot_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

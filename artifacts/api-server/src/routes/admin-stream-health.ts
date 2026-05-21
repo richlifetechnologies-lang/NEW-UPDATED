@@ -25,7 +25,6 @@ router.get("/stream-health", requireAdmin, async (_req, res) => {
     const activeSessions = await db
       .select({
         sessionId:          sessionsTable.id,
-        sessionKey:         sessionsTable.sessionId,
         style:              sessionsTable.style,
         startedAt:          sessionsTable.startedAt,
         billingStartedAt:   sessionsTable.billingStartedAt,
@@ -61,7 +60,7 @@ router.get("/stream-health", requireAdmin, async (_req, res) => {
         : "ok";
 
       return {
-        sessionId:          s.sessionKey ?? String(s.sessionId),
+        sessionId:          String(s.sessionId),
         style:              s.style ?? "unknown",
         startedAt:          s.startedAt,
         elapsedSec,
