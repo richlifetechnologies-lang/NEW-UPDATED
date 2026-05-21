@@ -513,39 +513,51 @@ export default function AdminBillingRatePerKeyPage() {
               <tbody>
                 {loading && !data ? (
                   <tr>
-
-                      {/* Wallet remaining */}
-                      <td className="px-3 py-2.5 text-right font-mono text-foreground">
-                        {fmtSec(row.remainingSeconds)}
+                    <td colSpan={12} className="px-3 py-8 text-center">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" />
+                    </td>
+                  </tr>
+                ) : keys.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground font-mono text-xs">
+                      {search ? "No keys match your search" : "No license keys found"}
+                    </td>
+                  </tr>
+                ) : (
+                  keys.map((row, i) => (
+                    <tr key={row.licenseKeyId}
+                      style={{ background: i % 2 === 0 ? "hsl(222 44% 5%)" : "hsl(222 44% 6%)", borderTop: "1px solid hsl(222 40% 10%)" }}>
+                      <td className="px-3 py-2.5 font-mono text-xs text-left">{fmtKey(row.licenseKey)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-foreground">{row.globalBillingRate} cr/s</td>
+                      <td className="px-3 py-2.5 text-right font-mono">
+                        {row.customBillingRate != null ? (
+                          <span className="text-primary font-semibold">{row.customBillingRate} cr/s</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
-
-                      {/* Estimated stream duration */}
+                      <td className="px-3 py-2.5 text-right font-mono font-semibold text-primary">{row.effectiveRate} cr/s</td>
+                      <td className="px-3 py-2.5 text-right"><RateBadge source={row.rateSource} /></td>
+                      <td className="px-3 py-2.5 text-right font-mono">
+                        {apiCost > 0 ? `${Math.round((row.effectiveRate / apiCost) * 1000) / 1000}×` : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-foreground">{fmtSec(row.remainingSeconds)}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-foreground">
                         {row.estimatedStreamDurationMin > 0
                           ? `~${row.estimatedStreamDurationMin}m`
                           : <span className="text-muted-foreground">—</span>}
                       </td>
-
-                      {/* Live status */}
-                      <td className="px-3 py-2.5 text-right">
-                        <LiveBadge isLive={row.isLive} />
-                      </td>
-
-                      {/* Profit/s */}
+                      <td className="px-3 py-2.5 text-right"><LiveBadge isLive={row.isLive} /></td>
                       <td className="px-3 py-2.5 text-right font-mono">
                         <span className={`font-semibold ${row.profitPerSecond > 0 ? "text-green-400" : row.profitPerSecond < 0 ? "text-red-400" : "text-yellow-400"}`}>
                           {row.profitPerSecond >= 0 ? "+" : ""}{row.profitPerSecond.toFixed(2)}
                         </span>
                       </td>
-
-                      {/* Projected margin */}
                       <td className="px-3 py-2.5 text-right font-mono">
                         <span className={`font-semibold text-xs ${row.projectedProfitPct > 0 ? "text-green-400" : "text-red-400"}`}>
                           {row.projectedProfitPct > 0 ? "+" : ""}{row.projectedProfitPct}%
                         </span>
                       </td>
-
-                      {/* Actions */}
                       <td className="px-3 py-2.5 text-center">
                         <button
                           onClick={() => setEditRow(row)}
@@ -559,6 +571,7 @@ export default function AdminBillingRatePerKeyPage() {
                     </tr>
                   ))
                 )}
+              </tbody>
               </tbody>
             </table>
           </div>
@@ -603,3 +616,4 @@ export default function AdminBillingRatePerKeyPage() {
     </AdminLayout>
   );
 }
+
