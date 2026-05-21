@@ -363,10 +363,24 @@ router.post("/license/generate", requireSubAdmin, async (req, res) => {
      WHERE id = ${subAdmin.id}`
   );
 
-  // Insert license key with minutes
+  // Fetch sub-admin's assigned Decart key and billing rate (if set)
+  await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_assigned_decart_key_id INTEGER`).catch(() => {});
+  await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_billing_rate REAL`).catch(() => {});
+  const saSettings = await db.execute(
+    `SELECT sub_admin_assigned_decart_key_id, sub_admin_billing_rate FROM users WHERE id = ${subAdmin.id}`
+  );
+  const saRow = saSettings.rows[0] as any;
+  const assignedKeyId: number | null = saRow?.sub_admin_assigned_decart_key_id ?? null;
+  const billingRate: number | null = saRow?.sub_admin_billing_rate ?? null;
+
+  // Insert license key with minutes, stamping assigned key + billing rate
+  const assignedKeyCol = assignedKeyId ? `, assigned_decart_key_id` : "";
+  const assignedKeyVal = assignedKeyId ? `, ${assignedKeyId}` : "";
+  const billingRateCols = billingRate ? `, custom_billing_rate, use_custom_billing_rate` : "";
+  const billingRateVals = billingRate ? `, ${billingRate}, true` : "";
   await db.execute(
-    `INSERT INTO license_keys (key, minutes_allocated, created_by_sub_admin_id, notes, is_active)
-     VALUES ('${key}', ${minutes}, ${subAdmin.id}, '${(notes || "").replace(/'/g, "''")}', true)`
+    `INSERT INTO license_keys (key, minutes_allocated, created_by_sub_admin_id, notes, is_active${assignedKeyCol}${billingRateCols})
+     VALUES ('${key}', ${minutes}, ${subAdmin.id}, '${(notes || "").replace(/'/g, "''")}', true${assignedKeyVal}${billingRateVals})`
   );
 
   // Audit trail
