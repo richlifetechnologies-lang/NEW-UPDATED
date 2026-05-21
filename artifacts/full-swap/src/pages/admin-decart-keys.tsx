@@ -56,6 +56,7 @@ interface LicenseKey {
   remainingSeconds: number; displaySecondsRemaining?: number;
   profitPerSecond: number; projectedProfitPct: number;
   isLive: boolean; activeSessionCount: number; allocatedSeconds: number;
+  assignedDecartKeyId?: number | null;
 }
 interface ActiveSession {
   id: string; licenseKeyId: number | null; status: string;
@@ -229,10 +230,9 @@ export default function AdminDecartKeysPage() {
     const stat = statuses.find(s => s.id === dk.id);
 
     // Assigned license keys for THIS Decart key
-    const assignedLics = licKeys.filter(lk => {
-      const dkAssigned = String(dk.assignedLicenseKey ?? "");
-      return dkAssigned && lk.licenseKey === dkAssigned;
-    });
+    // license_keys.assigned_decart_key_id is the source of truth (many→one relationship).
+    // dk.assignedLicenseKey is a legacy field on decart_api_keys and is NOT used for matching.
+    const assignedLics = licKeys.filter(lk => lk.assignedDecartKeyId === dk.id);
 
     // Active sessions for THIS Decart key only
     const activeSess = sessions.filter(s => s.decartKeyId === dk.id && s.status === "active");
