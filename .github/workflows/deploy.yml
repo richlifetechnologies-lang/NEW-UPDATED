@@ -63,7 +63,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     env:
-      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' && 'true' || 'false' }}
+      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY != '' && 'true' || 'false' }}
     if: ${{ always() && needs.build.result == 'success' }}
 
     steps:
@@ -71,7 +71,7 @@ jobs:
         if: ${{ env.HAS_RAILWAY_TOKEN == 'true' }}
         continue-on-error: true
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY }}
         run: |
           RESPONSE=$(curl -s -X POST "https://backboard.railway.app/graphql/v2" \
             -H "Content-Type: application/json" \

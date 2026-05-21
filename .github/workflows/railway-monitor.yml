@@ -20,7 +20,7 @@ jobs:
       - name: Check Railway deployment status
         id: check
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY }}
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "⚠️  RAILWAY_TOKEN not set — skipping Railway monitoring"
@@ -49,7 +49,7 @@ jobs:
       - name: Auto-redeploy on failure
         if: steps.check.outputs.status == 'FAILED' || steps.check.outputs.status == 'CRASHED'
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY }}
         run: |
           echo "🚨 Deployment is ${{ steps.check.outputs.status }} — triggering redeploy..."
           RESPONSE=$(curl -s -X POST "$RAILWAY_GQL" \
