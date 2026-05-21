@@ -412,7 +412,7 @@ export default function StreamPage() {
     activeSessionRef.current = null;
 
     try {
-      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 5 } });
+      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 2.3 } });
       queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     } catch { /* best effort */ }
 
@@ -851,7 +851,7 @@ export default function StreamPage() {
               fetch(`/api/sessions/${droppedSid}/stop`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 5 }),
+                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 2.3 }),
                 keepalive: true,
               }).catch(() => {});
               activeSessionRef.current = null;
@@ -887,7 +887,7 @@ export default function StreamPage() {
         }
       }
 
-      // Count every generationTick — Decart charges 5 credits per tick (1 tick = 1 billed second).
+      // Count every generationTick — Decart charges 2.3 credits per tick (1 tick = 1 billed second).
       // This gives us the exact credit count to pass to /stop for perfect billing reconciliation.
       tickCountRef.current = 0;
       realtimeClient.on("generationTick", () => {
@@ -1404,7 +1404,7 @@ export default function StreamPage() {
               webcam preview appears as a left-hand movement in the AI output. */}
               <video ref={remoteVideoRef} autoPlay playsInline
                 className="w-full h-full"
-                style={{ display: "block", transform: "scaleX(-1)", objectFit: "cover" }} />
+                style={{ display: "block", transform: "scaleX(-1) translateZ(0)", objectFit: "cover", backfaceVisibility: "hidden", willChange: "transform" }} />
 
               {/* Idle placeholder — z-index 1 so controls above it */}
               {connectionStatus === "idle" && (
@@ -1501,7 +1501,7 @@ export default function StreamPage() {
                   className="absolute bottom-3 left-3 rounded-xl overflow-hidden border border-white/20 bg-black"
                   style={{ width: "22%", aspectRatio: "16/9", boxShadow: "0 4px 20px rgba(0,0,0,0.6)", zIndex: 10 }}
                 >
-                  <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: "scaleX(-1)" }} />
+                  <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: "scaleX(-1) translateZ(0)", backfaceVisibility: "hidden", willChange: "transform" }} />
                   {!cameraReady && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 gap-2 p-2">
                       <Camera className="w-5 h-5 text-muted-foreground" />
