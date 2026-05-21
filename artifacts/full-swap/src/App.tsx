@@ -31,7 +31,6 @@ import SubAdminDashboardPage from "@/pages/subadmin-dashboard";
 import SubAdminLoginPage from "@/pages/subadmin-login";
 import SubAdminStreamPage from "@/pages/subadmin-stream";
 import AdminBillingRatePerKeyPage from "@/pages/admin-billing-rate-per-key";
-import AdminTimeCompressionPage from "@/pages/admin-time-compression";
 import AdminControlCenterPage from "@/pages/admin-control-center";
 import AdminUnifiedDashboardPage from "@/pages/admin-unified-dashboard";
 
@@ -75,7 +74,6 @@ function Router() {
       <Route path="/admin/profit-dashboard" component={AdminProfitDashboardPage} />
       <Route path="/admin/billing-integrity" component={AdminBillingIntegrityPage} />
       <Route path="/admin/billing-rate-per-key" component={AdminBillingRatePerKeyPage} />
-      <Route path="/admin/time-compression" component={AdminTimeCompressionPage} />
       <Route path="/admin/control-center" component={AdminControlCenterPage} />
       <Route path="/admin/unified" component={AdminUnifiedDashboardPage} />
       <Route path="/subadmin" component={SubAdminLoginPage} />

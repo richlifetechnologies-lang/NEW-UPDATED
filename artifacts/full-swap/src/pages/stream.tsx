@@ -276,7 +276,7 @@ export default function StreamPage() {
   const refImageInputRef      = useRef<HTMLInputElement>(null);
   const trialLimitRef         = useRef<number>(Infinity);
   const streamStartRemRef     = useRef<number>(0);   // remaining secs captured at stream start for smooth countdown
-  const displayStartRemRef    = useRef<number>(0);   // TCE display secs at stream start (UI timer only — never billing)
+  const displayStartRemRef    = useRef<number>(0);   // display display secs at stream start (UI timer only — never billing)
   const activeSessionRef      = useRef<string | null>(null);
   const connectionStatusRef   = useRef<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
   // Wall-clock start for elapsed timer (avoids setInterval drift when tab is hidden/throttled)
@@ -745,7 +745,7 @@ export default function StreamPage() {
       // freshly-entered key (prevents countdown from immediately showing 0).
       const remainingAtStart     = licenseStatus.data?.remainingSeconds ?? validatedRemainingRef.current;
       streamStartRemRef.current  = remainingAtStart;
-      // TCE DISPLAY LAYER: seed display countdown from server's displayRemainingSeconds.
+      // Seed display countdown from server's displayRemainingSeconds.
       // Falls back to compressed real seconds if field not yet available.
       // displayStartRemRef seeds from server remainingSeconds directly.
       // usedSeconds already drains at billingRate compression speed — no extra multiplication.
@@ -819,7 +819,7 @@ export default function StreamPage() {
             elapsedSecsRef.current = elapsed;
             // EXHAUSTION RULE (patch §CRITICAL):
             // Do NOT terminate the session here. The client-side elapsed timer
-            // may reach zero before the server does (heartbeat lag, TCE display drift).
+            // may reach zero before the server does (heartbeat lag, display drift).
             // The ONLY valid exhaustion signal is the server heartbeat returning
             // { ok: false, reason: "no_time" } (line ~904). Killing here would cause
             // admin (real_used_seconds) and user (display) to disagree on license status.
@@ -1213,7 +1213,7 @@ export default function StreamPage() {
   //    realRemainingSeconds + licenseStatus from /api/license/status
   //    → access gating ONLY (noAccess, licenseExhausted) — NEVER for UI timer
   //
-  //  LAYER 3 — TCE DISPLAY (UX experience — what users see):
+  //  LAYER 3 — display DISPLAY (UX experience — what users see):
   //    displayPaidSecsRemaining = displayStartRemRef - elapsedSecs
   //    Seeded from server's displayRemainingSeconds at stream start.
   //    Resyncs from server every 5s heartbeat.
@@ -1228,25 +1228,25 @@ export default function StreamPage() {
   const totalCapacitySecs    = Math.max(1, minutesAllocated * 60);
   const liveRemainingBarSecs = Math.max(0, paidSecsRemaining);
 
-  // TCE compression factor (billing_rate / 2.3 base rate)
+  // Display factor (billing_rate / 2.3 base rate)
   const TCE_BASE_RATE = 2.3;
-  const tceCompressionFactor = liveRate != null && liveRate > 0
+  const displayFactor = liveRate != null && liveRate > 0
     ? Math.round((liveRate / TCE_BASE_RATE) * 1000) / 1000
     : 1;
 
-  // LAYER 3: Display countdown — advances at tceCompressionFactor speed per real second
+  // LAYER 3: Display countdown — advances at displayFactor speed per real second
   // Matches server-side deduction rate: wallet drains at (billingRate/2.3) × real speed
   // At billingRate = 3 → factor ≈ 1.304 → 60-min key shows 0 at ~46 real minutes
   const displayPaidSecsRemaining: number = isStreaming
-    ? Math.max(0, displayStartRemRef.current - Math.round(elapsedSecs * tceCompressionFactor))
+    ? Math.max(0, displayStartRemRef.current - Math.round(elapsedSecs * displayFactor))
     : Math.max(0, (licenseStatus.data as any)?.remainingSeconds ?? remainingSeconds);
 
-  // Bar and label all derive from the TCE display layer.
+  // Bar and label all derive from the display display layer.
   // displayTotalCapacitySecs must equal displayStartRemRef + displaySecondsUsed at stream start
   // so that remaining/total is always consistent (avoids bar > 100% when server display seconds
-  // are seeded per-key and don't match the global tceCompressionFactor approximation).
+  // are seeded per-key and don't match the global displayFactor approximation).
   // We read the server's own displayAllocatedSeconds when available; fall back to compressed real.
-  // Total capacity = actual minutesAllocated (no TCE multiplication needed)
+  // Total capacity = actual minutesAllocated (no display multiplication needed)
   const displayTotalCapacitySecs = Math.max(1, minutesAllocated * 60);
   const displayRemainingBarSecs  = displayPaidSecsRemaining;
   const barPct = Math.max(0, Math.min(1, displayPaidSecsRemaining / displayTotalCapacitySecs));

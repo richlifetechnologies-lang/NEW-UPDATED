@@ -1,7 +1,7 @@
 /**
  * admin-decart-keys.tsx — Decart API Key Pool · Infrastructure Control Center
  * READ ONLY monitoring + admin CRUD actions.
- * Burn = real seconds × 2.3 ONLY. TCE NEVER affects Decart calculations.
+
  * display_seconds MUST NEVER be used for Decart burn computation.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -14,7 +14,7 @@ import {
   Power, PowerOff, Shield, CheckCircle2, Save,
 } from "lucide-react";
 
-const COST_RATE = 2.3; // Fixed Decart API cost — NEVER use billing rate or TCE here
+
 
 function authH() {
   return {
@@ -50,8 +50,7 @@ interface DecartKeyStatus {
 }
 interface LicenseKey {
   licenseKeyId: number; licenseKey: string; isActive: boolean;
-  effectiveRate: number; rateSource: string; compressionFactor: number;
-  usedSeconds: number; displaySecondsRemaining: number;
+  effectiveRate: number; rateSource: string;  usedSeconds: number;
   remainingSeconds: number; profitPerSecond: number; projectedProfitPct: number;
   isLive: boolean; activeSessionCount: number; allocatedSeconds: number;
 }
@@ -235,11 +234,11 @@ export default function AdminDecartKeysPage() {
     // Active sessions for THIS Decart key only
     const activeSess = sessions.filter(s => s.decartKeyId === dk.id && s.status === "active");
 
-    // Real usage seconds for THIS key — NEVER use TCE/display seconds for burn calculations
+
     // Uses assigned license key wallet seconds only (real heartbeat seconds)
     const assignedUsedSec = assignedLics.reduce((a, k) => a + k.usedSeconds, 0);
 
-    // Expected Decart burn = real_seconds × 2.3 (fixed cost rate — NOT billing rate, NOT TCE)
+
     const expectedBurn  = Math.round(assignedUsedSec * COST_RATE * 100) / 100;
 
     // Actual observed burn = credits loaded minus baseline
@@ -381,7 +380,7 @@ export default function AdminDecartKeysPage() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <SCard label="Total Starting Balance" value={String(totalBalance)}          sub="manual credits entered" color="hsl(var(--foreground))" icon={DollarSign} />
-              <SCard label="Total Expected Burn"   value={`${totalExpected} cr`}          sub="real_sec × 2.3 (no TCE)" color="hsl(215 20% 55%)" icon={Clock} />
+
               <SCard label="Total Actual Burn"     value={`${totalBurn} cr`}              sub="credits consumed"      color="hsl(215 20% 55%)"       icon={Activity} />
             </div>
 
@@ -565,7 +564,7 @@ export default function AdminDecartKeysPage() {
                                 <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1.5">Burn Formula</p>
                                 <p className="text-[11px] font-mono text-foreground">expected_burn = real_seconds × 2.3</p>
                                 <p className="text-[10px] font-mono text-muted-foreground mt-1">
-                                  Uses wallet.used_seconds ONLY. TCE and display seconds are NEVER used here.
+
                                 </p>
                                 <div className="flex gap-4 mt-2 text-[11px] font-mono">
                                   <span className="text-muted-foreground">Real secs: <span className="text-foreground">{dk.assignedUsedSec.toFixed(0)}</span></span>
@@ -578,7 +577,7 @@ export default function AdminDecartKeysPage() {
                             <div className="space-y-2">
                               {[
                                 { label: "Starting Balance (manual)",  value: `${dk.totalCreditsLoaded} cr`,               note: "set via topup" },
-                                { label: "Expected Burn (real × 2.3)", value: `${dk.expectedBurn} cr`,                    note: "never uses TCE" },
+
                                 { label: "Expected Remaining",         value: `${dk.expectedRemaining.toFixed(1)} cr`,    note: "platform should show ~this" },
                               ].map(r => (
                                 <div key={r.label} className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-mono"
@@ -679,7 +678,6 @@ export default function AdminDecartKeysPage() {
                                 const cost = Math.round(lk.usedSeconds * COST_RATE * 100) / 100;
                                 const prof = Math.round((rev - cost) * 100) / 100;
                                 // Real remaining and display remaining (for UX only)
-                                const dispRem = lk.displaySecondsRemaining ?? Math.round(lk.remainingSeconds * lk.compressionFactor);
                                 return (
                                   <div key={lk.licenseKeyId} className="flex items-center gap-4 flex-wrap px-3 py-2 rounded-lg text-xs font-mono"
                                     style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 11%)" }}>
@@ -688,7 +686,6 @@ export default function AdminDecartKeysPage() {
                                       <span className="text-foreground font-bold" title={lk.licenseKey}>{fmtKey(lk.licenseKey)}</span>
                                     </div>
                                     <div><p className="text-[9px] text-muted-foreground">Rate</p><p className="text-foreground">{lk.effectiveRate} cr/s</p></div>
-                                    <div><p className="text-[9px] text-muted-foreground">Compress×</p><p style={{ color: lk.compressionFactor !== 1 ? "hsl(187 100% 52%)" : "hsl(215 20% 55%)" }}>{lk.compressionFactor}×</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Real Used</p><p className="text-foreground">{fmtSec(lk.usedSeconds)}</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Real Remaining</p><p className="text-foreground">{fmtSec(lk.remainingSeconds)}</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Display Remaining</p><p className="text-primary">{fmtSec(dispRem)}</p></div>

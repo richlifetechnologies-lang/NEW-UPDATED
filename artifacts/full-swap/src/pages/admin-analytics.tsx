@@ -30,8 +30,8 @@ async function apiFetch<T>(url: string): Promise<T | null> {
 interface BrkKey {
   licenseKeyId: number; licenseKey: string; isActive: boolean; streamingEnabled: boolean;
   globalBillingRate: number; customBillingRate: number | null; useCustomBillingRate: boolean;
-  effectiveRate: number; rateSource: string; compressionFactor: number;
-  displaySecondsUsed: number; displaySecondsRemaining: number; remainingSeconds: number;
+  effectiveRate: number; rateSource: string;
+
   projectedProfitPct: number; profitPerSecond: number; isLive: boolean;
   activeSessionCount: number; allocatedSeconds: number; usedSeconds: number;
 }
@@ -81,11 +81,6 @@ function driftBdr(h: string): string {
   if (h === "warning") return "rgba(254,211,48,0.3)";
   return "rgba(252,92,101,0.3)";
 }
-function tceHealth(driftPct: number): "good" | "warning" | "drift" {
-  if (driftPct < 2) return "good";
-  if (driftPct < 5) return "warning";
-  return "drift";
-}
 
 function SCard({ label, value, sub, color, icon: Icon }: {
   label: string; value: string; sub?: string; color?: string; icon: any;
@@ -103,7 +98,7 @@ function SCard({ label, value, sub, color, icon: Icon }: {
   );
 }
 
-type Section = "overview" | "tce" | "profit" | "decart" | "ghost" | "streams" | "revenue" | "wallet";
+type Section = "overview" | "profit" | "decart" | "ghost" | "streams" | "revenue" | "wallet";
 
 export default function AdminAnalyticsPage() {
   const [brkData, setBrkData]     = useState<BrkResponse | null>(null);
@@ -153,25 +148,21 @@ export default function AdminAnalyticsPage() {
     const revenue = Math.round(k.usedSeconds * k.effectiveRate * 100) / 100;
     const cost    = Math.round(k.usedSeconds * COST_RATE * 100) / 100;
     const profit  = Math.round((revenue - cost) * 100) / 100;
-    const dispUsed = k.displaySecondsUsed ?? Math.round(k.usedSeconds * k.compressionFactor);
-    const driftPct = k.usedSeconds > 0
       ? Math.round(Math.abs((dispUsed - k.usedSeconds) / k.usedSeconds) * 10000) / 100
       : 0;
-    return { ...k, revenue, cost, profit, driftPct, health: tceHealth(driftPct) };
+    return { ...k, revenue, cost, profit,
+ };
   });
 
   // Summary
   const totalUsed    = enriched.reduce((a, k) => a + k.usedSeconds, 0);
-  const totalDisp    = enriched.reduce((a, k) => a + (k.displaySecondsUsed ?? 0), 0);
   const totalRev     = Math.round(enriched.reduce((a, k) => a + k.revenue, 0) * 100) / 100;
   const totalCost    = Math.round(enriched.reduce((a, k) => a + k.cost, 0) * 100) / 100;
   const totalProfit  = Math.round((totalRev - totalCost) * 100) / 100;
   const activeCount  = enriched.filter(k => k.isLive).length;
   const ghostCount   = ghosts.length;
-  const driftAlerts  = enriched.filter(k => k.health === "drift").length;
   const totalBurn    = Math.round(totalUsed * COST_RATE * 100) / 100;
-  const avgCF        = enriched.length > 0
-    ? Math.round(enriched.reduce((a, k) => a + k.compressionFactor, 0) / enriched.length * 1000) / 1000
+
     : 1;
 
   // Filtered list
@@ -186,7 +177,6 @@ export default function AdminAnalyticsPage() {
 
   const sections: { id: Section; label: string }[] = [
     { id: "overview", label: "Overview" },
-    { id: "tce",      label: "TCE Analytics" },
     { id: "profit",   label: "Profit" },
     { id: "decart",   label: "Decart Pool" },
     { id: "ghost",    label: `Ghost Sessions${ghosts.length > 0 ? ` (${ghosts.length})` : ""}` },
@@ -238,17 +228,14 @@ export default function AdminAnalyticsPage() {
             {/* Summary Cards — Row 1 */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <SCard label="Real Seconds Used"     value={fmtSec(totalUsed)}     sub="wallet.used_seconds"        color="hsl(var(--foreground))"  icon={Clock} />
-              <SCard label="Display Seconds (TCE)" value={fmtSec(totalDisp)}     sub="compressed UX time"         color="hsl(187 100% 52%)"        icon={Timer} />
               <SCard label="Total Revenue"          value={`${totalRev} cr`}      sub={`${globalRate} cr/s rate`}  color="hsl(142 76% 36%)"         icon={TrendingUp} />
               <SCard label="Decart API Cost"        value={`${totalCost} cr`}     sub={`${COST_RATE} cr/s fixed`}  color="hsl(0 84% 60%)"           icon={DollarSign} />
               <SCard label="Total Profit"           value={`${totalProfit} cr`}   sub={totalProfit >= 0 ? "profitable" : "loss"} color={totalProfit >= 0 ? "hsl(142 76% 36%)" : "hsl(0 84% 60%)"} icon={Zap} />
             </div>
             {/* Summary Cards — Row 2 */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              <SCard label="Avg Compression"       value={`${avgCF}×`}           sub="TCE factor avg"             color="hsl(187 100% 52%)"        icon={Activity} />
               <SCard label="Active Streams"         value={String(activeCount)}   sub="live right now"             color="hsl(142 76% 36%)"         icon={Wifi} />
               <SCard label="Ghost Sessions"         value={String(ghostCount)}    sub="no heartbeat detected"      color={ghostCount > 0 ? "hsl(0 84% 60%)" : "hsl(215 20% 55%)"} icon={AlertTriangle} />
-              <SCard label="Drift Alerts"           value={String(driftAlerts)}   sub="TCE drift ≥5%"              color={driftAlerts > 0 ? "#fed330" : "hsl(215 20% 55%)"}        icon={AlertTriangle} />
               <SCard label="Decart Credits Burned"  value={`${totalBurn} cr`}     sub="real seconds × 2.3"         color="hsl(215 20% 55%)"         icon={Key} />
             </div>
 
@@ -266,7 +253,7 @@ export default function AdminAnalyticsPage() {
             </div>
 
             {/* Filters */}
-            {(section === "overview" || section === "tce" || section === "profit") && (
+            {(section === "overview" || section === "profit") && (
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-2 rounded-lg px-3 py-2 flex-1 max-w-xs"
                   style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 18%)" }}>
@@ -310,8 +297,6 @@ export default function AdminAnalyticsPage() {
                         <TH>Revenue</TH>
                         <TH>Cost</TH>
                         <TH>Profit</TH>
-                        <TH>Compress×</TH>
-                        <TH>Drift%</TH>
                         <TH>Health</TH>
                         <TH>Live</TH>
                       </tr>
@@ -319,453 +304,7 @@ export default function AdminAnalyticsPage() {
                     <tbody>
                       {filtered.length === 0 ? (
                         <tr>
-                          <td colSpan={13} className="text-center py-12 text-muted-foreground font-mono text-sm">
-                            No licence keys match filter
-                          </td>
-                        </tr>
-                      ) : filtered.map(k => (
-                        <tr key={k.licenseKeyId}
-                          style={{ borderTop: "1px solid hsl(222 40% 11%)" }}
-                          className={k.isLive ? "bg-green-400/[0.02]" : ""}>
-                          <td className="px-3 py-2.5 font-mono whitespace-nowrap">
-                            <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${k.isActive ? "bg-green-400" : "bg-muted"}`} />
-                            <span title={k.licenseKey} className="text-foreground">{fmtKey(k.licenseKey)}</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-foreground">{k.effectiveRate} cr/s</td>
-                          <td className="px-3 py-2.5 text-right">
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                              style={k.rateSource === "custom"
-                                ? { background: "hsl(187 100% 52% / 0.12)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.3)" }
-                                : { background: "hsl(222 40% 14%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 20%)" }}>
-                              {k.rateSource === "custom" ? "CUSTOM" : "GLOBAL"}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-foreground">{fmtSec(k.usedSeconds)}</td>
-                          <td className="px-3 py-2.5 text-right font-mono text-primary">{fmtSec(k.displaySecondsUsed)}</td>
-                          <td className="px-3 py-2.5 text-right font-mono"
-                            style={{ color: k.remainingSeconds > 0 ? "#26de81" : "hsl(0 84% 60%)" }}>
-                            {fmtSec(k.displaySecondsRemaining)}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-green-400">
-                            {k.revenue > 0 ? k.revenue : "—"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-red-400/70">
-                            {k.cost > 0 ? k.cost : "—"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono font-bold"
-                            style={{ color: k.profit > 0 ? "#26de81" : k.profit < 0 ? "hsl(0 84% 60%)" : "hsl(215 20% 55%)" }}>
-                            {k.profit !== 0 ? (k.profit > 0 ? `+${k.profit}` : String(k.profit)) : "—"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono font-bold"
-                            style={{ color: k.compressionFactor > 1 ? "hsl(187 100% 52%)" : k.compressionFactor < 1 ? "hsl(0 84% 60%)" : "hsl(215 20% 55%)" }}>
-                            {k.compressionFactor}×
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono"
-                            style={{ color: driftFg(k.health) }}>
-                            {k.driftPct}%
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded"
-                              style={{ background: driftBg(k.health), color: driftFg(k.health), border: `1px solid ${driftBdr(k.health)}` }}>
-                              {k.health === "good" ? "🟢 GOOD" : k.health === "warning" ? "🟡 WARN" : "🔴 DRIFT"}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            {k.isLive
-                              ? <span className="inline-flex items-center gap-1 text-[10px] font-mono text-green-400">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />LIVE
-                                </span>
-                              : <span className="text-[10px] font-mono text-muted-foreground">idle</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    {filtered.length > 0 && (
-                      <tfoot style={{ borderTop: "2px solid hsl(222 40% 14%)", background: "hsl(222 44% 5%)" }}>
-                        <tr>
-                          <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">TOTAL</td>
-                          <td colSpan={3} />
-                          <td className="px-3 py-2 text-right font-mono text-foreground font-bold">{fmtSec(totalUsed)}</td>
-                          <td className="px-3 py-2 text-right font-mono text-primary font-bold">{fmtSec(totalDisp)}</td>
-                          <td />
-                          <td className="px-3 py-2 text-right font-mono text-green-400 font-bold">{totalRev}</td>
-                          <td className="px-3 py-2 text-right font-mono text-red-400/70 font-bold">{totalCost}</td>
-                          <td className="px-3 py-2 text-right font-mono font-bold"
-                            style={{ color: totalProfit >= 0 ? "#26de81" : "hsl(0 84% 60%)" }}>
-                            {totalProfit >= 0 ? `+${totalProfit}` : String(totalProfit)}
-                          </td>
-                          <td colSpan={3} />
-                        </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                </div>
-              </div>
-            )}
 
-            {/* ── TCE ANALYTICS ── */}
-            {section === "tce" && (
-              <div className="space-y-4">
-                <div className="rounded-lg p-4" style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
-                  <p className="text-xs font-mono" style={{ color: "hsl(187 100% 52%)" }}>
-                    <strong>TCE Layer — UX Display Only.</strong> compression_factor = effective_rate ÷ {COST_RATE} · Billing is NEVER affected by TCE.
-                  </p>
-                </div>
-                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr style={{ background: "hsl(222 44% 6%)" }}>
-                          <TH>Licence Key</TH>
-                          <TH>Eff. Rate</TH>
-                          <TH>Compress×</TH>
-                          <TH>Real Used</TH>
-                          <TH>Display Used</TH>
-                          <TH>Real Remaining</TH>
-                          <TH>Display Remaining</TH>
-                          <TH>Drift %</TH>
-                          <TH>TCE Status</TH>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.map(k => (
-                          <tr key={k.licenseKeyId} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
-                            <td className="px-3 py-2.5 font-mono text-foreground" title={k.licenseKey}>{fmtKey(k.licenseKey)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono text-foreground">{k.effectiveRate} cr/s</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-bold"
-                              style={{ color: k.compressionFactor > 1 ? "hsl(187 100% 52%)" : k.compressionFactor < 1 ? "hsl(0 84% 60%)" : "hsl(215 20% 55%)" }}>
-                              {k.compressionFactor}×
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-foreground">{fmtSec(k.usedSeconds)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono text-primary">{fmtSec(k.displaySecondsUsed)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{fmtSec(k.remainingSeconds)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono"
-                              style={{ color: k.remainingSeconds > 0 ? "#26de81" : "hsl(0 84% 60%)" }}>
-                              {fmtSec(k.displaySecondsRemaining)}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono" style={{ color: driftFg(k.health) }}>{k.driftPct}%</td>
-                            <td className="px-3 py-2.5 text-right">
-                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
-                                style={{ background: driftBg(k.health), border: `1px solid ${driftBdr(k.health)}`, color: driftFg(k.health) }}>
-                                {k.health === "good" ? "🟢 GOOD" : k.health === "warning" ? "🟡 WARNING" : "🔴 DRIFT DETECTED"}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── PROFIT ── */}
-            {section === "profit" && (
-              <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr style={{ background: "hsl(222 44% 6%)" }}>
-                        <TH>Licence Key</TH>
-                        <TH>Eff. Rate</TH>
-                        <TH>Real Seconds</TH>
-                        <TH>Revenue</TH>
-                        <TH>Decart Cost</TH>
-                        <TH>Profit</TH>
-                        <TH>Profit/s</TH>
-                        <TH>Margin %</TH>
-                        <TH>Source</TH>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map(k => (
-                        <tr key={k.licenseKeyId} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
-                          <td className="px-3 py-2.5 font-mono text-foreground" title={k.licenseKey}>{fmtKey(k.licenseKey)}</td>
-                          <td className="px-3 py-2.5 text-right font-mono text-foreground">{k.effectiveRate} cr/s</td>
-                          <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{fmtSec(k.usedSeconds)}</td>
-                          <td className="px-3 py-2.5 text-right font-mono text-green-400">{k.revenue > 0 ? k.revenue : "—"}</td>
-                          <td className="px-3 py-2.5 text-right font-mono text-red-400/70">{k.cost > 0 ? k.cost : "—"}</td>
-                          <td className="px-3 py-2.5 text-right font-mono font-bold"
-                            style={{ color: k.profit > 0 ? "#26de81" : k.profit < 0 ? "hsl(0 84% 60%)" : "hsl(215 20% 55%)" }}>
-                            {k.profit !== 0 ? (k.profit > 0 ? `+${k.profit}` : String(k.profit)) : "—"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono"
-                            style={{ color: k.profitPerSecond > 0 ? "#26de81" : "hsl(0 84% 60%)" }}>
-                            {k.profitPerSecond >= 0 ? "+" : ""}{k.profitPerSecond} cr/s
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono"
-                            style={{ color: k.projectedProfitPct > 0 ? "#26de81" : "hsl(0 84% 60%)" }}>
-                            {k.projectedProfitPct > 0 ? "+" : ""}{k.projectedProfitPct}%
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                              style={k.rateSource === "custom"
-                                ? { background: "hsl(187 100% 52% / 0.12)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.3)" }
-                                : { background: "hsl(222 40% 14%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 20%)" }}>
-                              {k.rateSource === "custom" ? "CUSTOM" : "GLOBAL"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot style={{ borderTop: "2px solid hsl(222 40% 14%)", background: "hsl(222 44% 5%)" }}>
-                      <tr>
-                        <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">TOTAL</td>
-                        <td colSpan={2} />
-                        <td className="px-3 py-2 text-right font-mono text-green-400 font-bold">{totalRev}</td>
-                        <td className="px-3 py-2 text-right font-mono text-red-400/70 font-bold">{totalCost}</td>
-                        <td className="px-3 py-2 text-right font-mono font-bold"
-                          style={{ color: totalProfit >= 0 ? "#26de81" : "hsl(0 84% 60%)" }}>
-                          {totalProfit >= 0 ? `+${totalProfit}` : String(totalProfit)}
-                        </td>
-                        <td colSpan={3} />
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* ── DECART POOL ── */}
-            {section === "decart" && (
-              <div className="space-y-4">
-                {decartKeys.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground font-mono text-sm">No Decart API keys configured</div>
-                ) : decartKeys.map(dk => {
-                  const assigned = enriched.filter(k => {
-                    const keyLabel = String(dk.label ?? "");
-                    return k.isLive;
-                  });
-                  const activeForKey = enriched.filter(k => k.isLive).length;
-                  const totalUsedForKey = enriched.reduce((a, k) => a + k.usedSeconds, 0);
-                  const expectedBurn = Math.round(totalUsedForKey * COST_RATE * 100) / 100;
-                  const creditsUsed  = Math.max(0, dk.totalCreditsLoaded - dk.creditsBaseline);
-                  const drift        = expectedBurn > 0 ? Math.round(Math.abs((creditsUsed - expectedBurn) / expectedBurn) * 10000) / 100 : 0;
-                  const driftH       = tceHealth(drift / 2.5);
-                  const maxU         = dk.maxUsers ?? 0;
-                  const loadPct      = maxU > 0 ? Math.round((activeForKey / maxU) * 100) : 0;
-                  return (
-                    <div key={dk.id} className="rounded-xl p-5 space-y-4"
-                      style={{ background: "hsl(222 44% 6%)", border: `1px solid ${driftBdr(driftH)}` }}>
-                      <div className="flex items-center justify-between flex-wrap gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2.5 h-2.5 rounded-full ${dk.isActive ? "bg-green-400" : "bg-red-400"}`} />
-                          <p className="font-mono font-bold text-foreground">{dk.label}</p>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded"
-                            style={{ background: driftBg(driftH), color: driftFg(driftH), border: `1px solid ${driftBdr(driftH)}` }}>
-                            {dk.healthStatus?.toUpperCase() ?? "UNKNOWN"}
-                          </span>
-                        </div>
-                        <p className="text-xs font-mono text-muted-foreground">
-                          Load: <span className="text-foreground">{loadPct}%</span> · Drift: <span style={{ color: driftFg(driftH) }}>{drift}%</span>
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
-                        <div><p className="text-muted-foreground mb-1">Credits Loaded</p><p className="font-bold text-foreground">{dk.totalCreditsLoaded}</p></div>
-                        <div><p className="text-muted-foreground mb-1">Baseline</p><p className="font-bold text-foreground">{dk.creditsBaseline}</p></div>
-                        <div><p className="text-muted-foreground mb-1">Expected Burn</p><p className="font-bold text-foreground">{expectedBurn} cr</p></div>
-                        <div><p className="text-muted-foreground mb-1">Active Streams</p><p className="font-bold text-foreground">{activeForKey}</p></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* ── GHOST SESSIONS ── */}
-            {section === "ghost" && (
-              <div className="space-y-4">
-                <div className="rounded-lg p-4"
-                  style={{ background: "hsl(0 84% 60% / 0.06)", border: "1px solid hsl(0 84% 60% / 0.2)" }}>
-                  <p className="text-xs font-mono text-red-400">
-                    READ ONLY — Ghost sessions = active sessions with no heartbeat for &gt;2 min. Click Settle to clean up individually.
-                  </p>
-                </div>
-                {ghosts.length === 0 ? (
-                  <div className="flex flex-col items-center py-12 gap-3">
-                    <CheckCircle2 className="w-8 h-8 text-green-400 opacity-60" />
-                    <p className="text-muted-foreground font-mono text-sm">No ghost sessions detected</p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr style={{ background: "hsl(222 44% 6%)" }}>
-                          <TH>Session ID</TH>
-                          <TH>Licence Key</TH>
-                          <TH>Last Heartbeat</TH>
-                          <TH>Orphan Age</TH>
-                          <TH>Status</TH>
-                          <TH>Action</TH>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ghosts.map((g, i) => {
-                          const sid = g.sessionId ?? g.id ?? String(i);
-                          const hb  = g.lastHeartbeat ?? g.lastHeartbeatAt ?? null;
-                          return (
-                            <tr key={sid} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
-                              <td className="px-3 py-2.5 font-mono text-muted-foreground text-[10px]">{String(sid).slice(0, 12)}…</td>
-                              <td className="px-3 py-2.5 font-mono text-foreground">{g.licenseKey ? fmtKey(g.licenseKey) : "—"}</td>
-                              <td className="px-3 py-2.5 font-mono text-muted-foreground">{fmtTs(hb)}</td>
-                              <td className="px-3 py-2.5 font-mono text-red-400">{g.orphanAgeSeconds ? fmtSec(g.orphanAgeSeconds) : "—"}</td>
-                              <td className="px-3 py-2.5">
-                                <span className="text-[10px] font-mono text-red-400 px-2 py-0.5 rounded"
-                                  style={{ background: "hsl(0 84% 60% / 0.1)", border: "1px solid hsl(0 84% 60% / 0.3)" }}>
-                                  GHOST
-                                </span>
-                              </td>
-                              <td className="px-3 py-2.5">
-                                <button className="text-[10px] font-mono text-muted-foreground hover:text-red-400 transition-colors px-2 py-1 rounded border border-border hover:border-red-400/30">
-                                  Settle
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── LIVE STREAMS ── */}
-            {section === "streams" && (
-              <div className="space-y-3">
-                {liveStreams.length === 0 ? (
-                  <div className="flex flex-col items-center py-12 gap-3">
-                    <Wifi className="w-8 h-8 text-muted-foreground opacity-40" />
-                    <p className="text-muted-foreground font-mono text-sm">No active streams right now</p>
-                  </div>
-                ) : liveStreams.map(k => (
-                  <div key={k.licenseKeyId} className="rounded-xl p-4 flex flex-wrap items-center gap-6"
-                    style={{ background: "rgba(38,222,129,0.03)", border: "1px solid rgba(38,222,129,0.2)" }}>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                      <span className="font-mono text-foreground text-sm font-bold">{fmtKey(k.licenseKey)}</span>
-                    </div>
-                    <div className="flex gap-5 text-xs font-mono flex-wrap">
-                      <div><p className="text-muted-foreground text-[10px]">Real Consumed</p><p className="text-foreground font-bold">{fmtSec(k.usedSeconds)}</p></div>
-                      <div><p className="text-muted-foreground text-[10px]">Display Shown</p><p className="text-primary font-bold">{fmtSec(k.displaySecondsUsed)}</p></div>
-                      <div><p className="text-muted-foreground text-[10px]">Rate</p><p className="text-foreground font-bold">{k.effectiveRate} cr/s</p></div>
-                      <div><p className="text-muted-foreground text-[10px]">Compress×</p><p className="font-bold" style={{ color: k.compressionFactor > 1 ? "hsl(187 100% 52%)" : "hsl(215 20% 55%)" }}>{k.compressionFactor}×</p></div>
-                      <div><p className="text-muted-foreground text-[10px]">Profit/s</p><p className="font-bold" style={{ color: k.profitPerSecond > 0 ? "#26de81" : "hsl(0 84% 60%)" }}>{k.profitPerSecond >= 0 ? "+" : ""}{k.profitPerSecond}</p></div>
-                      <div><p className="text-muted-foreground text-[10px]">Sessions</p><p className="text-foreground">{k.activeSessionCount}</p></div>
-                    </div>
-                    <div className="ml-auto">
-                      <span className="text-[10px] font-mono px-2 py-1 rounded"
-                        style={{ background: driftBg(k.health), border: `1px solid ${driftBdr(k.health)}`, color: driftFg(k.health) }}>
-                        {k.health === "good" ? "🟢 HEALTHY" : k.health === "warning" ? "🟡 WARNING" : "🔴 DRIFT"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* ── REVENUE INTELLIGENCE ── */}
-            {section === "revenue" && (
-              <div className="space-y-4">
-                {!revenueData ? (
-                  <div className="text-center py-12 text-muted-foreground font-mono text-sm">No revenue data available yet</div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {[
-                        { label: "Total Revenue",  value: `${revenueData.totalRevenue ?? 0} cr`,    color: "#26de81" },
-                        { label: "Total Cost",     value: `${revenueData.totalCost ?? 0} cr`,       color: "hsl(0 84% 60%)" },
-                        { label: "Net Profit",     value: `${revenueData.netProfit ?? 0} cr`,       color: revenueData.netProfit >= 0 ? "#26de81" : "#fc5c65" },
-                        { label: "Profit Margin",  value: `${revenueData.profitMargin ?? 0}%`,      color: "hsl(187 100% 52%)" },
-                      ].map(m => (
-                        <div key={m.label} className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
-                          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">{m.label}</p>
-                          <p className="text-xl font-bold font-mono" style={{ color: m.color }}>{m.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {Array.isArray(revenueData.topKeys) && revenueData.topKeys.length > 0 && (
-                      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
-                        <div className="px-4 py-3" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
-                          <p className="text-sm font-mono font-bold text-foreground">Top Revenue Keys</p>
-                        </div>
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr style={{ background: "hsl(222 44% 6%)" }}>
-                              {["Licence Key", "Revenue", "Cost", "Profit", "Margin", "Sessions"].map(h => (
-                                <th key={h} className="px-3 py-2 text-right first:text-left text-muted-foreground font-mono text-[11px] font-medium">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {revenueData.topKeys.map((k: any, i: number) => (
-                              <tr key={i} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
-                                <td className="px-3 py-2.5 font-mono text-foreground">{k.licenseKey ? `${k.licenseKey.slice(0,8)}…${k.licenseKey.slice(-4)}` : "—"}</td>
-                                <td className="px-3 py-2.5 text-right font-mono text-green-400">{k.revenue ?? 0} cr</td>
-                                <td className="px-3 py-2.5 text-right font-mono text-red-400/70">{k.cost ?? 0} cr</td>
-                                <td className="px-3 py-2.5 text-right font-mono font-bold" style={{ color: (k.profit ?? 0) >= 0 ? "#26de81" : "#fc5c65" }}>
-                                  {(k.profit ?? 0) >= 0 ? `+${k.profit}` : k.profit} cr
-                                </td>
-                                <td className="px-3 py-2.5 text-right font-mono" style={{ color: "hsl(187 100% 52%)" }}>{k.margin ?? 0}%</td>
-                                <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{k.sessionCount ?? 0}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* ── WALLET HEALTH ── */}
-            {section === "wallet" && (
-              <div className="space-y-4">
-                {!walletData ? (
-                  <div className="text-center py-12 text-muted-foreground font-mono text-sm">No wallet health data available yet</div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {[
-                        { label: "Healthy Keys",   value: String(walletData.healthyCount ?? 0),   color: "#26de81" },
-                        { label: "Warning Keys",   value: String(walletData.warningCount ?? 0),   color: "#fed330" },
-                        { label: "Critical Keys",  value: String(walletData.criticalCount ?? 0),  color: "#fc5c65" },
-                      ].map(m => (
-                        <div key={m.label} className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
-                          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">{m.label}</p>
-                          <p className="text-2xl font-bold font-mono" style={{ color: m.color }}>{m.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {Array.isArray(walletData.keys) && walletData.keys.length > 0 && (
-                      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
-                        <div className="px-4 py-3" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
-                          <p className="text-sm font-mono font-bold text-foreground">Wallet Exhaustion Forecast</p>
-                        </div>
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr style={{ background: "hsl(222 44% 6%)" }}>
-                              {["Licence Key", "Remaining", "Burn Rate", "Est. Exhaustion", "Health"].map(h => (
-                                <th key={h} className="px-3 py-2 text-right first:text-left text-muted-foreground font-mono text-[11px] font-medium">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {walletData.keys.map((k: any, i: number) => {
-                              const hColor = k.health === "critical" ? "#fc5c65" : k.health === "warning" ? "#fed330" : "#26de81";
-                              return (
-                                <tr key={i} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
-                                  <td className="px-3 py-2.5 font-mono text-foreground">{k.licenseKey ? `${k.licenseKey.slice(0,8)}…${k.licenseKey.slice(-4)}` : "—"}</td>
-                                  <td className="px-3 py-2.5 text-right font-mono" style={{ color: hColor }}>{k.remainingMinutes ?? 0}m</td>
-                                  <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{k.burnRatePerHour ?? 0}/hr</td>
-                                  <td className="px-3 py-2.5 text-right font-mono text-foreground">{k.estimatedExhaustion ?? "—"}</td>
-                                  <td className="px-3 py-2.5 text-right">
-                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded border"
-                                      style={{ color: hColor, background: `${hColor}18`, borderColor: `${hColor}40` }}>
-                                      {k.health?.toUpperCase() ?? "—"}
-                                    </span>
-                                  </td>
                                 </tr>
                               );
                             })}

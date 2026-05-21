@@ -52,7 +52,6 @@ interface LicenseKeyRate {
   billingRateLastUpdatedAt: string | null;
   effectiveRate: number;
   rateSource: "custom" | "global";
-  compressionFactor: number;
   remainingSeconds: number;
   estimatedStreamDurationMin: number;
   projectedProfitPct: number;
@@ -79,7 +78,6 @@ interface UpdateResponse {
   useCustomBillingRate: boolean;
   effectiveRate: number;
   rateSource: "custom" | "global";
-  compressionFactor: number;
   projectedProfitPct: number;
   updatedAt: string;
   note: string;
@@ -515,78 +513,6 @@ export default function AdminBillingRatePerKeyPage() {
               <tbody>
                 {loading && !data ? (
                   <tr>
-                    <td colSpan={12} className="text-center py-16">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" />
-                      <p className="text-muted-foreground text-xs font-mono mt-2">Loading billing rates…</p>
-                    </td>
-                  </tr>
-                ) : keys.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} className="text-center py-16">
-                      <Zap className="w-8 h-8 mx-auto mb-3 opacity-20 text-foreground" />
-                      <p className="text-muted-foreground font-mono text-sm">
-                        {search ? "No keys match your search" : "No license keys found"}
-                      </p>
-                    </td>
-                  </tr>
-                ) : (
-                  keys.map(row => (
-                    <tr
-                      key={row.licenseKeyId}
-                      style={{ borderTop: "1px solid hsl(222 40% 11%)" }}
-                      className={row.isLive ? "bg-green-400/[0.02]" : ""}
-                    >
-                      {/* License Key */}
-                      <td className="px-3 py-2.5 font-mono text-foreground whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.isActive ? "bg-green-400" : "bg-muted"}`} />
-                          <span title={row.licenseKey}>{fmtKey(row.licenseKey)}</span>
-                        </div>
-                      </td>
-
-                      {/* Global Rate */}
-                      <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">
-                        {row.globalBillingRate} cr/s
-                      </td>
-
-                      {/* Custom Rate */}
-                      <td className="px-3 py-2.5 text-right font-mono">
-                        {row.customBillingRate != null ? (
-                          <span className="text-primary font-semibold">{row.customBillingRate} cr/s</span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-
-                      {/* Effective Rate */}
-                      <td className="px-3 py-2.5 text-right font-mono">
-                        <div className="flex flex-col items-end gap-0.5">
-                          <span className={`font-bold ${row.rateSource === "custom" ? "text-primary" : "text-foreground"}`}>
-                            {row.effectiveRate} cr/s
-                          </span>
-                          <RateBadge source={row.rateSource} />
-                        </div>
-                      </td>
-
-                      {/* Custom Active */}
-                      <td className="px-3 py-2.5 text-right">
-                        {row.useCustomBillingRate ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-mono text-green-400">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> ON
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
-                            <XCircle className="w-3.5 h-3.5" /> OFF
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Compression Factor */}
-                      <td className="px-3 py-2.5 text-right font-mono">
-                        <span className={`font-semibold text-xs ${row.compressionFactor > 1 ? "text-primary" : row.compressionFactor < 1 ? "text-red-400" : "text-foreground"}`}>
-                          {row.compressionFactor}×
-                        </span>
-                      </td>
 
                       {/* Wallet remaining */}
                       <td className="px-3 py-2.5 text-right font-mono text-foreground">
@@ -650,7 +576,6 @@ export default function AdminBillingRatePerKeyPage() {
               { label: "API cost rate", value: "Fixed at 2.3 cr/s — infrastructure cost, NOT billing rate", color: "text-foreground" },
               { label: "Rate propagation", value: "Changes take effect instantly — fetched live on every call", color: "text-green-400" },
               { label: "Stream duration", value: "NOT affected by billing rate — controlled by wallet allocation only", color: "text-foreground" },
-              { label: "Compression factor", value: "effective_rate ÷ 2.3 — TCE display multiplier, UX only, never affects billing", color: "text-primary" },
             ].map(item => (
               <div
                 key={item.label}

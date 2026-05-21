@@ -132,8 +132,6 @@ export async function getKeyCreditStatus(
     const burnRatePerSec = DECART_CREDITS_PER_SEC * activeSessionCount;
     estimatedRemainingSeconds = Math.floor(creditsRemaining / burnRatePerSec);
     // Effective licence seconds = how long licence wallet lasts at current billing rate.
-    // compression_factor = activeBillingRate / 2.3
-    // wallet drains at: realSec × compressionFactor per real second
     // so effectiveLicenceSec = estimatedRemainingSeconds × compressionFactor
     const compressionFactor = activeBillingRate > 0 ? activeBillingRate / 2.3 : 1;
     estimatedEffectiveLicenceSeconds = Math.floor(estimatedRemainingSeconds * compressionFactor);

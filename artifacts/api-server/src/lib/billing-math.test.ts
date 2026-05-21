@@ -10,8 +10,8 @@
  * ║  Platform owner confirmed this. DECART_CREDITS_PER_SEC = 2.3.   ║
  * ║                                                                  ║
  * ║  Billing rate controls wallet drain speed:                       ║
- * ║    compression_factor = billing_rate / 2.3                       ║
- * ║    wallet_deduction   = real_elapsed × compression_factor        ║
+ * ║
+ * ║
  * ║    At billing_rate = 3 → 60-min key expires in ~46 real min.    ║
  * ║                                                                  ║
  * ║  Any test failures here = billing regression. DO NOT merge.      ║
@@ -23,7 +23,7 @@ import {
   DECART_CREDITS_PER_SEC,
   DECART_CREDITS_PER_MIN,
   DECART_API_COST_PER_SEC,
-  TCE_BASE_REFERENCE_RATE,
+  BASE_BILLING_RATE,
   MINIMUM_RESERVATION_SEC,
   HEARTBEAT_GRACE_MS,
   DEDUCTION_FREEZE_MS,
@@ -69,9 +69,9 @@ describe("BILLING COMPRESSION INVARIANT — core rate constants (safeguard)", ()
     expect(DECART_API_COST_PER_SEC).toBe(DECART_CREDITS_PER_SEC);
   });
 
-  it("TCE_BASE_REFERENCE_RATE equals DECART_API_COST_PER_SEC (2.3 breakeven)", () => {
-    expect(TCE_BASE_REFERENCE_RATE).toBe(DECART_API_COST_PER_SEC);
-    expect(TCE_BASE_REFERENCE_RATE).toBe(2.3);
+  it("BASE_BILLING_RATE equals DECART_API_COST_PER_SEC (2.3 breakeven)", () => {
+    expect(BASE_BILLING_RATE).toBe(DECART_API_COST_PER_SEC);
+    expect(BASE_BILLING_RATE).toBe(2.3);
   });
 });
 
@@ -157,8 +157,7 @@ describe("BILLING COMPRESSION INVARIANT — custom billing rate per key (safegua
   it("minutes allocated shows correctly for device dashboard regardless of compression", () => {
     // The device sees minutesAllocated (e.g. 60 min) — this never changes.
     // The compression only affects how fast the countdown burns.
-    // displayTotalCapacitySecs = minutesAllocated × 60 (no TCE multiplication)
-    const minutesAllocated = 60;
+        const minutesAllocated = 60;
     const displayTotal     = minutesAllocated * 60;
     expect(displayTotal).toBe(3600);
     // Timer burns at compressionFactor speed: at rate=3, 3600 display-sec → 0 in 46 real min

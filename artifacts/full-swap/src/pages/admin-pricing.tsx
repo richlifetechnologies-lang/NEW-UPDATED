@@ -33,7 +33,7 @@ function calcFromForm(form: FormData, rates: Rates) {
   const mins = parseInt(form.minutes) || 0;
   const usd = parseFloat(form.priceUsd) || 0;
   // estimated_decart_cost = (minutes_allocated × 60) × 2.3
-  // DISPLAY ONLY — does not affect billing, wallet, profit, or TCE.
+  // DISPLAY ONLY — does not affect billing, wallet, profit, .
   const estimatedDecartCost = +(mins * 60 * DECART_API_COST_PER_SEC).toFixed(2);
   return {
     estimatedDecartCost,

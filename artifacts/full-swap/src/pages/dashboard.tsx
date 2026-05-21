@@ -110,7 +110,7 @@ export default function DashboardPage() {
   const isActive     = data?.isActive ?? false;
   const streamOk     = data?.streamingEnabled ?? false;
   const isExpired    = !!data?.expiresAt && new Date(data.expiresAt) < new Date();
-  // Exhaustion must derive from real_remaining_seconds ONLY (never display/TCE values).
+  // Exhaustion must derive from real_remaining_seconds ONLY (never display values).
   // Use server-provided licenseStatus when available; fall back to real remainSecs check.
   const exhausted    = isActive && (
     (data as any)?.licenseStatus === "exhausted"

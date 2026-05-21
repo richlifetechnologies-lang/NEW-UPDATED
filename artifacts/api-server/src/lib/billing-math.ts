@@ -303,9 +303,9 @@ export function minutesToCredits(minutes: number): number {
   return minutes * DECART_CREDITS_PER_MIN;
 }
 
-// ── Time Compression Engine (TCE) ─────────────────────────────────────────
+// ── Billing Display Factor ──────────────────────────────────────────────────
 //
-// The TCE is a USER EXPERIENCE LAYER only.
+// The billing display factor is a USER EXPERIENCE LAYER only.
 // It does NOT affect wallet.used_seconds, billing math, or Decart costs.
 //
 // DEFINITION:
@@ -323,7 +323,6 @@ export function minutesToCredits(minutes: number): number {
 //   ✔ wallet.used_seconds always tracks real heartbeat seconds
 //   ✔ api_cost always computed from real_seconds × 2.3
 //   ✔ revenue always computed from real_seconds × billing_rate
-//   ✔ TCE only affects frontend display of remaining/elapsed time
 //   ✗ NEVER apply compression_factor to billing or cost math
 
 /**
@@ -331,7 +330,7 @@ export function minutesToCredits(minutes: number): number {
  * Equal to the fixed Decart API cost rate — 2.3 cr/s.
  * compression_factor = 1.0 when billing_rate = 2.3 (breakeven, no compression).
  */
-export const TCE_BASE_REFERENCE_RATE = DECART_API_COST_PER_SEC; // 2.3
+export const BASE_BILLING_RATE = DECART_API_COST_PER_SEC; // 2.3
 
 /**
  * Compute the Time Compression Factor for a given effective billing rate.
@@ -348,7 +347,7 @@ export const TCE_BASE_REFERENCE_RATE = DECART_API_COST_PER_SEC; // 2.3
  */
 export function computeCompressionFactor(effectiveBillingRate: number): number {
   if (effectiveBillingRate <= 0) return 1.0;
-  return Math.round((effectiveBillingRate / TCE_BASE_REFERENCE_RATE) * 1000) / 1000;
+  return Math.round((effectiveBillingRate / BASE_BILLING_RATE) * 1000) / 1000;
 }
 
 /**

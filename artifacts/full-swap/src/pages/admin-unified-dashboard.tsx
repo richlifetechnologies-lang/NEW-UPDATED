@@ -104,7 +104,6 @@ interface EstimatorResult {
   minutesPurchased: number;
   billingRate: number;
   realStreamMinutes: number;
-  compressionFactor: number;
   apiCostCredits: number;
   retailCredits: number;
   profitCredits: number;
@@ -304,7 +303,6 @@ function BillingEngineTab() {
             <div className="grid grid-cols-2 gap-2 text-xs">
               {[
                 ["Real stream time", `${estimResult.realStreamMinutes} min`],
-                ["Compression factor", `${estimResult.compressionFactor}×`],
                 ["Profit (est.)", fmtUsd(estimResult.profitUsd)],
                 ["Margin", `${estimResult.marginPercent}%`],
                 ["API cost (cr)", estimResult.apiCostCredits.toFixed(0)],
