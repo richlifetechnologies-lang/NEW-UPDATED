@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTable, chatMessagesTable, deviceFingerprintsTable, subAdminAuditTable, subAdminPricingTable, decartApiKeysTable, licenseKeysTable, financialTransactionsTable, decartCreditSettingsTable, billingRateAuditTable, deviceSecurityEventsTable } from "@workspace/db";
 import { eq, desc, sql, and, gte, isNotNull, lte } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth";
@@ -1090,6 +1091,17 @@ router.put("/decart-credentials", requireAdmin, async (req, res) => {
 
 // ── Sub Admin Management (main admin only) ───────────────────────────────────
 
+// GET /admin/sub-admins/check-email?email= — check if an email is available for a new sub-admin
+router.get("/sub-admins/check-email", requireAdmin, async (req, res) => {
+  const email = (req.query.email as string)?.trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    res.status(400).json({ error: "Valid email required" }); return;
+  }
+  const [existing] = await db.select({ id: usersTable.id, email: usersTable.email })
+    .from(usersTable).where(eq(usersTable.email, email));
+  res.json({ available: !existing, email });
+});
+
 router.get("/sub-admins", requireAdmin, async (_req, res) => {
   // Ensure new columns exist (safe, idempotent)
   await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_assigned_decart_key_id INTEGER`).catch(() => {});
@@ -1218,12 +1230,27 @@ router.delete("/sub-admins/:id", requireAdmin, async (req: any, res) => {
   if (isNaN(id)) { res.status(400).json({ error: "Invalid sub admin ID" }); return; }
   const [sub] = await db.select().from(usersTable).where(eq(usersTable.id, id));
   if (!sub || !(sub as any).isSubAdmin) { res.status(404).json({ error: "Sub admin not found" }); return; }
-  await db.execute(`UPDATE users SET is_sub_admin = 0, membership = 'suspended' WHERE id = ${id}`);
+
+  // Permanently deactivate: keep email in DB so it can NEVER be reused (unique constraint),
+  // anonymize username, invalidate password hash so login is impossible.
+  const tombstoneUsername = `[deleted_${id}_${Date.now()}]`;
+  const invalidHash = `DELETED:${randomUUID()}`;
+  await db.execute(
+    `UPDATE users SET
+       is_sub_admin = 0,
+       is_admin = 0,
+       membership = 'suspended',
+       username = '${tombstoneUsername}',
+       password_hash = '${invalidHash}',
+       sub_admin_minutes_balance = 0
+     WHERE id = ${id}`
+  );
+
   await db.insert(subAdminAuditTable).values({
     subAdminId: id, action: "deleted", performedBy: req.user?.id ?? null,
-    note: `Deleted (deactivated) by admin ${req.user?.email ?? "unknown"}`,
+    note: `Permanently deleted by admin ${req.user?.email ?? "unknown"}. Email ${sub.email} is now permanently blocked from re-registration.`,
   }).catch(() => {});
-  res.json({ message: "Sub admin removed" });
+  res.json({ message: "Sub admin permanently deleted. Their email address is now permanently blocked." });
 });
 
 router.get("/sub-admin-audit", requireAdmin, async (_req, res) => {

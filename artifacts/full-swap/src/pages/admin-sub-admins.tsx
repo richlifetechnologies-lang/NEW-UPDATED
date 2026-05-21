@@ -8,6 +8,7 @@ import {
   UserCog, Plus, Trash2, Ban, CheckCircle, Coins, Eye, EyeOff,
   RefreshCw, Activity, LogIn, Key, Zap, RotateCcw, ChevronDown, ChevronRight,
   Shield, Radio, BarChart3, Settings2, TrendingUp, AlertTriangle,
+  CheckCircle2, XCircle, Loader2,
 } from "lucide-react";
 
 const API = (path: string) => `/api${path}`;
@@ -76,6 +77,7 @@ export default function AdminSubAdminsPage() {
 
   const [form, setForm] = useState({ email: "", username: "", password: "" });
   const [showPwd, setShowPwd] = useState(false);
+  const [emailCheck, setEmailCheck] = useState<null | "checking" | "available" | "taken" | "error">(null);
 
   const [minuteInputs, setMinuteInputs] = useState<Record<number, string>>({});
   const [recallInputs, setRecallInputs] = useState<Record<number, string>>({});
@@ -126,9 +128,31 @@ export default function AdminSubAdminsPage() {
     }
   }
 
+  async function checkEmail() {
+    const email = form.email.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      toast({ title: "Enter a valid email first", variant: "destructive" }); return;
+    }
+    setEmailCheck("checking");
+    try {
+      const r = await fetch(API(`/admin/sub-admins/check-email?email=${encodeURIComponent(email)}`), { headers: H() });
+      if (r.ok) {
+        const d = await r.json();
+        setEmailCheck(d.available ? "available" : "taken");
+      } else {
+        setEmailCheck("error");
+      }
+    } catch {
+      setEmailCheck("error");
+    }
+  }
+
   async function createSubAdmin() {
     if (!form.email || !form.username || !form.password || form.password.length < 8) {
       toast({ title: "Validation error", description: "All fields required, password min 8 chars", variant: "destructive" }); return;
+    }
+    if (emailCheck === "taken") {
+      toast({ title: "Email already in use", description: "This email is already registered in the system and cannot be reused.", variant: "destructive" }); return;
     }
     setLoading(true);
     try {
@@ -136,6 +160,7 @@ export default function AdminSubAdminsPage() {
       if (r.ok) {
         toast({ title: "Sub admin created", description: `Account created for ${form.email}` });
         setForm({ email: "", username: "", password: "" });
+        setEmailCheck(null);
         setTab("accounts"); fetchSubs(); fetchAudit();
       } else {
         let msg = "Failed to create sub admin";
@@ -759,17 +784,53 @@ export default function AdminSubAdminsPage() {
             </h2>
             <p className="text-xs text-muted-foreground mb-4">Sub admins can generate license keys from their allocated minutes balance.</p>
             <div className="space-y-3">
-              {([
-                { label: "Email Address", key: "email" as const, type: "email", placeholder: "subadmin@example.com" },
-                { label: "Username", key: "username" as const, type: "text", placeholder: "reseller_name" },
-              ] as const).map(f => (
-                <div key={f.key}>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-1">{f.label}</label>
-                  <input type={f.type} placeholder={f.placeholder} value={form[f.key]}
-                    onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                    className={`${inp} w-full`} />
+              {/* Email field with inline Check Availability button */}
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-1">Email Address</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="email"
+                    placeholder="subadmin@example.com"
+                    value={form.email}
+                    onChange={e => { setForm(p => ({ ...p, email: e.target.value })); setEmailCheck(null); }}
+                    className={`${inp} flex-1`}
+                  />
+                  <button
+                    type="button"
+                    onClick={checkEmail}
+                    disabled={emailCheck === "checking" || !form.email}
+                    className="shrink-0 text-xs font-bold px-3 py-2 rounded-md border border-border bg-muted hover:bg-muted/80 text-foreground disabled:opacity-50 whitespace-nowrap transition-colors"
+                  >
+                    {emailCheck === "checking"
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : "Check Availability"}
+                  </button>
                 </div>
-              ))}
+                {emailCheck === "available" && (
+                  <p className="flex items-center gap-1 text-xs text-green-400 mt-1.5 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Email is available
+                  </p>
+                )}
+                {emailCheck === "taken" && (
+                  <p className="flex items-center gap-1 text-xs text-red-400 mt-1.5 font-medium">
+                    <XCircle className="w-3.5 h-3.5" /> Email is already in use and cannot be reused
+                  </p>
+                )}
+                {emailCheck === "error" && (
+                  <p className="flex items-center gap-1 text-xs text-yellow-400 mt-1.5 font-medium">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Could not verify — check your connection
+                  </p>
+                )}
+              </div>
+
+              {/* Username field */}
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-1">Username</label>
+                <input type="text" placeholder="reseller_name" value={form.username}
+                  onChange={e => setForm(p => ({ ...p, username: e.target.value }))}
+                  className={`${inp} w-full`} />
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-1">Password</label>
                 <div className="relative">
@@ -782,7 +843,11 @@ export default function AdminSubAdminsPage() {
                   </button>
                 </div>
               </div>
-              <Button className="w-full gap-2 mt-2" disabled={loading} onClick={createSubAdmin}>
+              <Button
+                className="w-full gap-2 mt-2"
+                disabled={loading || emailCheck === "taken"}
+                onClick={createSubAdmin}
+              >
                 <Plus className="w-4 h-4" />
                 {loading ? "Creating..." : "Create Sub Admin"}
               </Button>
