@@ -16,6 +16,7 @@ import billingRatePerKeyRouter from "./admin-billing-rate-per-key";
 import adminExtrasRouter from "./admin-extras";
 import controlCenterRouter from "./admin-control-center";
 import adminUnifiedRouter from "./admin-unified";
+import streamHealthRouter from "./admin-stream-health";
 
 const router: IRouter = Router();
 
@@ -33,6 +34,7 @@ router.use("/admin/railway", railwayRouter);
 router.use("/admin/billing-rate-per-key", billingRatePerKeyRouter);
 router.use("/admin/control-center", controlCenterRouter);
 router.use("/admin/unified", adminUnifiedRouter);
+router.use("/admin", streamHealthRouter);
 router.use(downloadRouter);
 router.use("/subadmin", subAdminRouter);
 router.use("/license", licenseRouter);
