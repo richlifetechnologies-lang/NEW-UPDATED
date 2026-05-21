@@ -16,6 +16,8 @@ import {
 
 
 
+const COST_RATE = 2.3; // Decart Lucy 2.1 fixed API cost rate (cr/s) — never changes
+
 function authH() {
   return {
     "Content-Type": "application/json",
