@@ -144,7 +144,7 @@ function EditModal({ row, globalRate, apiCostRate, onClose, onSaved }: EditModal
 
   const rateNum        = parseFloat(rateInput) || 0;
   const compressionFac = rateNum > 0 ? Math.round((rateNum / apiCostRate) * 1000) / 1000 : 1;
-  const profitPct      = rateNum > 0 ? Math.round(((rateNum - apiCostRate) / rateNum) * 10000) / 100 : 0;
+  const profitPct      = rateNum > 0 ? Math.round(((rateNum - apiCostRate) / apiCostRate) * 10000) / 100 : 0;
   const profitPs       = Math.round((rateNum - apiCostRate) * 100) / 100;
 
   const handleSave = async () => {
