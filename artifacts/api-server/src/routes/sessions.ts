@@ -86,18 +86,28 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
       billingStart.getTime()
     ));
   }
-  // ── Billing-rate compression (settlement) ──────────────────────────────────
-  // Apply the same compression factor used during heartbeat deductions so the
-  // final settle is consistent with incremental billing.
-  // compression_factor = billingRate / 2.3  (2.3 = Decart cost breakeven)
-  // Higher billing rate → faster wallet drain → less real streaming time per minute.
-  try {
-    if (session.licenseKeyId) {
-      const settleRate = await getBillingRateForLicense(session.licenseKeyId);
-      const settleFactor = computeCompressionFactor(settleRate);
-      incrementSec = Math.max(0, Math.round(incrementSec * settleFactor));
-    }
-  } catch { /* non-fatal — use raw increment */ }
+  // ── Billing-rate compression (settlement — wall-clock path only) ───────────
+  // BUG #5 FIX: compression was applied to BOTH billing paths.
+  //   • credits-based path: incrementSec already comes from creditBasedIncrement(),
+  //     which converts Decart tick-credits → real seconds. Applying compression here
+  //     a second time double-multiplied the factor (e.g. 1.304² ≈ 1.7× over-deduction).
+  //   • wall-clock path: real elapsed seconds must be compressed to wallet-seconds,
+  //     so compression is correct and intentional here.
+  // Fix: only compress the wall-clock path (creditsConsumed absent / zero).
+  //
+  // NOTE (Bug #6 related): the credits-based path is also disabled on the frontend
+  // (tickCountRef × 2.3 was removed from stop calls) because generationTick fires
+  // at video frame-rate (~30fps), NOT 1 Hz. Sending tickCount × 2.3 as creditsConsumed
+  // produced values ~30× too large. Wall-clock settle is now always used.
+  if (!opts?.creditsConsumed || opts.creditsConsumed === 0) {
+    try {
+      if (session.licenseKeyId) {
+        const settleRate = await getBillingRateForLicense(session.licenseKeyId);
+        const settleFactor = computeCompressionFactor(settleRate);
+        incrementSec = Math.max(0, Math.round(incrementSec * settleFactor));
+      }
+    } catch { /* non-fatal — use raw increment */ }
+  }
 
   // Every session has MINIMUM_RESERVATION_SEC debited at creation.
   // Guarantee duration_seconds reflects at least that so analytics never show 0.
