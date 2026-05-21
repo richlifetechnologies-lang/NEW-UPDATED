@@ -14,8 +14,18 @@ import {
   Activity, AlertTriangle, ArrowRight, BarChart3, CheckCircle2,
   Clock, DollarSign, Loader2, RefreshCw, Save, Shield,
   Timer, TrendingUp, Wifi, Zap, CalendarClock, Target,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, MessageSquare, Mail, Phone,
 } from "lucide-react";
+
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+    </svg>
+  );
+}
+
+type ContactInfo = { message: string; telegram: string; email: string; whatsapp: string };
 
 const COST_RATE = 2.3;
 
@@ -76,7 +86,7 @@ interface SessionLogResp { sessions: SessionRow[]; total: number; offset: number
 interface CapResp  { keys: CapKey[];    settings: CCSettings; }
 interface ExpiryResp { keys: ExpiryKey[]; settings: CCSettings; }
 
-type TabId = "cap" | "profit" | "sessions" | "expiry";
+type TabId = "cap" | "profit" | "sessions" | "expiry" | "contact";
 
 // ── Small stat card ───────────────────────────────────────────────────────────
 function SC({ label, value, sub, color, icon: Icon }: {
@@ -144,6 +154,12 @@ export default function AdminControlCenterPage() {
   const [targetMargin, setTargetMargin] = useState("50");
   const [targetProfit, setTargetProfit] = useState("");
 
+  // Contact Info tab
+  const [contactInfo, setContactInfo] = useState<ContactInfo>({ message: "", telegram: "", email: "", whatsapp: "" });
+  const [contactDraft, setContactDraft] = useState<ContactInfo>({ message: "", telegram: "", email: "", whatsapp: "" });
+  const [contactLoading, setContactLoading] = useState(false);
+  const [contactSaving, setContactSaving] = useState(false);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Load settings ────────────────────────────────────────────────────────────
@@ -199,6 +215,28 @@ export default function AdminControlCenterPage() {
     setExpiryLoading(false);
   }, []);
 
+  // ── Load contact settings ─────────────────────────────────────────────────────
+  const loadContact = useCallback(async () => {
+    setContactLoading(true);
+    const d = await apiFetch<ContactInfo>("/api/admin/contact-settings");
+    if (d) { setContactInfo(d); setContactDraft(d); }
+    setContactLoading(false);
+  }, []);
+
+  const saveContact = async () => {
+    setContactSaving(true);
+    const res = await fetch("/api/admin/contact-settings", {
+      method: "PUT", headers: authH(), body: JSON.stringify(contactDraft),
+    });
+    setContactSaving(false);
+    if (res.ok) {
+      setContactInfo(contactDraft);
+      toast({ title: "Contact info saved", description: "Login page updated successfully." });
+    } else {
+      toast({ title: "Failed to save", variant: "destructive" });
+    }
+  };
+
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
@@ -207,8 +245,9 @@ export default function AdminControlCenterPage() {
     if (tab === "cap")      { loadCaps();       timerRef.current = setInterval(loadCaps, 5000); }
     if (tab === "sessions") { loadSessions(sessPage); }
     if (tab === "expiry")   { loadExpiry(); }
+    if (tab === "contact")  { loadContact(); }
     return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
-  }, [tab, loadCaps, loadSessions, loadExpiry, sessPage]);
+  }, [tab, loadCaps, loadSessions, loadExpiry, loadContact, sessPage]);
 
   // ── Profit Target math ────────────────────────────────────────────────────────
   const tm = parseFloat(targetMargin);
@@ -225,6 +264,7 @@ export default function AdminControlCenterPage() {
     { id: "profit",   label: "Profit Target",  icon: Target       },
     { id: "sessions", label: "Session Log",    icon: Activity     },
     { id: "expiry",   label: "Wallet Expiry",  icon: CalendarClock},
+    { id: "contact",  label: "Contact Info",   icon: MessageSquare},
   ];
 
   return (
@@ -813,6 +853,154 @@ export default function AdminControlCenterPage() {
             )}
           </div>
         )}
+        {/* ════════ CONTACT INFO ════════ */}
+        {tab === "contact" && (
+          <div className="space-y-6">
+            {contactLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                {/* Info banner */}
+                <div className="rounded-xl p-4 flex items-start gap-3"
+                  style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
+                  <MessageSquare className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-mono font-bold text-foreground">Login Page Contact Info</p>
+                    <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                      These details appear at the bottom of the login page so users know how to reach you for license keys.
+                      Changes take effect immediately for all new visitors.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Form fields */}
+                <div className="rounded-xl p-5 space-y-5"
+                  style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 13%)" }}>
+
+                  {/* Message */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      <MessageSquare className="w-3 h-3" />
+                      Intro Message
+                    </label>
+                    <input
+                      type="text"
+                      value={contactDraft.message}
+                      onChange={e => setContactDraft(d => ({ ...d, message: e.target.value }))}
+                      placeholder="Need a license key? Contact us via:"
+                      className="w-full rounded-lg px-3 py-2.5 text-sm font-mono bg-transparent focus:outline-none"
+                      style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 18%)", color: "hsl(var(--foreground))" }}
+                    />
+                    <p className="text-[10px] font-mono text-muted-foreground">The text shown above the contact links on the login page.</p>
+                  </div>
+
+                  {/* Telegram */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3" style={{ color: "#2AABEE" }}>
+                        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.782-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                      </svg>
+                      Telegram Username
+                    </label>
+                    <input
+                      type="text"
+                      value={contactDraft.telegram}
+                      onChange={e => setContactDraft(d => ({ ...d, telegram: e.target.value }))}
+                      placeholder="@rich_life2k15"
+                      className="w-full rounded-lg px-3 py-2.5 text-sm font-mono bg-transparent focus:outline-none"
+                      style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 18%)", color: "hsl(187 100% 52%)" }}
+                    />
+                  </div>
+
+                  {/* Email */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      <Mail className="w-3 h-3" />
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={contactDraft.email}
+                      onChange={e => setContactDraft(d => ({ ...d, email: e.target.value }))}
+                      placeholder="loveoflots06@gmail.com"
+                      className="w-full rounded-lg px-3 py-2.5 text-sm font-mono bg-transparent focus:outline-none"
+                      style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 18%)", color: "hsl(187 100% 52%)" }}
+                    />
+                  </div>
+
+                  {/* WhatsApp */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      <WhatsAppIcon className="w-3 h-3" />
+                      <span style={{ color: "#25D366" }}>WhatsApp Number</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={contactDraft.whatsapp}
+                      onChange={e => setContactDraft(d => ({ ...d, whatsapp: e.target.value }))}
+                      placeholder="+1 234 567 8900"
+                      className="w-full rounded-lg px-3 py-2.5 text-sm font-mono bg-transparent focus:outline-none"
+                      style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 18%)", color: "#25D366" }}
+                    />
+                    <p className="text-[10px] font-mono text-muted-foreground">Leave blank to hide the WhatsApp link on the login page.</p>
+                  </div>
+                </div>
+
+                {/* Live preview */}
+                <div className="rounded-xl p-5 space-y-3"
+                  style={{ background: "hsl(222 44% 5%)", border: "1px solid hsl(222 40% 14%)" }}>
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Live Preview — Login Page Footer</p>
+                  <div className="space-y-1.5 text-center py-2">
+                    <p className="text-xs text-muted-foreground">{contactDraft.message || "—"}</p>
+                    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+                      {contactDraft.telegram && (
+                        <span className="flex items-center gap-1 text-xs">
+                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5" style={{ color: "#2AABEE" }}>
+                            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.782-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                          </svg>
+                          <span className="font-mono" style={{ color: "hsl(187 100% 52%)" }}>{contactDraft.telegram}</span>
+                        </span>
+                      )}
+                      {contactDraft.email && (
+                        <span className="flex items-center gap-1 text-xs">
+                          <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span className="font-mono" style={{ color: "hsl(187 100% 52%)" }}>{contactDraft.email}</span>
+                        </span>
+                      )}
+                      {contactDraft.whatsapp && (
+                        <span className="flex items-center gap-1 text-xs">
+                          <WhatsAppIcon className="w-3.5 h-3.5" />
+                          <span className="font-mono" style={{ color: "#25D366" }}>{contactDraft.whatsapp}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Save button */}
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <button
+                    onClick={() => setContactDraft(contactInfo)}
+                    className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Reset changes
+                  </button>
+                  <button
+                    onClick={saveContact}
+                    disabled={contactSaving}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-mono font-bold transition-all"
+                    style={{ background: "hsl(187 100% 52%)", color: "#000", boxShadow: "0 0 18px hsl(187 100% 52% / 0.35)", opacity: contactSaving ? 0.7 : 1 }}>
+                    {contactSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    {contactSaving ? "Saving..." : "Save Contact Info"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
       </div>
     </AdminLayout>
   );
