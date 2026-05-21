@@ -506,8 +506,8 @@ router.post("/:sessionId/stop", requireLicense, async (req, res) => {
   const sessionId = req.params["sessionId"] as string;
 
   // ── BILLING-FIX: Accept creditsConsumed for credit-based billing sync ──
-  // creditsConsumed = actual Decart credits used (5 credits/sec, Lucy 2.1)
-  // actualDurationSec = creditsConsumed / 5 → syncs with real Decart billing
+  // creditsConsumed = actual Decart credits used (DECART_CREDITS_PER_SEC = 2.3 cr/s, Lucy 2.1)
+  // actualDurationSec = creditsConsumed / DECART_CREDITS_PER_SEC → syncs with real Decart billing
   const creditsConsumed: number | undefined =
     typeof (req.body as any)?.creditsConsumed === "number" && (req.body as any).creditsConsumed >= 0
       ? Math.max(0, (req.body as any).creditsConsumed) : undefined;
