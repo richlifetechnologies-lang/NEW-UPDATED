@@ -127,19 +127,25 @@ export default function AdminSubAdminsPage() {
   }
 
   async function createSubAdmin() {
-    if (!form.email || !form.username || form.password.length < 8) {
+    if (!form.email || !form.username || !form.password || form.password.length < 8) {
       toast({ title: "Validation error", description: "All fields required, password min 8 chars", variant: "destructive" }); return;
     }
     setLoading(true);
-    const r = await fetch(API("/admin/sub-admins"), { method: "POST", headers: H(), body: JSON.stringify(form) });
-    setLoading(false);
-    if (r.ok) {
-      toast({ title: "Sub admin created" });
-      setForm({ email: "", username: "", password: "" });
-      setTab("accounts"); fetchSubs(); fetchAudit();
-    } else {
-      const d = await r.json();
-      toast({ title: "Error", description: d.error, variant: "destructive" });
+    try {
+      const r = await fetch(API("/admin/sub-admins"), { method: "POST", headers: H(), body: JSON.stringify(form) });
+      if (r.ok) {
+        toast({ title: "Sub admin created", description: `Account created for ${form.email}` });
+        setForm({ email: "", username: "", password: "" });
+        setTab("accounts"); fetchSubs(); fetchAudit();
+      } else {
+        let msg = "Failed to create sub admin";
+        try { const d = await r.json(); msg = d.error ?? msg; } catch { /* non-JSON response */ }
+        toast({ title: "Error", description: msg, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Network error", description: "Could not reach the server. Please try again.", variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
   }
 

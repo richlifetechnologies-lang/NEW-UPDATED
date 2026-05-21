@@ -1122,25 +1122,50 @@ router.post("/sub-admins", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "email, username, and password (min 8 chars) required" });
     return;
   }
-  const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
-  if (existing) { res.status(409).json({ error: "Email already in use" }); return; }
-  const [newSub] = await db.insert(usersTable).values({
-    email, username, passwordHash: hashPassword(password),
-    membership: "active" as const,
-    isAdmin: 0,
-    freeSecondsRemaining: 0, // Sub admins get no free streaming credits
-  } as any).returning();
-  // Set isSubAdmin via direct update (Drizzle strict mode compat)
-  await db.update(usersTable).set({ isAdmin: 0 } as any).where(eq(usersTable.id, newSub.id));
-  await db.execute(`UPDATE users SET is_sub_admin = 1, sub_admin_minutes_balance = 0 WHERE id = ${newSub.id}`);
-  // Audit
-  const actingAdmin = (req as any).user;
-  await db.insert(subAdminAuditTable).values({
-    subAdminId: newSub.id, action: "created",
-    performedBy: actingAdmin?.id ?? null,
-    note: `Created by admin ${actingAdmin?.email ?? "unknown"}`,
-  }).catch(() => {});
-  res.status(201).json({ id: newSub.id, email: newSub.email, username: newSub.username });
+  try {
+    // Ensure columns exist in case DB migration was not fully applied
+    await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_sub_admin INTEGER NOT NULL DEFAULT 0`).catch(() => {});
+    await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_minutes_balance INTEGER NOT NULL DEFAULT 0`).catch(() => {});
+
+    const [existingEmail] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+    if (existingEmail) { res.status(409).json({ error: "Email already in use" }); return; }
+
+    const [existingUsername] = await db.select().from(usersTable).where(eq(usersTable.username, username));
+    if (existingUsername) { res.status(409).json({ error: "Username already taken" }); return; }
+
+    const [newSub] = await db.insert(usersTable).values({
+      email, username, passwordHash: hashPassword(password),
+      membership: "active" as const,
+      isAdmin: 0,
+      freeSecondsRemaining: 0,
+      totalMinutesPurchased: 0,
+      totalSecondsUsed: 0,
+      emailVerified: false,
+    } as any).returning();
+
+    if (!newSub) {
+      res.status(500).json({ error: "Failed to create sub admin account" });
+      return;
+    }
+
+    await db.execute(`UPDATE users SET is_sub_admin = 1, sub_admin_minutes_balance = 0 WHERE id = ${newSub.id}`);
+
+    const actingAdmin = (req as any).user;
+    await db.insert(subAdminAuditTable).values({
+      subAdminId: newSub.id, action: "created",
+      performedBy: actingAdmin?.id ?? null,
+      note: `Created by admin ${actingAdmin?.email ?? "unknown"}`,
+    }).catch(() => {});
+
+    res.status(201).json({ id: newSub.id, email: newSub.email, username: newSub.username });
+  } catch (err: any) {
+    const msg = err?.message ?? "";
+    if (msg.includes("unique") || msg.includes("duplicate")) {
+      res.status(409).json({ error: "Email or username already in use" });
+    } else {
+      res.status(500).json({ error: "Failed to create sub admin. Please try again." });
+    }
+  }
 });
 
 router.put("/sub-admins/:id/minutes", requireAdmin, async (req: any, res) => {
