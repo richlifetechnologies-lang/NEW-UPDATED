@@ -53,7 +53,7 @@
  */
 
 export const DECART_CREDITS_PER_SEC   = 2.3;  // Decart Lucy 2.1 actual charge rate (cr/s)
-export const DECART_CREDITS_PER_MIN   = DECART_CREDITS_PER_SEC * 60; // 300
+export const DECART_CREDITS_PER_MIN   = DECART_CREDITS_PER_SEC * 60; // 138 (2.3 × 60)
 
 /**
  * DECART_REAL_API_COST_RATE — Fixed safe API cost rate for analytics and profit.
