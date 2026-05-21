@@ -18,11 +18,9 @@ import {
   SWEEP_INTERVAL_MS,
   SINGLE_SESSION_GRACE_MS,
   DEDUCTION_FREEZE_MS,
-  DECART_CREDITS_PER_SEC,
   MINIMUM_RESERVATION_SEC,
   calculateDebit,
   applyMinimumDuration,
-  creditBasedIncrement,
   wallClockIncrement,
   licenseRemainingSeconds,
   computeCompressionFactor,
@@ -45,7 +43,7 @@ function formatSession(s: any) {
 
 // Settle billing for a single session. Pure function (no side-effects on res).
 // Returns the number of seconds debited from the license.
-async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsConsumed?: number }) {
+async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
   const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   if (!session || session.status !== "active") return 0;
 
@@ -65,27 +63,18 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
   const billingStart = session.billingStartedAt ?? session.startedAt;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
 
-  // ── BILLING-FIX: Credit-based duration reconciliation ──────────────────
-  // If creditsConsumed is provided, use Decart's actual generationTick count
-  // (5 credits/sec) instead of frontend timestamps. Pure billing-math functions
-  // handle all the arithmetic — any formula change must go through billing-math.ts
-  // so tests catch it immediately.
+  // ── Wall-clock settlement ──────────────────────────────────────────────
+  // Bills only the remaining delta since the last heartbeat deduction.
+  // Formula: floor((endAt - lastDeductedAt) / 1000) × compressionFactor
+  // Frame-rate independent — generationTick billing removed.
   let incrementSec: number;
   let totalDuration: number;
 
-  if (opts?.creditsConsumed && opts.creditsConsumed > 0) {
-    const alreadyBilledSec = Math.max(
-      0,
-      Math.floor((lastDebit.getTime() - billingStart.getTime()) / 1000)
-    );
-    ({ incrementSec, totalDuration } = creditBasedIncrement(opts.creditsConsumed, alreadyBilledSec));
-  } else {
-    ({ incrementSec, totalDuration } = wallClockIncrement(
-      endAt.getTime(),
-      lastDebit.getTime(),
-      billingStart.getTime()
-    ));
-  }
+  ({ incrementSec, totalDuration } = wallClockIncrement(
+    endAt.getTime(),
+    lastDebit.getTime(),
+    billingStart.getTime()
+  ));
   // ── Billing-rate compression (settlement) ──────────────────────────────────
   // Apply the same compression factor used during heartbeat deductions so the
   // final settle is consistent with incremental billing.
@@ -121,7 +110,6 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date; creditsCo
       sessionId,
       totalDuration,
       debited,
-      creditsBased: opts?.creditsConsumed ? opts.creditsConsumed : false,
     },
     "[Session] session_end"
   );
@@ -505,13 +493,6 @@ router.post("/:sessionId/stop", requireLicense, async (req, res) => {
   const license   = (req as any).license;
   const sessionId = req.params["sessionId"] as string;
 
-  // ── BILLING-FIX: Accept creditsConsumed for credit-based billing sync ──
-  // creditsConsumed = actual Decart credits used (DECART_CREDITS_PER_SEC = 2.3 cr/s, Lucy 2.1)
-  // actualDurationSec = creditsConsumed / DECART_CREDITS_PER_SEC → syncs with real Decart billing
-  const creditsConsumed: number | undefined =
-    typeof (req.body as any)?.creditsConsumed === "number" && (req.body as any).creditsConsumed >= 0
-      ? Math.max(0, (req.body as any).creditsConsumed) : undefined;
-
   const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   if (!session || session.licenseKeyId !== license.id) { res.status(404).json({ error: "Session not found" }); return; }
 
@@ -521,8 +502,8 @@ router.post("/:sessionId/stop", requireLicense, async (req, res) => {
     return;
   }
 
-  logger.info({ sessionId, creditsConsumed: creditsConsumed ?? null, trigger: "client_stop" }, "[Session] stop_session");
-  await settleSession(sessionId, { creditsConsumed });
+  logger.info({ sessionId, trigger: "client_stop" }, "[Session] stop_session");
+  await settleSession(sessionId);
   const [updated] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   res.json(formatSession(updated));
 });
