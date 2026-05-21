@@ -1042,6 +1042,24 @@ export default function StreamPage() {
           consecutiveFailures = 0; // reset on success
           const data: { ok: boolean; reason?: string } = await res.json();
           if (data.ok === false && data.reason === "no_time") {
+            // Kill the Decart WebRTC stream IMMEDIATELY — before any async work.
+            // The server has already marked the session stopped. Disconnecting now
+            // ensures the live video feed ends right away, not after the async
+            // stopStreamInternally chain resolves.
+            decartClientRef.current?.disconnect();
+            decartClientRef.current = null;
+            // Clear the popout video immediately so OBS shows a black/idle frame
+            if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+              try {
+                const v = popoutWindowRef.current.document.getElementById("v") as HTMLVideoElement | null;
+                if (v) v.srcObject = null;
+              } catch { /* cross-origin guard */ }
+            }
+            if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+            // Stop timers immediately
+            if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+            if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
+
             toast({
               title: "Streaming time exhausted",
               description: "You have used all your streaming minutes. Contact admin to add more time to your license key.",
@@ -1049,6 +1067,7 @@ export default function StreamPage() {
             });
             setLicenseExhausted(true);
             const sid = activeSessionRef.current;
+            activeSessionRef.current = null; // clear immediately to prevent re-entry
             if (sid) stopStreamInternally(sid, elapsedSecsRef.current, true);
           }
         } else {
