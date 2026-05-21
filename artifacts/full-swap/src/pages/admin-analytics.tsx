@@ -148,10 +148,7 @@ export default function AdminAnalyticsPage() {
     const revenue = Math.round(k.usedSeconds * k.effectiveRate * 100) / 100;
     const cost    = Math.round(k.usedSeconds * COST_RATE * 100) / 100;
     const profit  = Math.round((revenue - cost) * 100) / 100;
-      ? Math.round(Math.abs((dispUsed - k.usedSeconds) / k.usedSeconds) * 10000) / 100
-      : 0;
-    return { ...k, revenue, cost, profit,
- };
+    return { ...k, revenue, cost, profit };
   });
 
   // Summary
