@@ -83,6 +83,9 @@ if (process.env.NODE_ENV === "production") {
 // Global JSON error handler — must be registered AFTER all routes
 // Ensures unhandled route errors always return JSON, never an HTML error page
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  // console.error goes to stderr which Railway captures in plain text
+  // (pino structured logs hide the stack trace in Railway's log viewer)
+  console.error("[UNHANDLED ERROR]", err?.stack ?? err?.message ?? String(err));
   logger.error({ err }, "Unhandled server error");
   if (!res.headersSent) {
     res.status(500).json({ error: "Internal server error" });
