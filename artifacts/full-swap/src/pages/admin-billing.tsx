@@ -41,6 +41,7 @@ interface BrkKey {
   effectiveRate: number; usedSeconds: number; remainingSeconds: number;
   isLive: boolean; activeSessionCount: number; rateSource: string;
   customBillingRate: number | null; useCustomBillingRate: boolean;
+  subAdminBillingRate?: number | null; subAdminUsername?: string | null;
 }
 interface BrkResponse { keys: BrkKey[]; globalBillingRate: number; apiCostRate: number; }
 interface AuditRow {
@@ -626,9 +627,8 @@ export default function AdminBillingPage() {
               <div className="space-y-4">
                 <div className="rounded-lg p-4" style={{ background: "hsl(222 44% 5%)", border: "1px solid hsl(187 100% 52% / 0.15)" }}>
                   <p className="text-xs font-mono" style={{ color: "hsl(187 100% 52%)" }}>
-                    <strong>Per-Key Billing Monitor.</strong> Revenue = wallet_used × billing_rate. Decart cost = real_stream_sec × 2.3.
-                    Real stream remaining = wallet_remaining × 2.3 / billing_rate.
-                    Click <strong>SET</strong> on any row to override that key's billing rate individually.
+                    <strong>Per-Key Billing Monitor.</strong> Source: CUSTOM (license override) → SUB-ADMIN (sub-admin rate) → GLOBAL (system default). Revenue = wallet_used × billing_rate.
+                    Real stream remaining = wallet_remaining × 2.3 / billing_rate. Click <strong>SET</strong> on any row to set a custom rate for that key.
                   </p>
                 </div>
                 <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
@@ -665,9 +665,16 @@ export default function AdminBillingPage() {
                                 <span className="text-[9px] font-mono px-1.5 py-0.5 rounded"
                                   style={k.rateSource === "custom"
                                     ? { background: "hsl(187 100% 52% / 0.12)", color: "hsl(187 100% 52%)" }
+                                    : k.rateSource === "sub_admin"
+                                    ? { background: "hsl(271 76% 53% / 0.12)", color: "hsl(271 76% 75%)" }
                                     : { background: "hsl(222 40% 14%)", color: "hsl(215 20% 55%)" }}>
-                                  {k.rateSource === "custom" ? "CUSTOM" : "GLOBAL"}
+                                  {k.rateSource === "custom" ? "CUSTOM" : k.rateSource === "sub_admin" ? "SUB-ADMIN" : "GLOBAL"}
                                 </span>
+                                {k.rateSource === "sub_admin" && k.subAdminBillingRate != null && (
+                                  <span className="block text-[8px] font-mono mt-0.5" style={{ color: "hsl(271 76% 60%)" }}>
+                                    {k.subAdminUsername ?? ""} ({k.subAdminBillingRate} cr/s)
+                                  </span>
+                                )}
                               </td>
                               <td className="px-3 py-2.5 text-right font-mono text-foreground">{rate} cr/s</td>
                               <td className="px-3 py-2.5 text-right font-mono text-foreground">{fmtSec(k.usedSeconds)}</td>

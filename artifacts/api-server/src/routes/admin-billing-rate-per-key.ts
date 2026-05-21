@@ -37,16 +37,29 @@ const router = Router();
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Derive the effective billing rate for a row returned from license_keys.
- * Spec §1: custom rate is ONLY used when explicitly enabled AND non-null.
+ * Derive the effective billing rate for a row — 3-tier resolution order:
+ *   1. license.custom_billing_rate (if use_custom_billing_rate = true)
+ *   2. sub-admin billing rate override (if set on the creating sub-admin)
+ *   3. global billing rate (system default fallback)
  */
 function effectiveRate(
   useCustom: boolean | null,
   customRate: number | null,
+  subAdminRate: number | null,
   globalRate: number
 ): number {
-  if (useCustom === true && customRate != null && customRate >= 1) return customRate;
+  if (useCustom === true && customRate != null && customRate >= 0.1) return customRate;
+  if (subAdminRate != null && subAdminRate >= 0.1) return subAdminRate;
   return globalRate;
+}
+
+/**
+ * Identifies the source tier of the effective rate.
+ */
+function rateSourceLabel(useCustom: boolean | null, customRate: number | null, subAdminRate: number | null): string {
+  if (useCustom === true && customRate != null && customRate >= 0.1) return 'custom';
+  if (subAdminRate != null && subAdminRate >= 0.1) return 'sub_admin';
+  return 'global';
 }
 
 /**
@@ -87,14 +100,18 @@ router.get("/", requireAdmin, async (req, res) => {
         lk.custom_billing_rate,
         lk.use_custom_billing_rate,
         lk.billing_rate_last_updated_at,
+        lk.created_by_sub_admin_id,
+        u.sub_admin_billing_rate,
+        u.username AS sub_admin_username,
         COUNT(s.id) FILTER (WHERE s.status = 'active')  AS active_session_count,
         COALESCE(SUM(s.duration_seconds), 0)             AS session_used_seconds
       FROM license_keys lk
+      LEFT JOIN users u ON u.id = lk.created_by_sub_admin_id
       LEFT JOIN sessions s ON s.license_key_id = lk.id
       ${search
         ? sql`WHERE lk.key ILIKE ${'%' + search + '%'}`
         : sql``}
-      GROUP BY lk.id
+      GROUP BY lk.id, u.sub_admin_billing_rate, u.username
       ORDER BY
         lk.use_custom_billing_rate DESC NULLS LAST,
         lk.last_used_at DESC NULLS LAST
@@ -107,7 +124,8 @@ router.get("/", requireAdmin, async (req, res) => {
       const remainingSec    = licenseRemainingSeconds(Number(lk.minutes_allocated ?? 0), usedSec);
       const customRate      = lk.custom_billing_rate != null ? Number(lk.custom_billing_rate) : null;
       const useCustom       = Boolean(lk.use_custom_billing_rate);
-      const effRate         = effectiveRate(useCustom, customRate, globalRate);
+      const subAdminRate    = lk.sub_admin_billing_rate != null ? Number(lk.sub_admin_billing_rate) : null;
+      const effRate         = effectiveRate(useCustom, customRate, subAdminRate, globalRate);
       const isLive          = Number(lk.active_session_count) > 0;
 
       const cf                 = computeCompressionFactor(effRate);
@@ -125,7 +143,9 @@ router.get("/", requireAdmin, async (req, res) => {
         useCustomBillingRate:      useCustom,
         billingRateLastUpdatedAt:  lk.billing_rate_last_updated_at ?? null,
         effectiveRate:             effRate,
-        rateSource:                useCustom && customRate != null ? "custom" : "global",
+        subAdminBillingRate:       subAdminRate,
+        subAdminUsername:          lk.sub_admin_username ?? null,
+        rateSource:                rateSourceLabel(useCustom, customRate, subAdminRate),
         // TCE — Time Compression Engine (display_used = alloc_display - display_remaining, NOT real_used × cf)
         compressionFactor:         cf,
         displaySecondsUsed:        _dispUsed,
@@ -184,9 +204,18 @@ router.get("/:keyId", requireAdmin, async (req, res) => {
       return;
     }
 
-    const customRate = lk.customBillingRate != null ? Number(lk.customBillingRate) : null;
-    const useCustom  = Boolean(lk.useCustomBillingRate);
-    const effRate    = effectiveRate(useCustom, customRate, globalRate);
+    const customRate   = lk.customBillingRate != null ? Number(lk.customBillingRate) : null;
+    const useCustom    = Boolean(lk.useCustomBillingRate);
+    // Look up sub-admin billing rate for detail endpoint
+    let subAdminRateDet: number | null = null;
+    if (lk.createdBySubAdminId != null) {
+      try {
+        const saRes = await db.execute(`SELECT sub_admin_billing_rate FROM users WHERE id = ${lk.createdBySubAdminId} AND sub_admin_billing_rate IS NOT NULL LIMIT 1`);
+        const saR = (saRes.rows as any[])[0]?.sub_admin_billing_rate;
+        if (saR != null && Number.isFinite(Number(saR)) && Number(saR) >= 0.1) subAdminRateDet = Number(saR);
+      } catch { /* non-fatal */ }
+    }
+    const effRate      = effectiveRate(useCustom, customRate, subAdminRateDet, globalRate);
     const remainSec  = licenseRemainingSeconds(Number(lk.minutesAllocated ?? 0), Number(lk.usedSeconds ?? 0));
 
     // Active session check
@@ -204,7 +233,8 @@ router.get("/:keyId", requireAdmin, async (req, res) => {
       useCustomBillingRate:      useCustom,
       billingRateLastUpdatedAt:  lk.billingRateLastUpdatedAt ?? null,
       effectiveRate:             effRate,
-      rateSource:                useCustom && customRate != null ? "custom" : "global",
+      subAdminBillingRate:       subAdminRateDet,
+      rateSource:                rateSourceLabel(useCustom, customRate, subAdminRateDet),
       compressionFactor:         computeCompressionFactor(effRate),
       remainingSeconds:          remainSec,
       displaySecondsRemaining:   Math.round(remainSec * computeCompressionFactor(effRate)),
@@ -287,9 +317,21 @@ router.put("/:keyId", requireAdmin, async (req, res) => {
       .from(licenseKeysTable)
       .where(eq(licenseKeysTable.id, keyId));
 
+    // Re-fetch sub-admin rate for updated response
+    let subAdminRatePut: number | null = null;
+    try {
+      const lkRow = await db.select({ createdBySubAdminId: licenseKeysTable.createdBySubAdminId }).from(licenseKeysTable).where(eq(licenseKeysTable.id, keyId));
+      const saId = lkRow[0]?.createdBySubAdminId;
+      if (saId != null) {
+        const saRes = await db.execute(`SELECT sub_admin_billing_rate FROM users WHERE id = ${saId} AND sub_admin_billing_rate IS NOT NULL LIMIT 1`);
+        const saR = (saRes.rows as any[])[0]?.sub_admin_billing_rate;
+        if (saR != null && Number.isFinite(Number(saR)) && Number(saR) >= 0.1) subAdminRatePut = Number(saR);
+      }
+    } catch { /* non-fatal */ }
     const effRate = effectiveRate(
       Boolean(updated?.useCustomBillingRate),
       updated?.customBillingRate != null ? Number(updated.customBillingRate) : null,
+      subAdminRatePut,
       globalRate
     );
 
@@ -302,8 +344,8 @@ router.put("/:keyId", requireAdmin, async (req, res) => {
       customBillingRate:    updated?.customBillingRate != null ? Number(updated.customBillingRate) : null,
       useCustomBillingRate: Boolean(updated?.useCustomBillingRate),
       effectiveRate:        effRate,
-      rateSource:           Boolean(updated?.useCustomBillingRate) && updated?.customBillingRate != null
-                              ? "custom" : "global",
+      rateSource:           rateSourceLabel(Boolean(updated?.useCustomBillingRate), updated?.customBillingRate != null ? Number(updated.customBillingRate) : null, subAdminRatePut),
+      subAdminBillingRate:  subAdminRatePut,
       compressionFactor:    computeCompressionFactor(effRate),
       projectedProfitPct:   projectedProfitPct(effRate),
       updatedAt:            updated?.billingRateLastUpdatedAt ?? new Date(),

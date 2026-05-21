@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, pgEnum, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, pgEnum, boolean, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { decartApiKeysTable } from "./decart-keys";
@@ -25,6 +25,10 @@ export const usersTable = pgTable("users", {
   verificationPin: text("verification_pin"),
   verificationPinExpiresAt: timestamp("verification_pin_expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Sub-admin billing rate override — if set, this rate is used for license keys created by this sub-admin
+  // when those license keys have no custom billing rate of their own.
+  // Resolution: license.customBillingRate ?? subAdmin.subAdminBillingRate ?? globalBillingRate
+  subAdminBillingRate: real("sub_admin_billing_rate"),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });

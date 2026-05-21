@@ -89,13 +89,12 @@ export async function getBillingRate(): Promise<number> {
 /**
  * Returns the EFFECTIVE billing rate for a specific license key.
  *
- * Spec §1 — Single source of truth:
- *   effective_rate =
- *     IF license.use_custom_billing_rate = true AND license.custom_billing_rate >= 0.1
- *       THEN custom_billing_rate   (never falls back to global during active session)
- *       ELSE global_billing_rate
+ * Three-tier resolution order (spec §1 — single source of truth):
+ *   1. license.custom_billing_rate   — when use_custom_billing_rate = true (highest priority)
+ *   2. sub-admin billing rate        — the rate assigned to the sub-admin who created this key
+ *   3. global billing rate           — system default (lowest priority)
  *
- * Spec §9 — Safety: if custom rate lookup fails, falls back to global rate.
+ * Spec §9 — Safety: any tier lookup failure falls through to the next tier / global.
  * This is the ONLY function that should be called in billing paths.
  *
  * @param licenseKeyId  The integer PK of the license key (license_keys.id)
@@ -103,21 +102,43 @@ export async function getBillingRate(): Promise<number> {
  */
 export async function getBillingRateForLicense(licenseKeyId: number | null | undefined): Promise<number> {
   if (licenseKeyId == null) return getBillingRate();
+
   try {
+    // ── Tier 1: license custom rate ─────────────────────────────────────────
     const [row] = await db
       .select({
-        customBillingRate:    licenseKeysTable.customBillingRate,
-        useCustomBillingRate: licenseKeysTable.useCustomBillingRate,
+        customBillingRate:      licenseKeysTable.customBillingRate,
+        useCustomBillingRate:   licenseKeysTable.useCustomBillingRate,
+        createdBySubAdminId:    licenseKeysTable.createdBySubAdminId,
       })
       .from(licenseKeysTable)
       .where(eq(licenseKeysTable.id, licenseKeyId));
 
     if (row?.useCustomBillingRate && row.customBillingRate != null && row.customBillingRate >= 0.1) {
+      // License has an explicit override — use it, no further lookup needed
       return row.customBillingRate;
     }
+
+    // ── Tier 2: sub-admin billing rate override ──────────────────────────────
+    // If the license was created by a sub-admin who has a billing rate override,
+    // use that rate. This allows per-sub-admin rate differentiation without
+    // requiring a custom rate on every individual license key.
+    const subAdminId = row?.createdBySubAdminId;
+    if (subAdminId != null) {
+      const saResult = await db.execute(
+        `SELECT sub_admin_billing_rate FROM users WHERE id = ${subAdminId} AND sub_admin_billing_rate IS NOT NULL LIMIT 1`
+      );
+      const saRate = (saResult.rows as any[])[0]?.sub_admin_billing_rate;
+      if (saRate != null && Number.isFinite(Number(saRate)) && Number(saRate) >= 0.1) {
+        logger.debug({ licenseKeyId, subAdminId, subAdminRate: saRate }, "[BillingRate] using sub-admin rate override");
+        return Number(saRate);
+      }
+    }
   } catch (err) {
-    logger.warn({ err, licenseKeyId }, "[BillingRate] custom rate lookup failed, falling back to global");
+    logger.warn({ err, licenseKeyId }, "[BillingRate] rate lookup failed, falling back to global");
   }
+
+  // ── Tier 3: global billing rate ─────────────────────────────────────────────
   return getBillingRate();
 }
 
