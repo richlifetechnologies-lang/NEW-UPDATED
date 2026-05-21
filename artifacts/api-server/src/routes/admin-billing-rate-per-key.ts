@@ -160,6 +160,7 @@ router.get("/", requireAdmin, async (req, res) => {
         isLive,
         activeSessionCount:        Number(lk.active_session_count ?? 0),
         // Wallet info
+        minutesAllocated:          Math.round(allocatedSec / 60 * 100) / 100,
         allocatedSeconds:          allocatedSec,
         usedSeconds:               usedSec,
       };
