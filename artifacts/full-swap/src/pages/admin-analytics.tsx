@@ -103,7 +103,7 @@ function SCard({ label, value, sub, color, icon: Icon }: {
   );
 }
 
-type Section = "overview" | "tce" | "profit" | "decart" | "ghost" | "streams";
+type Section = "overview" | "tce" | "profit" | "decart" | "ghost" | "streams" | "revenue" | "wallet";
 
 export default function AdminAnalyticsPage() {
   const [brkData, setBrkData]     = useState<BrkResponse | null>(null);
@@ -116,12 +116,16 @@ export default function AdminAnalyticsPage() {
   const [lastPoll, setLastPoll]   = useState<string>("");
   const [section, setSection]     = useState<Section>("overview");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [revenueData, setRevenueData] = useState<any>(null);
+  const [walletData, setWalletData]   = useState<any>(null);
 
   const fetchAll = useCallback(async () => {
-    const [brk, dkeys, ghostRes] = await Promise.all([
+    const [brk, dkeys, ghostRes, revRes, walRes] = await Promise.all([
       apiFetch<BrkResponse>("/api/admin/billing-rate-per-key?limit=500"),
       apiFetch<{ keys: DecartKey[] }>("/api/admin/decart-keys"),
       apiFetch<Record<string, any>>("/api/admin/billing-intelligence/ghost-sessions"),
+      apiFetch<any>("/api/admin/unified/revenue-intelligence"),
+      apiFetch<any>("/api/admin/unified/wallet-health"),
     ]);
     if (brk) setBrkData(brk);
     if (dkeys && Array.isArray(dkeys.keys)) setDecartKeys(dkeys.keys);
@@ -129,6 +133,8 @@ export default function AdminAnalyticsPage() {
       const list = ghostRes.sessions ?? ghostRes.ghosts ?? [];
       setGhosts(Array.isArray(list) ? list : []);
     }
+    if (revRes) setRevenueData(revRes);
+    if (walRes) setWalletData(walRes);
     setLastPoll(new Date().toLocaleTimeString());
     setLoading(false);
   }, []);
@@ -185,6 +191,8 @@ export default function AdminAnalyticsPage() {
     { id: "decart",   label: "Decart Pool" },
     { id: "ghost",    label: `Ghost Sessions${ghosts.length > 0 ? ` (${ghosts.length})` : ""}` },
     { id: "streams",  label: `Live Streams${liveStreams.length > 0 ? ` (${liveStreams.length})` : ""}` },
+    { id: "revenue",  label: "Revenue Intel" },
+    { id: "wallet",   label: "Wallet Health" },
   ];
 
   const TH = ({ children }: { children: string }) => (
@@ -653,6 +661,120 @@ export default function AdminAnalyticsPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* ── REVENUE INTELLIGENCE ── */}
+            {section === "revenue" && (
+              <div className="space-y-4">
+                {!revenueData ? (
+                  <div className="text-center py-12 text-muted-foreground font-mono text-sm">No revenue data available yet</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {[
+                        { label: "Total Revenue",  value: `${revenueData.totalRevenue ?? 0} cr`,    color: "#26de81" },
+                        { label: "Total Cost",     value: `${revenueData.totalCost ?? 0} cr`,       color: "hsl(0 84% 60%)" },
+                        { label: "Net Profit",     value: `${revenueData.netProfit ?? 0} cr`,       color: revenueData.netProfit >= 0 ? "#26de81" : "#fc5c65" },
+                        { label: "Profit Margin",  value: `${revenueData.profitMargin ?? 0}%`,      color: "hsl(187 100% 52%)" },
+                      ].map(m => (
+                        <div key={m.label} className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">{m.label}</p>
+                          <p className="text-xl font-bold font-mono" style={{ color: m.color }}>{m.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {Array.isArray(revenueData.topKeys) && revenueData.topKeys.length > 0 && (
+                      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
+                        <div className="px-4 py-3" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+                          <p className="text-sm font-mono font-bold text-foreground">Top Revenue Keys</p>
+                        </div>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr style={{ background: "hsl(222 44% 6%)" }}>
+                              {["Licence Key", "Revenue", "Cost", "Profit", "Margin", "Sessions"].map(h => (
+                                <th key={h} className="px-3 py-2 text-right first:text-left text-muted-foreground font-mono text-[11px] font-medium">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {revenueData.topKeys.map((k: any, i: number) => (
+                              <tr key={i} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
+                                <td className="px-3 py-2.5 font-mono text-foreground">{k.licenseKey ? `${k.licenseKey.slice(0,8)}…${k.licenseKey.slice(-4)}` : "—"}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-green-400">{k.revenue ?? 0} cr</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-red-400/70">{k.cost ?? 0} cr</td>
+                                <td className="px-3 py-2.5 text-right font-mono font-bold" style={{ color: (k.profit ?? 0) >= 0 ? "#26de81" : "#fc5c65" }}>
+                                  {(k.profit ?? 0) >= 0 ? `+${k.profit}` : k.profit} cr
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono" style={{ color: "hsl(187 100% 52%)" }}>{k.margin ?? 0}%</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{k.sessionCount ?? 0}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── WALLET HEALTH ── */}
+            {section === "wallet" && (
+              <div className="space-y-4">
+                {!walletData ? (
+                  <div className="text-center py-12 text-muted-foreground font-mono text-sm">No wallet health data available yet</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {[
+                        { label: "Healthy Keys",   value: String(walletData.healthyCount ?? 0),   color: "#26de81" },
+                        { label: "Warning Keys",   value: String(walletData.warningCount ?? 0),   color: "#fed330" },
+                        { label: "Critical Keys",  value: String(walletData.criticalCount ?? 0),  color: "#fc5c65" },
+                      ].map(m => (
+                        <div key={m.label} className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">{m.label}</p>
+                          <p className="text-2xl font-bold font-mono" style={{ color: m.color }}>{m.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {Array.isArray(walletData.keys) && walletData.keys.length > 0 && (
+                      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
+                        <div className="px-4 py-3" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+                          <p className="text-sm font-mono font-bold text-foreground">Wallet Exhaustion Forecast</p>
+                        </div>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr style={{ background: "hsl(222 44% 6%)" }}>
+                              {["Licence Key", "Remaining", "Burn Rate", "Est. Exhaustion", "Health"].map(h => (
+                                <th key={h} className="px-3 py-2 text-right first:text-left text-muted-foreground font-mono text-[11px] font-medium">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {walletData.keys.map((k: any, i: number) => {
+                              const hColor = k.health === "critical" ? "#fc5c65" : k.health === "warning" ? "#fed330" : "#26de81";
+                              return (
+                                <tr key={i} style={{ borderTop: "1px solid hsl(222 40% 11%)" }}>
+                                  <td className="px-3 py-2.5 font-mono text-foreground">{k.licenseKey ? `${k.licenseKey.slice(0,8)}…${k.licenseKey.slice(-4)}` : "—"}</td>
+                                  <td className="px-3 py-2.5 text-right font-mono" style={{ color: hColor }}>{k.remainingMinutes ?? 0}m</td>
+                                  <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{k.burnRatePerHour ?? 0}/hr</td>
+                                  <td className="px-3 py-2.5 text-right font-mono text-foreground">{k.estimatedExhaustion ?? "—"}</td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded border"
+                                      style={{ color: hColor, background: `${hColor}18`, borderColor: `${hColor}40` }}>
+                                      {k.health?.toUpperCase() ?? "—"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </>

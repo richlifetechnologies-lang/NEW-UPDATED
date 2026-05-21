@@ -23,7 +23,7 @@ export default function AdminLoginPage() {
   useEffect(() => {
     if (localStorage.getItem("fullswap_admin_token")) {
       const isSubAdmin = localStorage.getItem("fullswap_sub_admin") === "1";
-      setLocation(isSubAdmin ? "/subadmin/dashboard" : "/admin/unified");
+      setLocation(isSubAdmin ? "/subadmin/dashboard" : "/admin/dashboard");
     }
   }, [setLocation]);
 
@@ -70,7 +70,7 @@ export default function AdminLoginPage() {
         setLocation("/subadmin/dashboard");
       } else {
         localStorage.removeItem("fullswap_sub_admin");
-        setLocation("/admin/unified");
+        setLocation("/admin/dashboard");
       }
     },
     onError: (error: Error) => {

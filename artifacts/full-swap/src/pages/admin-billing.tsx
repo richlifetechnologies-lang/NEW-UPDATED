@@ -106,7 +106,7 @@ function SCard({ label, value, sub, color, icon: Icon, pulse }: {
   );
 }
 
-type TabId = "control" | "keys" | "audit";
+type TabId = "control" | "keys" | "audit" | "estimator";
 
 export default function AdminBillingPage() {
   const { toast } = useToast();
@@ -126,6 +126,8 @@ export default function AdminBillingPage() {
   const [editRateVal, setEditRateVal]     = useState<string>("");
   const [savingKeyId, setSavingKeyId]     = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [estWalletMins, setEstWalletMins] = useState("60");
+  const [estRate, setEstRate]             = useState("");
 
   const fetchLive = useCallback(async () => {
     const [ri, brk] = await Promise.all([
@@ -266,7 +268,8 @@ export default function AdminBillingPage() {
   const tabs: { id: TabId; label: string; icon: any }[] = [
     { id: "control", label: "Rate Control",   icon: Zap      },
     { id: "keys",    label: "Per-Key Monitor",icon: Activity  },
-    { id: "audit",   label: "Change Log",     icon: RotateCcw},
+    { id: "audit",     label: "Change Log",       icon: RotateCcw},
+    { id: "estimator", label: "Runtime Estimator", icon: BarChart3 },
   ];
 
   return (
@@ -796,6 +799,117 @@ export default function AdminBillingPage() {
                 ))}
               </div>
             )}
+
+            {/* ════════ RUNTIME ESTIMATOR ════════ */}
+            {tab === "estimator" && (() => {
+              const estRateNum   = parseFloat(estRate) || (currentRate ?? 4);
+              const estMinsNum   = Math.max(1, parseFloat(estWalletMins) || 60);
+              const estSecs      = estMinsNum * 60;
+              const estRealSec   = estRateNum > 0 ? Math.round(estSecs * COST_RATE / estRateNum) : estSecs;
+              const estRealMin   = Math.round(estRealSec / 60 * 10) / 10;
+              const estRevenue   = Math.round(estSecs * estRateNum * 100) / 100;
+              const estCost      = Math.round(estRealSec * COST_RATE * 100) / 100;
+              const estProfit    = Math.round((estRevenue - estCost) * 100) / 100;
+              const estMarginPct = estRateNum > 0 ? Math.round(((estRateNum - COST_RATE) / estRateNum) * 1000) / 10 : 0;
+              const estDrainSpd  = estRateNum > 0 ? Math.round(estRateNum / COST_RATE * 1000) / 1000 : 1;
+              const estProfitHr  = Math.round((estRateNum - COST_RATE) * 3600);
+              return (
+                <div className="space-y-6">
+                  <div className="rounded-lg p-4" style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
+                    <p className="text-xs font-mono" style={{ color: "hsl(187 100% 52%)" }}>
+                      <strong>Runtime Estimator</strong> — Enter any billing rate + wallet allocation to preview real stream time, profit, and efficiency before committing.
+                    </p>
+                  </div>
+
+                  {/* Inputs */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-xl p-5 space-y-3" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                      <p className="text-xs font-mono font-bold text-foreground uppercase tracking-wider">Billing Rate</p>
+                      <div className="flex items-center gap-3">
+                        <input type="number" min="0.1" max="100" step="0.1"
+                          value={estRate || String(currentRate ?? 4)}
+                          onChange={e => setEstRate(e.target.value)}
+                          className="flex-1 rounded-lg px-3 py-2 text-lg font-mono font-bold focus:outline-none"
+                          style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 20%)", color: "hsl(187 100% 52%)" }} />
+                        <span className="text-sm font-mono text-muted-foreground">cr/s</span>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {PROFILES.map(p => (
+                          <button key={p.id} onClick={() => setEstRate(String(p.rate))}
+                            className="px-2 py-1 rounded text-[10px] font-mono font-bold transition-colors"
+                            style={Math.abs(estRateNum - p.rate) < 0.05
+                              ? { background: `${p.color}20`, color: p.color, border: `1px solid ${p.color}50` }
+                              : { background: "hsl(222 44% 4%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
+                            {p.label} {p.rate}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl p-5 space-y-3" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                      <p className="text-xs font-mono font-bold text-foreground uppercase tracking-wider">Wallet Allocation</p>
+                      <div className="flex items-center gap-3">
+                        <input type="number" min="1" max="99999" step="1"
+                          value={estWalletMins}
+                          onChange={e => setEstWalletMins(e.target.value)}
+                          className="flex-1 rounded-lg px-3 py-2 text-lg font-mono font-bold focus:outline-none"
+                          style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 20%)", color: "hsl(var(--foreground))" }} />
+                        <span className="text-sm font-mono text-muted-foreground">min</span>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {[30, 60, 120, 240, 480].map(m => (
+                          <button key={m} onClick={() => setEstWalletMins(String(m))}
+                            className="px-2 py-1 rounded text-[10px] font-mono font-bold transition-colors"
+                            style={estMinsNum === m
+                              ? { background: "hsl(var(--primary) / 0.15)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.3)" }
+                              : { background: "hsl(222 44% 4%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
+                            {m}m
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Results */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {[
+                      { label: "Real Stream Time",    value: `${estRealMin}m`,      color: "hsl(187 100% 52%)" },
+                      { label: "Wallet Minutes",       value: `${estMinsNum}m`,      color: "hsl(var(--foreground))" },
+                      { label: "Revenue",              value: `${estRevenue} cr`,    color: "#26de81" },
+                      { label: "Decart Cost",          value: `${estCost} cr`,       color: "hsl(0 84% 60%)" },
+                      { label: "Net Profit",           value: `${estProfit} cr`,     color: estProfit >= 0 ? "#26de81" : "#fc5c65" },
+                      { label: "Profit Margin",        value: `${estMarginPct}%`,    color: "hsl(187 100% 52%)" },
+                    ].map(m => (
+                      <div key={m.label} className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                        <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-wider mb-2">{m.label}</p>
+                        <p className="text-lg font-bold font-mono" style={{ color: m.color }}>{m.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Extra metrics */}
+                  <div className="rounded-xl p-5 space-y-3" style={{ background: "hsl(222 44% 5%)", border: "1px solid hsl(222 40% 12%)" }}>
+                    <p className="text-xs font-mono font-bold text-foreground uppercase tracking-wider">Efficiency Breakdown</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-sm">
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-xs">Drain Speed</p>
+                        <p className="font-bold text-foreground">{estDrainSpd}× faster than real time</p>
+                        <p className="text-[10px] text-muted-foreground">at {estRateNum} cr/s ÷ {COST_RATE} base</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-xs">Profit per Hour Streamed</p>
+                        <p className="font-bold" style={{ color: estProfitHr >= 0 ? "#26de81" : "#fc5c65" }}>{estProfitHr} cr/hr</p>
+                        <p className="text-[10px] text-muted-foreground">({estRateNum} − {COST_RATE}) × 3600s</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-xs">Real Stream per Wallet-Hour</p>
+                        <p className="font-bold text-foreground">{estRateNum > 0 ? Math.round(60 * COST_RATE / estRateNum * 10) / 10 : 60}m</p>
+                        <p className="text-[10px] text-muted-foreground">60 × {COST_RATE} ÷ {estRateNum} cr/s</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
       </div>
