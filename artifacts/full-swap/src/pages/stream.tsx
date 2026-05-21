@@ -284,9 +284,6 @@ export default function StreamPage() {
   // Remaining seconds from the most recent validate call — used as fallback when
   // licenseStatus query hasn't loaded yet for a freshly-entered key.
   const validatedRemainingRef = useRef<number>(0);
-  // Counts Decart generationTick events (1 tick = 1 billed second = 5 credits).
-  // Sent to the server on stop so billing matches Decart's exact charge.
-  const tickCountRef          = useRef<number>(0);
 
   // ── Audio sync refs ──────────────────────────────────────────────────
   const audioContextRef     = useRef<AudioContext | null>(null);
@@ -412,7 +409,7 @@ export default function StreamPage() {
     activeSessionRef.current = null;
 
     try {
-      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 2.3 } });
+      await stopSession.mutateAsync({ sessionId, data: {} });
       queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     } catch { /* best effort */ }
 
@@ -847,11 +844,11 @@ export default function StreamPage() {
             const droppedSid = activeSessionRef.current;
             if (droppedSid) {
               const licKey = localStorage.getItem("fullswap_license_key") ?? "";
-              console.info(`[Stream] decart_drop_stop sessionId=${droppedSid} ticks=${tickCountRef.current}`);
+              console.info(`[Stream] decart_drop_stop sessionId=${droppedSid}`);
               fetch(`/api/sessions/${droppedSid}/stop`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 2.3 }),
+                body: JSON.stringify({}),
                 keepalive: true,
               }).catch(() => {});
               activeSessionRef.current = null;
@@ -886,13 +883,6 @@ export default function StreamPage() {
           console.warn("[Decart] setImage after connect failed (non-fatal):", imgErr);
         }
       }
-
-      // Count every generationTick — Decart charges 2.3 credits per tick (1 tick = 1 billed second).
-      // This gives us the exact credit count to pass to /stop for perfect billing reconciliation.
-      tickCountRef.current = 0;
-      realtimeClient.on("generationTick", () => {
-        tickCountRef.current += 1;
-      });
 
       // ── Stamp billingStartedAt server-side at the moment Decart starts metering ──
       // BUG #3 FIX: was fire-and-forget (.catch(() => {})) — if this request failed,
