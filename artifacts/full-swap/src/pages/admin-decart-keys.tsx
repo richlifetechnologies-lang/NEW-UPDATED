@@ -53,7 +53,8 @@ interface DecartKeyStatus {
 interface LicenseKey {
   licenseKeyId: number; licenseKey: string; isActive: boolean;
   effectiveRate: number; rateSource: string;  usedSeconds: number;
-  remainingSeconds: number; profitPerSecond: number; projectedProfitPct: number;
+  remainingSeconds: number; displaySecondsRemaining?: number;
+  profitPerSecond: number; projectedProfitPct: number;
   isLive: boolean; activeSessionCount: number; allocatedSeconds: number;
 }
 interface ActiveSession {
@@ -690,7 +691,7 @@ export default function AdminDecartKeysPage() {
                                     <div><p className="text-[9px] text-muted-foreground">Rate</p><p className="text-foreground">{lk.effectiveRate} cr/s</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Real Used</p><p className="text-foreground">{fmtSec(lk.usedSeconds)}</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Real Remaining</p><p className="text-foreground">{fmtSec(lk.remainingSeconds)}</p></div>
-                                    <div><p className="text-[9px] text-muted-foreground">Display Remaining</p><p className="text-primary">{fmtSec(dispRem)}</p></div>
+                                    <div><p className="text-[9px] text-muted-foreground">Display Remaining</p><p className="text-primary">{fmtSec(lk.displaySecondsRemaining ?? lk.remainingSeconds)}</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Decart Burn</p><p className="text-red-400/80">{cost > 0 ? `${cost} cr` : "—"}</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Revenue</p><p className="text-green-400">{rev > 0 ? rev : "—"}</p></div>
                                     <div><p className="text-[9px] text-muted-foreground">Profit</p>
