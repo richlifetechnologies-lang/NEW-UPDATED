@@ -966,7 +966,7 @@ router.get("/decart-credits", requireAdmin, async (_req, res) => {
     }
   }
 
-  const creditsConsumed = consumedSeconds * 5; // 5 credits/sec per active stream
+  const creditsConsumed = consumedSeconds * DECART_CREDITS_PER_SEC; // DECART_CREDITS_PER_SEC = 2.3 cr/s (Lucy 2.1)
   const estimatedRemaining = base !== null ? Math.max(0, base - creditsConsumed) : null;
 
   // ── Hourly consumption rate (last 7 days of completed sessions) ─────────────
@@ -986,10 +986,10 @@ router.get("/decart-credits", requireAdmin, async (_req, res) => {
       isNotNull(sessionsTable.durationSeconds),
     ));
 
-  // Total billing seconds × 5 = credits consumed (updated rate: 5 credits/sec/stream)
+  // Total billing seconds × DECART_CREDITS_PER_SEC = credits consumed (2.3 cr/s, Lucy 2.1)
   const totalBillingSecsForRate = rateRows.reduce((s, r) => s + (r.durationSeconds ?? 0), 0);
   const windowHours = Math.max(1, (Date.now() - rateWindowStart.getTime()) / (1_000 * 3_600));
-  const hourlyRateCredits = (totalBillingSecsForRate * 5) / windowHours;
+  const hourlyRateCredits = (totalBillingSecsForRate * DECART_CREDITS_PER_SEC) / windowHours;
 
   // Estimated days remaining at current burn rate
   const daysRemaining = (estimatedRemaining !== null && hourlyRateCredits > 0)
