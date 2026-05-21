@@ -160,7 +160,6 @@ export default function AdminAnalyticsPage() {
   const ghostCount   = ghosts.length;
   const totalBurn    = Math.round(totalUsed * COST_RATE * 100) / 100;
 
-    : 1;
 
   // Filtered list
   const filtered = enriched.filter(k => {
