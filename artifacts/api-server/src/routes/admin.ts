@@ -1,3 +1,4 @@
+// build: 1779352790976
 import { Router } from "express";
 import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTable, chatMessagesTable, deviceFingerprintsTable, subAdminAuditTable, subAdminPricingTable, decartApiKeysTable, licenseKeysTable, financialTransactionsTable, decartCreditSettingsTable, billingRateAuditTable, deviceSecurityEventsTable } from "@workspace/db";
 import { eq, desc, sql, and, gte, isNotNull, lte } from "drizzle-orm";
