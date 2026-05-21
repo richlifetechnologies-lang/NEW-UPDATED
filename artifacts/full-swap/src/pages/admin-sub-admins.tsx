@@ -248,7 +248,7 @@ export default function AdminSubAdminsPage() {
   }
 
   async function revokeLicenseKey(key: string) {
-    if (!confirm(`Revoke licence key ${key}?\n\nThis will permanently disable the key — the holder will lose access immediately.`)) return;
+    if (!confirm(`Revoke licence key ${key}?\n\nThis will disable the key — the holder will lose access immediately.\nYou can re-activate it later if needed.`)) return;
     const r = await fetch(API(`/license/${key}/revoke`), { method: "DELETE", headers: H() });
     if (r.ok) {
       toast({ title: "Key revoked", description: `${key} has been disabled` });
@@ -256,6 +256,22 @@ export default function AdminSubAdminsPage() {
     } else {
       const d = await r.json().catch(() => ({}));
       toast({ title: "Error revoking key", description: (d as any).error ?? "Server error", variant: "destructive" });
+    }
+  }
+
+  async function reactivateLicenseKey(key: string) {
+    if (!confirm(`Re-activate licence key ${key}?\n\nThe holder will regain access immediately.`)) return;
+    const r = await fetch(API(`/license/${key}`), {
+      method: "PUT",
+      headers: H(),
+      body: JSON.stringify({ isActive: true }),
+    });
+    if (r.ok) {
+      toast({ title: "Key re-activated", description: `${key} is now active again` });
+      fetchLicKeys();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      toast({ title: "Error re-activating key", description: (d as any).error ?? "Server error", variant: "destructive" });
     }
   }
 
@@ -616,7 +632,15 @@ export default function AdminSubAdminsPage() {
                                         <XCircle className="w-3 h-3" /> Revoke
                                       </Button>
                                     ) : (
-                                      <span className="text-[10px] text-muted-foreground">Revoked</span>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        title="Re-activate"
+                                        className="h-6 px-2 text-[10px] text-green-400 hover:text-green-300 hover:bg-green-500/10 border border-green-500/20 gap-1"
+                                        onClick={() => reactivateLicenseKey(k.key)}
+                                      >
+                                        <CheckCircle2 className="w-3 h-3" /> Re-activate
+                                      </Button>
                                     )}
                                   </div>
                                 </div>
@@ -768,7 +792,15 @@ export default function AdminSubAdminsPage() {
                                   <XCircle className="w-3 h-3" /> Revoke
                                 </Button>
                               ) : (
-                                <span className="text-xs text-muted-foreground px-2">Revoked</span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  title="Re-activate this licence key"
+                                  className="h-7 px-2 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10 border border-green-500/20 hover:border-green-500/40 gap-1"
+                                  onClick={() => reactivateLicenseKey(k.key)}
+                                >
+                                  <CheckCircle2 className="w-3 h-3" /> Re-activate
+                                </Button>
                               )}
                             </td>
                           </tr>
