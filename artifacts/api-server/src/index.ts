@@ -26,6 +26,7 @@ try {
   await applyColumnFixes();
   logger.info("Column fixes applied ✓");
 } catch (err) {
+  console.error("[COLUMN FIX ERROR]", (err as Error)?.stack ?? String(err));
   logger.error({ err }, "Column fixes failed — aborting startup");
   process.exit(1);
 }
