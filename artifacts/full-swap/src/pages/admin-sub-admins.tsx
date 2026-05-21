@@ -6,8 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import { getAdminToken } from "@/lib/auth";
 import {
   UserCog, Plus, Trash2, Ban, CheckCircle, Coins, Eye, EyeOff,
-  RefreshCw, Activity, LogIn, Key, Zap, RotateCcw, ChevronDown,
-  Shield, Radio, BarChart3, Settings2,
+  RefreshCw, Activity, LogIn, Key, Zap, RotateCcw, ChevronDown, ChevronRight,
+  Shield, Radio, BarChart3, Settings2, TrendingUp, AlertTriangle,
 } from "lucide-react";
 
 const API = (path: string) => `/api${path}`;
@@ -31,15 +31,16 @@ type LicKey = {
   notes: string | null; minutesCredited: boolean;
   assignedDecartKeyId: number | null; decartKeyLabel: string | null;
   customBillingRate: number | null; useCustomBillingRate: boolean;
+  createdBySubAdminId: number | null;
   subAdminUsername: string; subAdminEmail: string;
 };
 type DecartKey = { id: number; label: string; isActive: boolean };
 
-const TABS = ["accounts", "keys", "audit", "create"] as const;
+const TABS = ["accounts", "breakdown", "keys", "audit", "create"] as const;
 type Tab = typeof TABS[number];
 
 const TAB_LABELS: Record<Tab, string> = {
-  accounts: "Accounts", keys: "Keys", audit: "Audit Log", create: "Create New",
+  accounts: "Accounts", breakdown: "Breakdown", keys: "All Keys", audit: "Audit Log", create: "Create New",
 };
 
 const ACTION_ICON: Record<string, React.ReactElement> = {
@@ -83,6 +84,8 @@ export default function AdminSubAdminsPage() {
   const [expandedSub, setExpandedSub] = useState<number | null>(null);
 
   const [keyFilter, setKeyFilter] = useState("");
+  const [topUpInputs, setTopUpInputs] = useState<Record<number, string>>({});
+  const [expandedBreakdown, setExpandedBreakdown] = useState<number | null>(null);
 
   useEffect(() => {
     if (!getAdminToken()) { setLocation("/admin"); return; }
@@ -265,7 +268,11 @@ export default function AdminSubAdminsPage() {
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-              {t === "accounts" ? `Accounts (${subs.length})` : t === "keys" ? `Keys (${licKeys.length})` : t === "audit" ? `Audit (${audit.length})` : "Create New"}
+              {t === "accounts" ? `Accounts (${subs.length})`
+                : t === "breakdown" ? "Breakdown"
+                : t === "keys" ? `All Keys (${licKeys.length})`
+                : t === "audit" ? `Audit (${audit.length})`
+                : "Create New"}
             </button>
           ))}
         </div>
@@ -399,6 +406,173 @@ export default function AdminSubAdminsPage() {
             ))}
           </div>
         )}
+
+        {/* ── BREAKDOWN TAB ── */}
+        {tab === "breakdown" && (() => {
+          // Group licKeys by sub-admin, merge with subs for balance/status info
+          const byId: Record<number, { sub: SubAdmin | null; keys: LicKey[] }> = {};
+          licKeys.forEach(k => {
+            const saId = k.createdBySubAdminId ?? -1;
+            if (!byId[saId]) {
+              const sub = subs.find(s => s.email === k.subAdminEmail) ?? null;
+              byId[saId] = { sub, keys: [] };
+            }
+            byId[saId].keys.push(k);
+          });
+          // Also include subs that have no keys yet
+          subs.forEach(s => {
+            if (!Object.values(byId).some(g => g.sub?.id === s.id)) {
+              byId[s.id] = { sub: s, keys: [] };
+            }
+          });
+          const groups = Object.entries(byId).map(([, g]) => g).sort((a, b) => (b.keys.length) - (a.keys.length));
+          if (groups.length === 0) return (
+            <div className={`${card} text-center py-12`}>
+              <UserCog className="w-10 h-10 mx-auto mb-3 opacity-30 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No sub admins yet.</p>
+            </div>
+          );
+          return (
+            <div className="space-y-4">
+              {groups.map((g, gi) => {
+                const sub = g.sub;
+                const keys = g.keys;
+                const subId = sub?.id ?? -(gi + 1);
+                const totalAlloc = keys.reduce((s, k) => s + (k.minutesAllocated ?? 0), 0);
+                const totalUsed = keys.reduce((s, k) => s + (k.usedMinutes ?? k.minutesConsumed ?? 0), 0);
+                const totalUnused = keys.reduce((s, k) => s + (k.unusedMinutes ?? Math.max(0, (k.minutesAllocated ?? 0) - (k.usedMinutes ?? k.minutesConsumed ?? 0))), 0);
+                const burn = totalAlloc > 0 ? Math.min(100, Math.round((totalUsed / totalAlloc) * 100)) : 0;
+                const burnColor = burn >= 90 ? "text-red-400" : burn >= 60 ? "text-yellow-400" : "text-green-400";
+                const burnBarColor = burn >= 90 ? "bg-red-500" : burn >= 60 ? "bg-yellow-500" : "bg-green-500";
+                const isExpanded = expandedBreakdown === subId;
+                const hasNoApiKey = sub && !sub.assignedDecartKeyId;
+                const activeKeys = keys.filter(k => k.isActive && k.activatedAt).length;
+                return (
+                  <div key={subId} className={`${card} !p-0 overflow-hidden`}>
+                    {/* Header row */}
+                    <div className="flex items-start gap-3 p-4 cursor-pointer select-none"
+                         onClick={() => setExpandedBreakdown(isExpanded ? null : subId)}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="font-bold text-foreground">{sub?.username ?? g.keys[0]?.subAdminUsername ?? "Unknown"}</span>
+                          <span className="text-xs text-muted-foreground">{sub?.email ?? g.keys[0]?.subAdminEmail}</span>
+                          {sub && (
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${sub.membership === "active" ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
+                              {sub.membership}
+                            </span>
+                          )}
+                          {hasNoApiKey && (
+                            <span className="flex items-center gap-1 text-xs text-orange-400 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded-full">
+                              <AlertTriangle className="w-3 h-3" /> No API key
+                            </span>
+                          )}
+                          {burn >= 80 && totalAlloc > 0 && (
+                            <span className="flex items-center gap-1 text-xs text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full">
+                              <TrendingUp className="w-3 h-3" /> High burn
+                            </span>
+                          )}
+                        </div>
+                        {/* Stats inline */}
+                        <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
+                          <span><span className="font-bold text-primary">{keys.length}</span> keys</span>
+                          <span><span className="font-bold text-foreground">{totalAlloc}</span> allocated min</span>
+                          <span><span className="font-bold text-orange-400">{Math.round(totalUsed * 10) / 10}</span> used min</span>
+                          <span><span className="font-bold text-cyan-400">{Math.round(totalUnused * 10) / 10}</span> unused min</span>
+                          {sub && <span>Balance: <span className="font-bold text-green-400">{sub.subAdminMinutesBalance}</span> min</span>}
+                          {activeKeys > 0 && <span><span className="font-bold text-emerald-400">{activeKeys}</span> active</span>}
+                        </div>
+                        {/* Burn rate bar */}
+                        {totalAlloc > 0 && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-[200px]">
+                              <div className={`h-full ${burnBarColor} rounded-full transition-all`} style={{ width: `${burn}%` }} />
+                            </div>
+                            <span className={`text-xs font-bold ${burnColor}`}>{burn}% burn</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Quick top-up */}
+                        {sub && (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="number" min={1} placeholder="min"
+                              value={topUpInputs[sub.id] ?? ""}
+                              onChange={e => setTopUpInputs(p => ({ ...p, [sub.id]: e.target.value }))}
+                              className="w-16 text-xs px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                            />
+                            <Button size="sm" variant="outline" className="text-xs text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 h-7"
+                              onClick={async () => {
+                                const mins = parseInt(topUpInputs[sub.id] ?? "0");
+                                if (!mins || mins < 1) { toast({ title: "Enter valid minutes", variant: "destructive" }); return; }
+                                const r = await fetch(API(`/admin/sub-admins/${sub.id}/minutes`), { method: "PUT", headers: H(), body: JSON.stringify({ minutes: mins }) });
+                                if (r.ok) { toast({ title: `${mins} min allocated to ${sub.username}` }); setTopUpInputs(p => ({ ...p, [sub.id]: "" })); fetchSubs(); fetchLicKeys(); }
+                                else { const d = await r.json(); toast({ title: "Error", description: d.error, variant: "destructive" }); }
+                              }}>
+                              <Coins className="w-3 h-3 mr-1" /> Top Up
+                            </Button>
+                          </div>
+                        )}
+                        {isExpanded
+                          ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                          : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                      </div>
+                    </div>
+
+                    {/* Expanded key list */}
+                    {isExpanded && (
+                      <div className="border-t border-border bg-background/40">
+                        {keys.length === 0 ? (
+                          <p className="text-xs text-muted-foreground text-center py-4">No keys generated yet.</p>
+                        ) : (
+                          <div className="divide-y divide-border">
+                            {/* Column headers */}
+                            <div className="grid grid-cols-6 gap-2 px-4 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                              <span className="col-span-2">Key</span>
+                              <span>Status</span>
+                              <span>Used Min</span>
+                              <span>Unused Min</span>
+                              <span>Burn</span>
+                            </div>
+                            {keys.map(k => {
+                              const kBurn = k.burnRate ?? (k.minutesAllocated > 0 ? Math.min(100, Math.round(((k.usedMinutes ?? k.minutesConsumed) / k.minutesAllocated) * 100)) : 0);
+                              const kBurnColor = kBurn >= 90 ? "bg-red-500" : kBurn >= 60 ? "bg-yellow-500" : "bg-green-500";
+                              const kBurnText = kBurn >= 90 ? "text-red-400" : kBurn >= 60 ? "text-yellow-400" : "text-muted-foreground";
+                              const kUnused = k.unusedMinutes ?? Math.max(0, k.minutesAllocated - (k.usedMinutes ?? k.minutesConsumed));
+                              return (
+                                <div key={k.id} className="grid grid-cols-6 gap-2 px-4 py-2.5 items-center hover:bg-background/60">
+                                  <div className="col-span-2 min-w-0">
+                                    <code className="text-[11px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded truncate block">{k.key}</code>
+                                    {k.notes && <p className="text-[9px] text-muted-foreground truncate">{k.notes}</p>}
+                                  </div>
+                                  <span className={`text-xs font-bold ${k.isActive ? (k.activatedAt ? "text-green-400" : "text-blue-400") : "text-red-400"}`}>
+                                    {k.isActive ? (k.activatedAt ? "Active" : "Unused") : "Inactive"}
+                                  </span>
+                                  <span className={`text-xs font-mono font-bold ${(k.usedMinutes ?? k.minutesConsumed) > 0 ? "text-orange-400" : "text-muted-foreground"}`}>
+                                    {k.usedMinutes ?? k.minutesConsumed} min
+                                  </span>
+                                  <span className={`text-xs font-mono font-bold ${kUnused > 0 ? "text-cyan-400" : "text-muted-foreground"}`}>
+                                    {Math.round(kUnused * 10) / 10} min
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                      <div className={`h-full ${kBurnColor} rounded-full`} style={{ width: `${kBurn}%` }} />
+                                    </div>
+                                    <span className={`text-[10px] font-bold w-7 text-right ${kBurnText}`}>{kBurn}%</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* ── KEYS TAB ── */}
         {tab === "keys" && (
