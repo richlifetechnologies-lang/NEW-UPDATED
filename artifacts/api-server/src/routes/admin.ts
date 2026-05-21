@@ -1,4 +1,3 @@
-// build: 1779352790976
 import { Router } from "express";
 import { db, usersTable, sessionsTable, invoicesTable, pricingTable, settingsTable, chatMessagesTable, deviceFingerprintsTable, subAdminAuditTable, subAdminPricingTable, decartApiKeysTable, licenseKeysTable, financialTransactionsTable, decartCreditSettingsTable, billingRateAuditTable, deviceSecurityEventsTable } from "@workspace/db";
 import { eq, desc, sql, and, gte, isNotNull, lte } from "drizzle-orm";
@@ -1623,6 +1622,47 @@ router.put("/license-message", requireAdmin, async (req, res) => {
     }
   }
   res.json({ success: true, updated: Object.keys(updates) });
+});
+
+// ── Contact Settings (Login Page) ────────────────────────────────────────────
+
+router.get("/contact-settings", requireAdmin, async (_req, res) => {
+  const allSettings = await db.select().from(settingsTable);
+  const get = (key: string, fallback: string) => allSettings.find(s => s.key === key)?.value ?? fallback;
+  res.json({
+    message:  get("contact_message",  "Need a license key? Contact us via:"),
+    telegram: get("contact_telegram", "@rich_life2k15"),
+    email:    get("contact_email",    "loveoflots06@gmail.com"),
+    whatsapp: get("contact_whatsapp", ""),
+  });
+});
+
+router.put("/contact-settings", requireAdmin, async (req, res) => {
+  const { message, telegram, email, whatsapp } = req.body as {
+    message?: string; telegram?: string; email?: string; whatsapp?: string;
+  };
+  const updates: Record<string, string> = {};
+  if (message  !== undefined) updates["contact_message"]  = message;
+  if (telegram !== undefined) updates["contact_telegram"] = telegram;
+  if (email    !== undefined) updates["contact_email"]    = email;
+  if (whatsapp !== undefined) updates["contact_whatsapp"] = whatsapp;
+  for (const [key, value] of Object.entries(updates)) {
+    const existing = await db.select().from(settingsTable).where(eq(settingsTable.key, key)).limit(1);
+    if (existing.length > 0) await db.update(settingsTable).set({ value }).where(eq(settingsTable.key, key));
+    else await db.insert(settingsTable).values({ key, value });
+  }
+  res.json({ success: true });
+});
+
+router.get("/contact-settings/public", async (_req, res) => {
+  const allSettings = await db.select().from(settingsTable);
+  const get = (key: string, fallback: string) => allSettings.find(s => s.key === key)?.value ?? fallback;
+  res.json({
+    message:  get("contact_message",  "Need a license key? Contact us via:"),
+    telegram: get("contact_telegram", "@rich_life2k15"),
+    email:    get("contact_email",    "loveoflots06@gmail.com"),
+    whatsapp: get("contact_whatsapp", ""),
+  });
 });
 
 // GET /admin/license-message/public — public endpoint (no auth) for Electron to fetch message
