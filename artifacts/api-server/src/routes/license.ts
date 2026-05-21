@@ -4,7 +4,7 @@ import { eq, isNull, and } from "drizzle-orm";
 import { requireAdmin, requireLicense } from "../lib/auth";
 import { notifyLicenseActivated } from "../lib/notifications";
 import { getBillingRateForLicense } from "../lib/billing-rate-cache";
-import { computeCompressionFactor } from "../lib/billing-math";
+import { computeCompressionFactor, DECART_CREDITS_PER_MIN } from "../lib/billing-math";
 import { invalidateLicenseTokenCache } from "./decart";
 import { decartPool } from "../lib/decart-pool";
 
@@ -187,11 +187,24 @@ router.get("/status", requireLicense, async (req, res) => {
 });
 
 // POST /api/license/usage
+// SECURITY: Only permitted when the license has an active session — prevents
+// direct wallet manipulation outside of the heartbeat/settle billing flow.
 router.post("/usage", requireLicense, async (req, res) => {
   try {
     const license = (req as any).license;
     const { secondsUsed } = req.body as { secondsUsed?: number };
     if (typeof secondsUsed !== "number" || secondsUsed < 0) return res.status(400).json({ error: "Invalid secondsUsed value" });
+
+    // Guard: require an active session — rejects unauthenticated direct wallet writes
+    const [activeSession] = await db
+      .select({ id: sessionsTable.id })
+      .from(sessionsTable)
+      .where(and(eq(sessionsTable.licenseKeyId, license.id), eq(sessionsTable.status, "active")))
+      .limit(1);
+    if (!activeSession) {
+      return res.status(403).json({ error: "No active session — wallet deductions must go through the heartbeat billing flow." });
+    }
+
     const maxDeductable = Math.max(0, (license.minutesAllocated ?? 0) * 60 - (license.usedSeconds ?? 0));
     const actualDeduction = Math.min(secondsUsed, maxDeductable);
     const newUsedSeconds = (license.usedSeconds ?? 0) + actualDeduction;
@@ -204,7 +217,7 @@ router.post("/usage", requireLicense, async (req, res) => {
 // Feature 1: pass `decartApiKeyId` in the request body to assign a specific key;
 // if omitted, the first active key is used as before.
 // Also records a financial transaction for the new license.
-// Feature: pass `decartCredits` to auto-calculate minutesAllocated = decartCredits / 120
+// Feature: pass `decartCredits` to auto-calculate minutesAllocated = decartCredits / DECART_CREDITS_PER_MIN (138)
 router.post("/generate", requireAdmin, async (req, res) => {
   try {
     const { notes, expiresAt, minutesAllocated, decartCredits, decartApiKeyId, pricingId } = req.body as {
@@ -237,8 +250,8 @@ router.post("/generate", requireAdmin, async (req, res) => {
       }
     } catch { /* column not yet migrated -- skip silently */ }
 
-    // Calculate minutesAllocated: use decartCredits / 120 if provided, else use minutesAllocated
-    const calculatedMinutes = decartCredits ? decartCredits / 120 : minutesAllocated ?? 0;
+    // Calculate minutesAllocated: use decartCredits / DECART_CREDITS_PER_MIN if provided, else use minutesAllocated
+    const calculatedMinutes = decartCredits ? decartCredits / DECART_CREDITS_PER_MIN : minutesAllocated ?? 0;
     const insertData: any = { key, notes: notes ?? null, expiresAt: expiresAt ? new Date(expiresAt) : null, minutesAllocated: calculatedMinutes };
     if (assignedDecartKeyId) insertData.assignedDecartKeyId = assignedDecartKeyId;
     await db.insert(licenseKeysTable).values(insertData);
@@ -442,8 +455,8 @@ router.post("/:key/renew", requireAdmin, async (req, res) => {
       .limit(1);
     if (!license) return res.status(404).json({ error: "License key not found" });
 
-    // Calculate minutesAllocated: use decartCredits / 120 if provided, else use minutesAllocated
-    const calculatedMinutes = decartCredits ? decartCredits / 120 : minutesAllocated;
+    // Calculate minutesAllocated: use decartCredits / DECART_CREDITS_PER_MIN if provided, else use minutesAllocated
+    const calculatedMinutes = decartCredits ? decartCredits / DECART_CREDITS_PER_MIN : minutesAllocated;
 
     // Get pricing info
     let pricing = null;
