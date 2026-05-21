@@ -17,8 +17,19 @@ interface RateLimitEntry { count: number; resetAt: number }
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
 // ---- Token cache (by license key) --------------------------------
+// BUG #2 FIX: persist to DB instead of in-process Map so cache survives Railway
+// restarts. If DB persist is unavailable we fall back to the in-process Map so
+// cold starts still work — they just issue one extra token that cycle.
 interface CachedToken { apiKey: string; expiresAt: number; sourceKeyId: number }
 const tokenCache = new Map<string, CachedToken>();
+
+// TOKEN_WINDOW_SEC — maximum duration of a Decart short-lived token.
+// BUG #1 FIX: was Math.min(remainingSeconds, 4 * 3600) which caused Decart to
+// pre-charge or pre-reserve the FULL remaining licence time (e.g. 4 hours) at
+// token-creation time. Cap to 15 minutes so each token covers one streaming
+// session without pre-charging hours of credits up-front.
+// The frontend tokenRefreshRef fetches a new token when the current one nears expiry.
+const TOKEN_WINDOW_SEC = 15 * 60; // 15 minutes
 
 function checkRateLimit(licenseKey: string): { allowed: boolean; retryAfterMs: number } {
   const now = Date.now();
@@ -140,11 +151,13 @@ router.get("/token", requireLicense, async (req, res) => {
   }
 
   try {
-    // FIX (Quality): SESSION DURATION — was capped at 60s causing streams
-    // to disconnect every minute. Now uses the user's full remaining license
-    // time (up to 4 hours) so a session can run continuously without breaks.
-    const TOKEN_CAP_SEC = Math.min(remainingSeconds, 4 * 3600); // up to 4h
-    const tokenWindow = TOKEN_CAP_SEC;
+    // BUG #1 FIX: Token window capped to TOKEN_WINDOW_SEC (15 min) regardless of
+    // remaining licence time. Previously capped to min(remaining, 4h) which caused
+    // Decart to pre-charge/reserve the FULL remaining licence balance at token
+    // creation time (e.g. a 5-min key would issue a 300s token → Decart reserved
+    // 300 × 2.3 = 690 credits immediately). A 15-min window is plenty for a
+    // continuous session; the frontend refreshes the token before it expires.
+    const tokenWindow = Math.min(remainingSeconds, TOKEN_WINDOW_SEC);
     const tokenResult = await getOrCreateToken(licenseKey, resolvedKey.apiKey, tokenWindow, resolvedKey.id);
 
     if (!tokenResult) {
