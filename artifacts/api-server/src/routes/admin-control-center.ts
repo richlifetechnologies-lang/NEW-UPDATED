@@ -165,7 +165,7 @@ router.get("/session-log", requireAdmin, async (req, res) => {
       const cost       = Math.round(realSec * DECART_API_COST_PER_SEC * 100) / 100;
       const profit     = Math.round((revenue - cost) * 100) / 100;
       const marginPct  = effRate > 0
-        ? Math.round(((effRate - DECART_API_COST_PER_SEC) / effRate) * 10000) / 100 : 0;
+        ? Math.round(((effRate - DECART_API_COST_PER_SEC) / DECART_API_COST_PER_SEC) * 10000) / 100 : 0;
       return {
         sessionId:       String(s.id),
         licenseKey:      s.license_key      ? String(s.license_key)      : null,
