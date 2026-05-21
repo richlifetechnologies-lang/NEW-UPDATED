@@ -205,7 +205,7 @@ router.post("/runtime-estimator", requireAdmin, async (req, res) => {
     const retailCredits  = totalWalletSeconds * billingRate;
     const profitCredits  = retailCredits - apiCostCredits;
     const profitUsd      = profitCredits / 2; // approx
-    const margin         = billingRate > 0 ? ((billingRate - apiCostRate) / billingRate) * 100 : 0;
+    const margin         = billingRate > 0 && apiCostRate > 0 ? ((billingRate - apiCostRate) / apiCostRate) * 100 : 0;
     const burnSpeedFactor = compressionFactor;
 
     res.json({
