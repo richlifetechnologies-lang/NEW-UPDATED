@@ -1091,15 +1091,28 @@ router.put("/decart-credentials", requireAdmin, async (req, res) => {
 // ── Sub Admin Management (main admin only) ───────────────────────────────────
 
 router.get("/sub-admins", requireAdmin, async (_req, res) => {
-  const subs = await db.select().from(usersTable)
-    .where(eq((usersTable as any).isSubAdmin, 1));
-  res.json(subs.map(u => ({
+  // Ensure new columns exist (safe, idempotent)
+  await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_assigned_decart_key_id INTEGER`).catch(() => {});
+  await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_billing_rate REAL`).catch(() => {});
+  const result = await db.execute(`
+    SELECT u.id, u.email, u.username, u.membership, u.sub_admin_minutes_balance, u.created_at,
+           u.sub_admin_assigned_decart_key_id, u.sub_admin_billing_rate,
+           dk.label AS assigned_key_label
+    FROM users u
+    LEFT JOIN decart_api_keys dk ON dk.id = u.sub_admin_assigned_decart_key_id
+    WHERE u.is_sub_admin = 1
+    ORDER BY u.created_at DESC
+  `);
+  res.json(result.rows.map((u: any) => ({
     id: u.id,
     email: u.email,
     username: u.username,
     membership: u.membership,
-    subAdminMinutesBalance: (u as any).subAdminMinutesBalance ?? 0,
-    createdAt: u.createdAt,
+    subAdminMinutesBalance: u.sub_admin_minutes_balance ?? 0,
+    createdAt: u.created_at,
+    assignedDecartKeyId: u.sub_admin_assigned_decart_key_id ?? null,
+    assignedKeyLabel: u.assigned_key_label ?? null,
+    billingRate: u.sub_admin_billing_rate ?? null,
   })));
 });
 
@@ -1213,6 +1226,96 @@ router.get("/sub-admin-audit", requireAdmin, async (_req, res) => {
 
 
 
+
+
+// PUT /admin/sub-admins/:id/recall
+router.put("/sub-admins/:id/recall", requireAdmin, async (req: any, res) => {
+  const id = parseInt(req.params["id"] as string);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const { amount } = req.body as { amount?: number };
+  const sqlStr = amount && amount > 0
+    ? `UPDATE users SET sub_admin_minutes_balance = GREATEST(0, sub_admin_minutes_balance - ${Math.floor(amount)}) WHERE id = ${id} AND is_sub_admin = 1 RETURNING id, sub_admin_minutes_balance`
+    : `UPDATE users SET sub_admin_minutes_balance = 0 WHERE id = ${id} AND is_sub_admin = 1 RETURNING id, sub_admin_minutes_balance`;
+  const result = await db.execute(sqlStr);
+  if (!result.rows?.length) { res.status(404).json({ error: "Sub admin not found" }); return; }
+  await db.insert(subAdminAuditTable).values({
+    subAdminId: id, action: "minutes_recalled",
+    minutesAmount: amount ?? null,
+    performedBy: req.user?.id ?? null,
+    note: amount ? `Admin recalled ${amount} minutes` : "Admin cleared entire balance",
+  }).catch(() => {});
+  const row = result.rows[0] as any;
+  res.json({ id, subAdminMinutesBalance: row.sub_admin_minutes_balance });
+});
+
+// PUT /admin/sub-admins/:id/assign-key
+router.put("/sub-admins/:id/assign-key", requireAdmin, async (req: any, res) => {
+  const id = parseInt(req.params["id"] as string);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const { decartKeyId } = req.body as { decartKeyId?: number | null };
+  await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_assigned_decart_key_id INTEGER`).catch(() => {});
+  const val = decartKeyId ? String(decartKeyId) : "NULL";
+  await db.execute(`UPDATE users SET sub_admin_assigned_decart_key_id = ${val} WHERE id = ${id} AND is_sub_admin = 1`);
+  await db.insert(subAdminAuditTable).values({
+    subAdminId: id, action: "api_key_assigned",
+    performedBy: req.user?.id ?? null,
+    note: decartKeyId ? `Assigned Decart key ID ${decartKeyId}` : "Cleared Decart key assignment",
+  }).catch(() => {});
+  res.json({ id, decartKeyId: decartKeyId ?? null });
+});
+
+// PUT /admin/sub-admins/:id/billing-rate
+router.put("/sub-admins/:id/billing-rate", requireAdmin, async (req: any, res) => {
+  const id = parseInt(req.params["id"] as string);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const { rate } = req.body as { rate?: number | null };
+  await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_billing_rate REAL`).catch(() => {});
+  const val = rate != null && rate > 0 ? String(rate) : "NULL";
+  await db.execute(`UPDATE users SET sub_admin_billing_rate = ${val} WHERE id = ${id} AND is_sub_admin = 1`);
+  await db.insert(subAdminAuditTable).values({
+    subAdminId: id, action: "billing_rate_set",
+    performedBy: req.user?.id ?? null,
+    note: rate != null ? `Billing rate set to ${rate} cr/s` : "Billing rate cleared (uses global rate)",
+  }).catch(() => {});
+  res.json({ id, billingRate: rate ?? null });
+});
+
+// GET /admin/sub-admins/all-license-keys
+router.get("/sub-admins/all-license-keys", requireAdmin, async (_req, res) => {
+  const result = await db.execute(`
+    SELECT
+      lk.id, lk.key, lk.is_active, lk.activated_at, lk.created_at,
+      lk.minutes_allocated, lk.used_seconds, lk.notes, lk.minutes_credited,
+      lk.assigned_decart_key_id, lk.custom_billing_rate, lk.use_custom_billing_rate,
+      lk.created_by_sub_admin_id,
+      u.username AS sub_admin_username, u.email AS sub_admin_email,
+      dk.label AS decart_key_label
+    FROM license_keys lk
+    LEFT JOIN users u ON u.id = lk.created_by_sub_admin_id
+    LEFT JOIN decart_api_keys dk ON dk.id = lk.assigned_decart_key_id
+    WHERE lk.created_by_sub_admin_id IS NOT NULL
+    ORDER BY lk.created_at DESC
+    LIMIT 500
+  `);
+  res.json(result.rows.map((r: any) => ({
+    id: r.id,
+    key: r.key,
+    isActive: r.is_active,
+    activatedAt: r.activated_at,
+    createdAt: r.created_at,
+    minutesAllocated: r.minutes_allocated ?? 0,
+    minutesConsumed: Math.round((r.used_seconds ?? 0) / 60 * 10) / 10,
+    notes: r.notes,
+    minutesCredited: r.minutes_credited,
+    assignedDecartKeyId: r.assigned_decart_key_id,
+    decartKeyLabel: r.decart_key_label ?? null,
+    customBillingRate: r.custom_billing_rate,
+    useCustomBillingRate: r.use_custom_billing_rate,
+    createdBySubAdminId: r.created_by_sub_admin_id,
+    subAdminUsername: r.sub_admin_username ?? "Unknown",
+    subAdminEmail: r.sub_admin_email ?? "",
+  })));
+});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DECART API KEY POOL MANAGEMENT
