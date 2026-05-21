@@ -412,7 +412,12 @@ export default function StreamPage() {
     activeSessionRef.current = null;
 
     try {
-      await stopSession.mutateAsync({ sessionId, data: { creditsConsumed: tickCountRef.current * 2.3 } });
+      // BUG #4/#6 FIX: removed creditsConsumed: tickCountRef.current * 2.3.
+      // generationTick fires at video frame-rate (~30 fps), NOT 1 Hz, so
+      // tickCount × 2.3 overstated credits by ~30×, causing the server's
+      // creditBasedIncrement() to deduct ~30× too many wallet-seconds.
+      // Server now always uses wall-clock settlement, which is correct.
+      await stopSession.mutateAsync({ sessionId, data: {} });
       queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     } catch { /* best effort */ }
 
@@ -847,11 +852,14 @@ export default function StreamPage() {
             const droppedSid = activeSessionRef.current;
             if (droppedSid) {
               const licKey = localStorage.getItem("fullswap_license_key") ?? "";
-              console.info(`[Stream] decart_drop_stop sessionId=${droppedSid}`);
+              console.info(`[Stream] decart_drop_stop sessionId=${droppedSid} ticks=${tickCountRef.current}`);
+              // BUG #4/#6 FIX: do NOT send creditsConsumed — generationTick fires at
+              // frame-rate (~30 fps), making tickCount × 2.3 ~30× too large.
+              // Server uses wall-clock settlement which is always correct.
               fetch(`/api/sessions/${droppedSid}/stop`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-                body: JSON.stringify({ creditsConsumed: tickCountRef.current * 2.3 }),
+                body: JSON.stringify({}),
                 keepalive: true,
               }).catch(() => {});
               activeSessionRef.current = null;
@@ -887,23 +895,35 @@ export default function StreamPage() {
         }
       }
 
-      // Count every generationTick — Decart charges 2.3 credits per tick (1 tick = 1 billed second).
-      // This gives us the exact credit count to pass to /stop for perfect billing reconciliation.
+      // Count generationTick events for diagnostics / logging only.
+      // BUG #6 NOTE: generationTick fires at VIDEO FRAME RATE (~30 fps), NOT 1 Hz.
+      // "1 tick = 1 billed second" was a false assumption — at 30 fps, 66 real
+      // seconds produces ~1,980 ticks, making tickCount × 2.3 = 4,554 "credits"
+      // which is ~30× the actual cost. tickCountRef is kept for debug logging but
+      // is NO LONGER sent as creditsConsumed to the stop endpoint.
       tickCountRef.current = 0;
       realtimeClient.on("generationTick", () => {
         tickCountRef.current += 1;
       });
 
-      // ── Loophole fix #3: bill from connect-resolved, not from first frame ──
-      // Decart's WebRTC peer is now established and Lucy 2.1 is metering wall-clock
-      // seconds against our API key. Stamp billingStartedAt server-side NOW so our
-      // incremental debit covers the same window Decart bills us for.
+      // ── Stamp billingStartedAt server-side at the moment Decart starts metering ──
+      // BUG #3 FIX: was fire-and-forget (.catch(() => {})) — if this request failed,
+      // billingStartedAt was never set and the heartbeat anchored billing up to 30s
+      // early. Now retried up to 3 times with 1s backoff so the anchor is reliable.
       {
         const licKey = localStorage.getItem("fullswap_license_key") ?? "";
-        fetch(`/api/sessions/${sessionId}/output-started`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-        }).catch(() => {});
+        const anchorHeaders = { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() };
+        const anchorUrl = `/api/sessions/${sessionId}/output-started`;
+        (async () => {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const r = await fetch(anchorUrl, { method: "POST", headers: anchorHeaders });
+              if (r.ok) return; // success — billing anchor is set
+            } catch { /* network error — retry */ }
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          }
+          console.warn("[Stream] output-started failed after 3 attempts — heartbeat will anchor billing");
+        })();
       }
 
       toast({ title: "Session started", description: "Stream is live — Real Time transformation active" });
