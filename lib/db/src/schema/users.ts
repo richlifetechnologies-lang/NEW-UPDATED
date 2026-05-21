@@ -25,10 +25,12 @@ export const usersTable = pgTable("users", {
   verificationPin: text("verification_pin"),
   verificationPinExpiresAt: timestamp("verification_pin_expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-  // Sub-admin billing rate override — if set, this rate is used for license keys created by this sub-admin
-  // when those license keys have no custom billing rate of their own.
-  // Resolution: license.customBillingRate ?? subAdmin.subAdminBillingRate ?? globalBillingRate
+  // Sub-admin billing rate override
   subAdminBillingRate: real("sub_admin_billing_rate"),
+  // Sub-admin default token window — applied to all keys created by this sub-admin
+  // that do not have their own token_window_minutes set.
+  // Priority: key.tokenWindowMinutes > subAdmin.defaultTokenWindowMinutes > global (settings table)
+  defaultTokenWindowMinutes: real("default_token_window_minutes"),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });

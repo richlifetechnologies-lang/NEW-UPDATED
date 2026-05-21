@@ -2,7 +2,7 @@ import { Router } from "express";
 import { createDecartClient } from "@decartai/sdk";
 import { requireLicense } from "../lib/auth";
 import { decartPool } from "../lib/decart-pool";
-import { db, decartApiKeysTable, sessionsTable, licenseKeysTable } from "@workspace/db";
+import { db, decartApiKeysTable, sessionsTable, licenseKeysTable, settingsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { getBillingRateForLicense } from "../lib/billing-rate-cache";
 import { computeCompressionFactor, computeDisplaySeconds } from "../lib/billing-math";
@@ -23,13 +23,55 @@ const rateLimitStore = new Map<string, RateLimitEntry>();
 interface CachedToken { apiKey: string; expiresAt: number; sourceKeyId: number }
 const tokenCache = new Map<string, CachedToken>();
 
-// TOKEN_WINDOW_SEC — maximum duration of a Decart short-lived token.
+// TOKEN_WINDOW_SEC — fallback default when no per-key/sub-admin/global window is set.
 // BUG #1 FIX: was Math.min(remainingSeconds, 4 * 3600) which caused Decart to
 // pre-charge or pre-reserve the FULL remaining licence time (e.g. 4 hours) at
 // token-creation time. Cap to 15 minutes so each token covers one streaming
 // session without pre-charging hours of credits up-front.
 // The frontend tokenRefreshRef fetches a new token when the current one nears expiry.
-const TOKEN_WINDOW_SEC = 15 * 60; // 15 minutes
+const TOKEN_WINDOW_SEC_DEFAULT = 15 * 60; // 15 minutes fallback
+
+const GLOBAL_TOKEN_WINDOW_SETTING = "global_default_token_window_minutes";
+
+/**
+ * Resolve the effective token window in seconds for a license.
+ * Priority: licenceKey.tokenWindowMinutes > subAdmin.defaultTokenWindowMinutes > global setting > hardcoded default
+ * Never throws — falls back to TOKEN_WINDOW_SEC_DEFAULT on any error.
+ */
+async function resolveTokenWindowSec(license: any): Promise<number> {
+  try {
+    // 1. Per-key override (highest priority)
+    const keyWindow = (license as any).tokenWindowMinutes;
+    if (keyWindow != null && keyWindow > 0) {
+      return Math.round(keyWindow * 60);
+    }
+
+    // 2. Sub-admin default
+    const subAdminId = (license as any).createdBySubAdminId;
+    if (subAdminId) {
+      try {
+        const result = await db.execute(
+          `SELECT default_token_window_minutes FROM users WHERE id = ${subAdminId} AND is_sub_admin = 1 LIMIT 1`
+        );
+        const row = result.rows[0] as any;
+        if (row?.default_token_window_minutes != null && row.default_token_window_minutes > 0) {
+          return Math.round(row.default_token_window_minutes * 60);
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    // 3. Global default from settings
+    try {
+      const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, GLOBAL_TOKEN_WINDOW_SETTING));
+      if (row?.value) {
+        const v = parseFloat(row.value);
+        if (v > 0) return Math.round(v * 60);
+      }
+    } catch { /* non-fatal */ }
+  } catch { /* non-fatal */ }
+
+  return TOKEN_WINDOW_SEC_DEFAULT;
+}
 
 function checkRateLimit(licenseKey: string): { allowed: boolean; retryAfterMs: number } {
   const now = Date.now();
@@ -151,13 +193,10 @@ router.get("/token", requireLicense, async (req, res) => {
   }
 
   try {
-    // BUG #1 FIX: Token window capped to TOKEN_WINDOW_SEC (15 min) regardless of
-    // remaining licence time. Previously capped to min(remaining, 4h) which caused
-    // Decart to pre-charge/reserve the FULL remaining licence balance at token
-    // creation time (e.g. a 5-min key would issue a 300s token → Decart reserved
-    // 300 × 2.3 = 690 credits immediately). A 15-min window is plenty for a
-    // continuous session; the frontend refreshes the token before it expires.
-    const tokenWindow = Math.min(remainingSeconds, TOKEN_WINDOW_SEC);
+    // Dynamic token window: resolve per-key > sub-admin > global > fallback (15 min).
+    // Cap to remaining seconds so we never pre-reserve more than what's left.
+    const resolvedWindowSec = await resolveTokenWindowSec(license);
+    const tokenWindow = Math.min(remainingSeconds, resolvedWindowSec);
     const tokenResult = await getOrCreateToken(licenseKey, resolvedKey.apiKey, tokenWindow, resolvedKey.id);
 
     if (!tokenResult) {

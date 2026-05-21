@@ -397,10 +397,28 @@ router.post("/license/:id/add-minutes", requireSubAdmin, async (req, res) => {
 
 router.post("/license/generate", requireSubAdmin, async (req, res) => {
   const subAdmin = (req as any).user;
-  const { minutes, notes } = req.body as { minutes?: number; notes?: string };
+  const { minutes, notes, tokenWindowMinutes } = req.body as { minutes?: number; notes?: string; tokenWindowMinutes?: number };
 
   if (!minutes || minutes < 1 || !Number.isInteger(minutes)) {
     res.status(400).json({ error: "minutes must be a positive integer" }); return;
+  }
+
+  // ── New Key Validation ────────────────────────────────────────────────────
+  // Sub-admins must also assign a token window. API key is derived from their
+  // assigned key (sub_admin_assigned_decart_key_id), so only minutes + token window
+  // are checked here. If subAdmin has no assigned Decart key, block generation.
+  await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_admin_assigned_decart_key_id INTEGER`).catch(() => {});
+  const saKeyCheck = await db.execute(
+    `SELECT sub_admin_assigned_decart_key_id FROM users WHERE id = ${subAdmin.id}`
+  );
+  const saKeyRow = saKeyCheck.rows[0] as any;
+  if (!saKeyRow?.sub_admin_assigned_decart_key_id) {
+    res.status(400).json({ error: "INCOMPLETE_KEY_CONFIGURATION", missing: ["apiKey"], message: "No API Key assigned to your sub-admin account. Contact your administrator." });
+    return;
+  }
+  if (!tokenWindowMinutes || tokenWindowMinutes < 1) {
+    res.status(400).json({ error: "INCOMPLETE_KEY_CONFIGURATION", missing: ["tokenWindow"], message: "Token Window (minutes) is required for new licence keys." });
+    return;
   }
 
   // Check combined balance
@@ -442,14 +460,18 @@ router.post("/license/generate", requireSubAdmin, async (req, res) => {
   const assignedKeyId: number | null = saRow?.sub_admin_assigned_decart_key_id ?? null;
   const billingRate: number | null = saRow?.sub_admin_billing_rate ?? null;
 
-  // Insert license key with minutes, stamping assigned key + billing rate
+  // Insert license key with minutes, stamping assigned key + billing rate + token window
+  await db.execute(`ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS token_window_minutes REAL`).catch(() => {});
+  await db.execute(`ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS is_new_key BOOLEAN DEFAULT FALSE`).catch(() => {});
   const assignedKeyCol = assignedKeyId ? `, assigned_decart_key_id` : "";
   const assignedKeyVal = assignedKeyId ? `, ${assignedKeyId}` : "";
   const billingRateCols = billingRate ? `, custom_billing_rate, use_custom_billing_rate` : "";
   const billingRateVals = billingRate ? `, ${billingRate}, true` : "";
+  const twCol = tokenWindowMinutes ? `, token_window_minutes` : "";
+  const twVal = tokenWindowMinutes ? `, ${tokenWindowMinutes}` : "";
   await db.execute(
-    `INSERT INTO license_keys (key, minutes_allocated, created_by_sub_admin_id, notes, is_active${assignedKeyCol}${billingRateCols})
-     VALUES ('${key}', ${minutes}, ${subAdmin.id}, '${(notes || "").replace(/'/g, "''")}', true${assignedKeyVal}${billingRateVals})`
+    `INSERT INTO license_keys (key, minutes_allocated, created_by_sub_admin_id, notes, is_active, is_new_key${assignedKeyCol}${billingRateCols}${twCol})
+     VALUES ('${key}', ${minutes}, ${subAdmin.id}, '${(notes || "").replace(/'/g, "''")}', true, true${assignedKeyVal}${billingRateVals}${twVal})`
   );
 
   // Audit trail

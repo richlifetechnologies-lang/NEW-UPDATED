@@ -17,6 +17,7 @@ import {
   Activity, AlertTriangle, ArrowRight, BarChart3, CheckCircle2,
   Clock, Loader2, RefreshCw, RotateCcw, Save,
   Timer, TrendingUp, Wifi, Zap, DollarSign,
+  Radio, Shield, Settings2, Users,
 } from "lucide-react";
 import { ProfitOptimizerPanel } from "@/components/profit-optimizer-panel";
 
@@ -108,7 +109,7 @@ function SCard({ label, value, sub, color, icon: Icon, pulse }: {
   );
 }
 
-type TabId = "control" | "keys" | "audit" | "estimator";
+type TabId = "control" | "keys" | "audit" | "estimator" | "tokenwindow";
 
 export default function AdminBillingPage() {
   const { toast } = useToast();
@@ -128,8 +129,103 @@ export default function AdminBillingPage() {
   const [editRateVal, setEditRateVal]     = useState<string>("");
   const [savingKeyId, setSavingKeyId]     = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const twPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [estWalletMins, setEstWalletMins] = useState("60");
   const [estRate, setEstRate]             = useState("");
+
+  // ── Token Window Tab State ─────────────────────────────────────────────────
+  interface TwSession {
+    sessionId: number; licenseKey: string; apiKey: string;
+    tokenWindowMinutes: number; remainingTokenMinutes: number;
+    elapsedMinutes: number; sessionStartTime: string; lastHeartbeatAt: string | null;
+    sessionStatus: "ACTIVE" | "EXPIRED" | "BLOCKED" | "TERMINATED";
+    decartStreamStatus: string; minutesAllocated: number;
+    remainingWalletSeconds: number; isNewKey: boolean;
+  }
+  interface TwSubAdmin { id: number; username: string; email: string; defaultTokenWindowMinutes: number | null; }
+  const [twSessions, setTwSessions]               = useState<TwSession[]>([]);
+  const [twSessionsLoading, setTwSessionsLoading] = useState(false);
+  const [twGlobal, setTwGlobal]                   = useState<number | null>(null);
+  const [twGlobalInput, setTwGlobalInput]         = useState("");
+  const [twGlobalSaving, setTwGlobalSaving]       = useState(false);
+  const [twSubAdmins, setTwSubAdmins]             = useState<TwSubAdmin[]>([]);
+  const [twSubAdminsLoading, setTwSubAdminsLoading] = useState(false);
+  const [twSaEditId, setTwSaEditId]               = useState<number | null>(null);
+  const [twSaEditVal, setTwSaEditVal]             = useState("");
+  const [twSaSaving, setTwSaSaving]               = useState<number | null>(null);
+  const [twKeyInput, setTwKeyInput]               = useState("");
+  const [twKeyMinutes, setTwKeyMinutes]           = useState("");
+  const [twKeySaving, setTwKeySaving]             = useState(false);
+  const [twLastPoll, setTwLastPoll]               = useState("");
+
+  const fetchTwSessions = useCallback(async () => {
+    setTwSessionsLoading(true);
+    const data = await apiFetch<{ sessions: TwSession[]; count: number }>("/api/admin/token-window/sessions");
+    if (data) setTwSessions(data.sessions ?? []);
+    setTwLastPoll(new Date().toLocaleTimeString());
+    setTwSessionsLoading(false);
+  }, []);
+
+  const fetchTwGlobal = useCallback(async () => {
+    const data = await apiFetch<{ globalDefaultTokenWindowMinutes: number }>("/api/admin/token-window/global");
+    if (data) { setTwGlobal(data.globalDefaultTokenWindowMinutes); setTwGlobalInput(v => v === "" ? String(data.globalDefaultTokenWindowMinutes) : v); }
+  }, []);
+
+  const fetchTwSubAdmins = useCallback(async () => {
+    setTwSubAdminsLoading(true);
+    const data = await apiFetch<any[]>("/api/admin/users?role=sub_admin");
+    if (data && Array.isArray(data)) setTwSubAdmins(data as TwSubAdmin[]);
+    setTwSubAdminsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (tab === "tokenwindow") {
+      fetchTwSessions(); fetchTwGlobal(); fetchTwSubAdmins();
+      twPollRef.current = setInterval(fetchTwSessions, 5000);
+    } else {
+      if (twPollRef.current) { clearInterval(twPollRef.current); twPollRef.current = null; }
+    }
+    return () => { if (twPollRef.current) { clearInterval(twPollRef.current); twPollRef.current = null; } };
+  }, [tab, fetchTwSessions, fetchTwGlobal, fetchTwSubAdmins]);
+
+  const saveGlobalTw = async () => {
+    const m = parseFloat(twGlobalInput);
+    if (!Number.isFinite(m) || m < 1 || m > 480) {
+      toast({ title: "Invalid value", description: "Enter minutes between 1 and 480", variant: "destructive" }); return;
+    }
+    setTwGlobalSaving(true);
+    const res = await fetch("/api/admin/token-window/global", { method: "PUT", headers: authH(), body: JSON.stringify({ minutes: m }) });
+    setTwGlobalSaving(false);
+    if (res.ok) { toast({ title: "Global token window updated", description: `Set to ${m} minutes` }); fetchTwGlobal(); }
+    else { const b = await res.json().catch(() => ({})); toast({ title: "Failed", description: b.error ?? "Error", variant: "destructive" }); }
+  };
+
+  const saveSaTw = async (id: number) => {
+    const m = parseFloat(twSaEditVal);
+    if (!Number.isFinite(m) || m < 1 || m > 480) {
+      toast({ title: "Invalid value", description: "Enter minutes between 1 and 480", variant: "destructive" }); return;
+    }
+    setTwSaSaving(id);
+    const res = await fetch(`/api/admin/token-window/sub-admin/${id}`, { method: "PUT", headers: authH(), body: JSON.stringify({ minutes: m }) });
+    setTwSaSaving(null);
+    if (res.ok) {
+      toast({ title: "Sub-admin token window updated" });
+      setTwSaEditId(null);
+      setTwSubAdmins(prev => prev.map(sa => sa.id === id ? { ...sa, defaultTokenWindowMinutes: m } : sa));
+    } else { const b = await res.json().catch(() => ({})); toast({ title: "Failed", description: b.error ?? "Error", variant: "destructive" }); }
+  };
+
+  const saveKeyTw = async () => {
+    const key = twKeyInput.trim().toUpperCase();
+    const m   = parseFloat(twKeyMinutes);
+    if (!key) { toast({ title: "Enter a license key", variant: "destructive" }); return; }
+    if (!Number.isFinite(m) || m < 1 || m > 480) { toast({ title: "Enter minutes 1–480", variant: "destructive" }); return; }
+    setTwKeySaving(true);
+    const res = await fetch(`/api/admin/token-window/key/${encodeURIComponent(key)}`, { method: "PUT", headers: authH(), body: JSON.stringify({ minutes: m }) });
+    setTwKeySaving(false);
+    if (res.ok) { toast({ title: "Per-key token window set", description: `${key} → ${m} min` }); setTwKeyInput(""); setTwKeyMinutes(""); }
+    else { const b = await res.json().catch(() => ({})); toast({ title: "Failed", description: b.error ?? "Error", variant: "destructive" }); }
+  };
 
   const fetchLive = useCallback(async () => {
     const [ri, brk] = await Promise.all([
@@ -268,10 +364,11 @@ export default function AdminBillingPage() {
     ? Math.round((previewRevenue - previewDecartCost) * 100) / 100 : null;
 
   const tabs: { id: TabId; label: string; icon: any }[] = [
-    { id: "control", label: "Rate Control",   icon: Zap      },
-    { id: "keys",    label: "Per-Key Monitor",icon: Activity  },
-    { id: "audit",     label: "Change Log",       icon: RotateCcw},
-    { id: "estimator", label: "Runtime Estimator", icon: BarChart3 },
+    { id: "control",     label: "Rate Control",     icon: Zap       },
+    { id: "keys",        label: "Per-Key Monitor",  icon: Activity  },
+    { id: "audit",       label: "Change Log",       icon: RotateCcw },
+    { id: "estimator",   label: "Runtime Estimator",icon: BarChart3 },
+    { id: "tokenwindow", label: "Token Window",     icon: Shield    },
   ];
 
   return (
@@ -928,6 +1025,263 @@ export default function AdminBillingPage() {
                 </div>
               );
             })()}
+
+            {/* ════════ TOKEN WINDOW ════════ */}
+            {tab === "tokenwindow" && (
+              <div className="space-y-6">
+
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold font-mono text-foreground flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-primary" /> Token Window Control
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1 font-mono">
+                      Per-key token duration · Controls how long each Decart streaming token is valid. Auto-renewed before expiry.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {twLastPoll && <span className="text-xs font-mono text-muted-foreground">{twLastPoll}</span>}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                      style={{ background: "rgba(38,222,129,0.1)", border: "1px solid rgba(38,222,129,0.3)" }}>
+                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                      <span className="text-xs text-green-400 font-mono font-semibold">LIVE 5s</span>
+                    </div>
+                    <button onClick={fetchTwSessions} className="text-muted-foreground hover:text-foreground">
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Session Monitor */}
+                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 14%)" }}>
+                  <div className="flex items-center justify-between px-4 py-3"
+                    style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+                    <span className="text-xs font-mono font-bold text-foreground flex items-center gap-2">
+                      <Radio className="w-3.5 h-3.5 text-green-400" /> Live Session Monitor
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                        style={{ background: "rgba(38,222,129,0.1)", color: "#26de81", border: "1px solid rgba(38,222,129,0.3)" }}>
+                        {twSessions.length} active
+                      </span>
+                    </span>
+                    {twSessionsLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+                  </div>
+                  {twSessions.length === 0 ? (
+                    <div className="py-12 text-center text-muted-foreground" style={{ background: "hsl(222 47% 4%)" }}>
+                      <Radio className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                      <p className="text-sm font-mono">No active sessions</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto" style={{ background: "hsl(222 47% 4%)" }}>
+                      <table className="w-full text-xs font-mono">
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid hsl(222 40% 11%)" }}>
+                            {["Session", "License Key", "API Key", "Token Window", "Elapsed", "Remaining", "Status", "Wallet"].map(h => (
+                              <th key={h} className="px-3 py-2 text-left text-muted-foreground font-normal">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {twSessions.map(s => {
+                            const pct = Math.min(100, Math.round(s.elapsedMinutes / s.tokenWindowMinutes * 100));
+                            const statusColor = s.sessionStatus === "ACTIVE" ? "#26de81" : s.sessionStatus === "EXPIRED" ? "#fc5c65" : "hsl(215 20% 55%)";
+                            return (
+                              <tr key={s.sessionId} style={{ borderBottom: "1px solid hsl(222 40% 8%)" }}>
+                                <td className="px-3 py-2 text-muted-foreground">#{s.sessionId}</td>
+                                <td className="px-3 py-2">
+                                  <span className="text-primary tracking-wider">{s.licenseKey}</span>
+                                  {s.isNewKey && (
+                                    <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold"
+                                      style={{ background: "hsl(187 100% 52% / 0.1)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.3)" }}>NEW</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-cyan-400">{s.apiKey}</td>
+                                <td className="px-3 py-2 text-foreground font-bold">{s.tokenWindowMinutes}m</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: "hsl(222 40% 14%)" }}>
+                                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct > 85 ? "#fc5c65" : pct > 60 ? "#fed330" : "#26de81" }} />
+                                    </div>
+                                    <span style={{ color: pct > 85 ? "#fc5c65" : "hsl(var(--foreground))" }}>{s.elapsedMinutes.toFixed(1)}m</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2" style={{ color: s.remainingTokenMinutes < 2 ? "#fc5c65" : "#26de81" }}>
+                                  {s.remainingTokenMinutes.toFixed(1)}m
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                                    style={{ background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}40` }}>
+                                    {s.sessionStatus}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {fmtSec(s.remainingWalletSeconds)} left
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Configuration Panels */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                  {/* 1 — Global Default */}
+                  <div className="rounded-xl p-5 space-y-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                    <div className="flex items-center gap-2">
+                      <Settings2 className="w-4 h-4 text-primary" />
+                      <p className="text-sm font-bold font-mono text-foreground">Global Default</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">Fallback when no per-key or sub-admin override is set.</p>
+                    <div>
+                      {twGlobal !== null && (
+                        <p className="text-xs text-muted-foreground font-mono mb-2">
+                          Current: <span className="text-primary font-bold">{twGlobal} min</span>
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        <input type="number" min="1" max="480" placeholder="minutes"
+                          value={twGlobalInput} onChange={e => setTwGlobalInput(e.target.value)}
+                          className="flex-1 rounded-md px-2 py-1.5 text-sm font-mono"
+                          style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 16%)", color: "hsl(var(--foreground))" }} />
+                        <button onClick={saveGlobalTw} disabled={twGlobalSaving}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-mono font-bold transition-colors"
+                          style={{ background: "hsl(187 100% 52% / 0.12)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.4)" }}>
+                          {twGlobalSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Save
+                        </button>
+                      </div>
+                      <div className="flex gap-1 mt-2">
+                        {[15, 30, 45, 60].map(m => (
+                          <button key={m} onClick={() => setTwGlobalInput(String(m))}
+                            className="px-2 py-0.5 rounded text-[10px] font-mono font-bold"
+                            style={twGlobalInput === String(m)
+                              ? { background: "hsl(187 100% 52% / 0.15)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.4)" }
+                              : { background: "hsl(222 44% 4%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
+                            {m}m
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2 — Per-Key Override */}
+                  <div className="rounded-xl p-5 space-y-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-cyan-400" />
+                      <p className="text-sm font-bold font-mono text-foreground">Per-Key Override</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">Set token window for a specific license key (highest priority).</p>
+                    <div className="space-y-2">
+                      <input type="text" placeholder="LICENSE-KEY" value={twKeyInput} onChange={e => setTwKeyInput(e.target.value.toUpperCase())}
+                        className="w-full rounded-md px-2 py-1.5 text-sm font-mono tracking-wider"
+                        style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 16%)", color: "hsl(var(--foreground))" }} />
+                      <div className="flex gap-2">
+                        <input type="number" min="1" max="480" placeholder="minutes"
+                          value={twKeyMinutes} onChange={e => setTwKeyMinutes(e.target.value)}
+                          className="flex-1 rounded-md px-2 py-1.5 text-sm font-mono"
+                          style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 16%)", color: "hsl(var(--foreground))" }} />
+                        <button onClick={saveKeyTw} disabled={twKeySaving}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-mono font-bold transition-colors"
+                          style={{ background: "hsl(187 100% 52% / 0.12)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.4)" }}>
+                          {twKeySaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Set
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3 — Priority Chain Legend */}
+                  <div className="rounded-xl p-5 space-y-3" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+                    <div className="flex items-center gap-2">
+                      <ArrowRight className="w-4 h-4 text-amber-400" />
+                      <p className="text-sm font-bold font-mono text-foreground">Priority Chain</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">Token window resolved top-down, first match wins.</p>
+                    {[
+                      { rank: "1", label: "Per-Key Override",      color: "hsl(187 100% 52%)", desc: "set above" },
+                      { rank: "2", label: "Sub-Admin Default",      color: "#fed330",           desc: "per sub-admin" },
+                      { rank: "3", label: "Global Default",         color: "#26de81",           desc: "set above" },
+                      { rank: "4", label: "System Fallback (15m)", color: "hsl(215 20% 55%)", desc: "hardcoded" },
+                    ].map(r => (
+                      <div key={r.rank} className="flex items-center gap-3">
+                        <span className="w-5 h-5 rounded-full text-[10px] font-black font-mono flex items-center justify-center flex-shrink-0"
+                          style={{ background: `${r.color}20`, color: r.color, border: `1px solid ${r.color}40` }}>
+                          {r.rank}
+                        </span>
+                        <div>
+                          <p className="text-xs font-mono font-bold text-foreground">{r.label}</p>
+                          <p className="text-[10px] font-mono text-muted-foreground">{r.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sub-Admin Token Windows */}
+                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 14%)" }}>
+                  <div className="px-4 py-3 flex items-center gap-2"
+                    style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+                    <Users className="w-3.5 h-3.5 text-amber-400" />
+                    <p className="text-xs font-mono font-bold text-foreground">Sub-Admin Default Token Windows</p>
+                    {twSubAdminsLoading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground ml-auto" />}
+                  </div>
+                  {twSubAdmins.length === 0 ? (
+                    <div className="py-8 text-center text-muted-foreground text-xs font-mono"
+                      style={{ background: "hsl(222 47% 4%)" }}>
+                      {twSubAdminsLoading ? "Loading sub-admins…" : "No sub-admins found."}
+                    </div>
+                  ) : (
+                    <div style={{ background: "hsl(222 47% 4%)" }}>
+                      {twSubAdmins.map((sa, i) => (
+                        <div key={sa.id} className="flex items-center gap-4 px-4 py-3"
+                          style={{ borderBottom: i < twSubAdmins.length - 1 ? "1px solid hsl(222 40% 8%)" : "none" }}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-mono font-bold text-foreground truncate">{sa.username ?? sa.email}</p>
+                            <p className="text-[10px] font-mono text-muted-foreground">{sa.email}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {twSaEditId === sa.id ? (
+                              <>
+                                <input type="number" min="1" max="480" value={twSaEditVal} onChange={e => setTwSaEditVal(e.target.value)}
+                                  className="w-20 rounded px-2 py-1 text-xs font-mono"
+                                  style={{ background: "hsl(222 44% 4%)", border: "1px solid hsl(222 40% 20%)", color: "hsl(var(--foreground))" }} />
+                                <button onClick={() => saveSaTw(sa.id)} disabled={twSaSaving === sa.id}
+                                  className="px-2 py-1 rounded text-[10px] font-mono font-bold"
+                                  style={{ background: "hsl(187 100% 52% / 0.12)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.3)" }}>
+                                  {twSaSaving === sa.id ? "…" : "Save"}
+                                </button>
+                                <button onClick={() => setTwSaEditId(null)}
+                                  className="px-2 py-1 rounded text-[10px] font-mono"
+                                  style={{ color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-xs font-mono font-bold"
+                                  style={{ color: sa.defaultTokenWindowMinutes ? "#fed330" : "hsl(215 20% 45%)" }}>
+                                  {sa.defaultTokenWindowMinutes ? `${sa.defaultTokenWindowMinutes}m` : "—"}
+                                </span>
+                                <button onClick={() => { setTwSaEditId(sa.id); setTwSaEditVal(sa.defaultTokenWindowMinutes ? String(sa.defaultTokenWindowMinutes) : ""); }}
+                                  className="px-2 py-1 rounded text-[10px] font-mono"
+                                  style={{ color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
+                                  Edit
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
           </>
         )}
       </div>

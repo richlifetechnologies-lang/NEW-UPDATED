@@ -218,16 +218,34 @@ router.post("/usage", requireLicense, async (req, res) => {
 // if omitted, the first active key is used as before.
 // Also records a financial transaction for the new license.
 // Feature: pass `decartCredits` to auto-calculate minutesAllocated = decartCredits / DECART_CREDITS_PER_MIN (138)
+// Token Window Feature: pass `tokenWindowMinutes` to set per-key token window.
+//   New keys generated with this endpoint are flagged as isNewKey=true and require
+//   minutesAllocated, decartApiKeyId, AND tokenWindowMinutes to be present.
 router.post("/generate", requireAdmin, async (req, res) => {
   try {
-    const { notes, expiresAt, minutesAllocated, decartCredits, decartApiKeyId, pricingId } = req.body as {
+    const { notes, expiresAt, minutesAllocated, decartCredits, decartApiKeyId, pricingId, tokenWindowMinutes } = req.body as {
       notes?: string;
       expiresAt?: string;
       minutesAllocated?: number;
       decartCredits?: number;
       decartApiKeyId?: number;
       pricingId?: number;
+      tokenWindowMinutes?: number;
     };
+
+    // ── New Key Validation ────────────────────────────────────────────────────
+    // All three required fields must be present for new keys.
+    // minutesAllocated/decartCredits covers the "Minutes Allocation" requirement.
+    const calculatedMinutesCheck = decartCredits ? decartCredits / DECART_CREDITS_PER_MIN : minutesAllocated;
+    if (!calculatedMinutesCheck || calculatedMinutesCheck <= 0) {
+      return res.status(400).json({ error: "INCOMPLETE_KEY_CONFIGURATION", missing: ["minutesAllocated"], message: "Minutes Allocation is required for new licence keys." });
+    }
+    if (!decartApiKeyId) {
+      return res.status(400).json({ error: "INCOMPLETE_KEY_CONFIGURATION", missing: ["apiKey"], message: "API Key assignment is required for new licence keys." });
+    }
+    if (!tokenWindowMinutes || tokenWindowMinutes <= 0) {
+      return res.status(400).json({ error: "INCOMPLETE_KEY_CONFIGURATION", missing: ["tokenWindow"], message: "Token Window (minutes) is required for new licence keys." });
+    }
     const key = [genSegment(), genSegment(), genSegment(), genSegment()].join("-");
     let assignedDecartKeyId: number | null = null;
     try {
@@ -252,8 +270,20 @@ router.post("/generate", requireAdmin, async (req, res) => {
 
     // Calculate minutesAllocated: use decartCredits / DECART_CREDITS_PER_MIN if provided, else use minutesAllocated
     const calculatedMinutes = decartCredits ? decartCredits / DECART_CREDITS_PER_MIN : minutesAllocated ?? 0;
-    const insertData: any = { key, notes: notes ?? null, expiresAt: expiresAt ? new Date(expiresAt) : null, minutesAllocated: calculatedMinutes };
+    const insertData: any = {
+      key,
+      notes: notes ?? null,
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      minutesAllocated: calculatedMinutes,
+      // Mark as new key: subject to strict 3-field validation
+      isNewKey: true,
+    };
     if (assignedDecartKeyId) insertData.assignedDecartKeyId = assignedDecartKeyId;
+    // Store token window — ensures dynamic window is applied at stream time
+    if (tokenWindowMinutes && tokenWindowMinutes > 0) insertData.tokenWindowMinutes = tokenWindowMinutes;
+    // Ensure new columns exist before insert (safe migration shim)
+    await db.execute(`ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS token_window_minutes REAL`).catch(() => {});
+    await db.execute(`ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS is_new_key BOOLEAN DEFAULT FALSE`).catch(() => {});
     await db.insert(licenseKeysTable).values(insertData);
 
     // Record financial transaction for new license
@@ -301,7 +331,7 @@ router.post("/generate", requireAdmin, async (req, res) => {
       // Non-fatal: transaction recording failed, but license was created successfully
     }
 
-    return res.json({ key, assignedDecartKeyId });
+    return res.json({ key, assignedDecartKeyId, tokenWindowMinutes: tokenWindowMinutes ?? null });
   } catch (err) { console.error("[license:generate]", err); return res.status(500).json({ error: "Server error" }); }
 });
 
