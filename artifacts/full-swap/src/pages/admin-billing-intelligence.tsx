@@ -23,6 +23,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { ProfitOptimizerPanel } from "@/components/profit-optimizer-panel";
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 const API = (path: string) => `/api/admin/billing-intelligence${path}`;
@@ -1584,6 +1585,14 @@ export default function AdminBillingIntelligencePage() {
             ) : (
               <>
                 <SummaryCards data={summary} />
+
+                {/* ── Profit Optimization Panel ── */}
+                <ProfitOptimizerPanel
+                  billingRate={summary.billingRate}
+                  showCurve
+                  showKeyTable={false}
+                  simulationSec={summary.totals.totalBillingSeconds || 3600}
+                />
 
                 {/* Metric comparison table */}
                 <div className="rounded-xl border border-slate-700 bg-slate-900 overflow-hidden">

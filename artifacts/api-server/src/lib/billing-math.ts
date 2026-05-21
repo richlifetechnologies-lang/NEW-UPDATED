@@ -377,3 +377,168 @@ export function computeRealFromDisplay(displaySeconds: number, compressionFactor
   if (compressionFactor <= 0 || displaySeconds <= 0) return 0;
   return Math.round(displaySeconds / compressionFactor);
 }
+
+// ── Profit Optimization Engine (POE) ──────────────────────────────────────────
+//
+// SAFETY: All functions below are PURE MATH (no I/O, no DB, no side effects).
+// They produce ADVISORY recommendations only — they NEVER modify wallet, session,
+// heartbeat, or billing logic.
+//
+// DESIGN:
+//   pacing_factor   = fraction of real Decart stream time used per wallet-second
+//                   = 2.3 / billing_rate  (inverse of compressionFactor)
+//                   clamped to [0.50, 1.00]
+//
+//   Lower pacing  → less Decart cost per wallet-second → better margin
+//   Higher pacing → more real stream quality            → better UX
+//
+//   ideal_pacing_factor = clamp((targetMargin × 2.3) / billingRate, 0.50, 1.00)
+//   targetMargin = desired cost-coverage ratio (default 1.0 = full cost offset)
+//
+//   profit_curve: for pacing ∈ [1.0 → 0.5], show revenue, cost, margin per scenario
+
+/** Pacing factor clamp bounds — spec §1. */
+export const PACING_FACTOR_MIN = 0.50;
+export const PACING_FACTOR_MAX = 1.00;
+
+/**
+ * Current effective pacing factor implied by the billing rate.
+ * pacing_factor = clamp(2.3 / billingRate, 0.50, 1.00)
+ *
+ * At billingRate = 2.3 → pacing = 1.0 (full real time, 0% Decart savings)
+ * At billingRate = 4.6 → pacing = 0.5 (half real time, 50% Decart savings)
+ */
+export function computeCurrentPacingFactor(billingRate: number): number {
+  if (billingRate <= 0) return PACING_FACTOR_MAX;
+  const raw = DECART_API_COST_PER_SEC / billingRate;
+  return Math.round(Math.min(PACING_FACTOR_MAX, Math.max(PACING_FACTOR_MIN, raw)) * 1000) / 1000;
+}
+
+/**
+ * Recommended pacing factor for a given billing rate and target margin ratio.
+ *
+ * ideal_pacing_factor = clamp((targetMarginRatio × 2.3) / billingRate, 0.50, 1.00)
+ *
+ * targetMarginRatio: 1.0 = exactly breakeven pacing (all margin from rate delta)
+ *                   0.75 = 75% of breakeven — aggressive cost savings
+ *
+ * @param billingRate       Effective billing rate for this license (cr/s)
+ * @param targetMarginRatio Cost-coverage target (default 1.0)
+ */
+export function calculateOptimalPacing(params: {
+  billingRate: number;
+  avgSessionDurationSec?: number;
+  avgDecartCostPerSession?: number;
+  licenseDurationMinutes?: number;
+  subAdminOverrideRate?: number | null;
+  targetMarginRatio?: number;
+}): {
+  currentPacingFactor: number;
+  recommendedPacingFactor: number;
+  expectedProfitMarginPct: number;
+  expectedDecartSavingsPct: number;
+  riskScore: "Low" | "Medium" | "High";
+  riskNote: string;
+  recommendation: string;
+} {
+  const {
+    billingRate,
+    targetMarginRatio = 1.0,
+  } = params;
+
+  const effectiveRate = billingRate > 0 ? billingRate : DECART_API_COST_PER_SEC;
+
+  const currentPacingFactor   = computeCurrentPacingFactor(effectiveRate);
+  const rawIdeal               = (targetMarginRatio * DECART_API_COST_PER_SEC) / effectiveRate;
+  const recommendedPacingFactor = Math.round(
+    Math.min(PACING_FACTOR_MAX, Math.max(PACING_FACTOR_MIN, rawIdeal)) * 1000
+  ) / 1000;
+
+  // Profit margin at recommended pacing:
+  //   revenue    = walletSec × billingRate
+  //   realCost   = walletSec × billingRate × recommendedPacing × 2.3 / billingRate
+  //              = walletSec × recommendedPacing × 2.3
+  //   profit%    = (revenue - realCost) / revenue
+  //              = 1 - (recommendedPacing × 2.3 / billingRate)
+  const expectedProfitMarginPct = effectiveRate > 0
+    ? Math.round((1 - (recommendedPacingFactor * DECART_API_COST_PER_SEC / effectiveRate)) * 10000) / 100
+    : 0;
+
+  // Decart savings vs pacing=1.0 baseline:
+  //   savings% = (1.0 - recommendedPacingFactor) / 1.0 × 100
+  const expectedDecartSavingsPct = Math.round((1.0 - recommendedPacingFactor) * 10000) / 100;
+
+  let riskScore: "Low" | "Medium" | "High";
+  let riskNote: string;
+  if (recommendedPacingFactor >= 0.85) {
+    riskScore = "Low";
+    riskNote  = "Minimal stream compression — UX fully preserved";
+  } else if (recommendedPacingFactor >= 0.65) {
+    riskScore = "Medium";
+    riskNote  = "Moderate stream compression — slight real-time reduction";
+  } else {
+    riskScore = "High";
+    riskNote  = "Aggressive compression — real stream time noticeably shorter";
+  }
+
+  let recommendation: string;
+  if (effectiveRate < DECART_API_COST_PER_SEC) {
+    recommendation = "Rate below Decart cost — lower pacing urgently to protect margin";
+  } else if (effectiveRate === DECART_API_COST_PER_SEC) {
+    recommendation = "At breakeven — consider raising billing rate or lowering pacing";
+  } else if (recommendedPacingFactor < currentPacingFactor) {
+    recommendation = `Reduce pacing from ${currentPacingFactor} → ${recommendedPacingFactor} to cut Decart cost ${expectedDecartSavingsPct}%`;
+  } else {
+    recommendation = `Current pacing (${currentPacingFactor}) is optimal — ${expectedProfitMarginPct}% margin achievable`;
+  }
+
+  return {
+    currentPacingFactor,
+    recommendedPacingFactor,
+    expectedProfitMarginPct,
+    expectedDecartSavingsPct,
+    riskScore,
+    riskNote,
+    recommendation,
+  };
+}
+
+/**
+ * Generate a profit curve dataset for admin dashboard visualization.
+ * Simulates profit/margin across pacing_factor steps from 1.0 → 0.50.
+ *
+ * @param billingRate       Effective billing rate (cr/s)
+ * @param streamingSeconds  Total wallet-seconds to simulate against
+ */
+export function simulateProfitCurve(
+  billingRate: number,
+  streamingSeconds: number,
+): Array<{
+  pacingFactor: number;
+  realCostCredits: number;
+  revenueCredits: number;
+  profitCredits: number;
+  marginPct: number;
+  decartSavingsPct: number;
+}> {
+  const steps = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5];
+  const effectiveRate = billingRate > 0 ? billingRate : DECART_API_COST_PER_SEC;
+  const sec = streamingSeconds > 0 ? streamingSeconds : 3600;
+
+  return steps.map(pf => {
+    const realStreamSec  = sec * pf;
+    const realCost       = Math.round(realStreamSec * DECART_API_COST_PER_SEC * 100) / 100;
+    const revenue        = Math.round(sec * effectiveRate * 100) / 100;
+    const profit         = Math.round((revenue - realCost) * 100) / 100;
+    const marginPct      = revenue > 0 ? Math.round((profit / revenue) * 10000) / 100 : 0;
+    const decartSavings  = Math.round((1.0 - pf) * 10000) / 100;
+    return {
+      pacingFactor:      pf,
+      realCostCredits:   realCost,
+      revenueCredits:    revenue,
+      profitCredits:     profit,
+      marginPct,
+      decartSavingsPct:  decartSavings,
+    };
+  });
+}

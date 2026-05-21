@@ -22,6 +22,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Loader2, Edit2, X,
   ShieldCheck, DollarSign,
 } from "lucide-react";
+import { ProfitOptimizerPanel } from "@/components/profit-optimizer-panel";
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 const API_BASE = `/api/admin/billing-rate-per-key`;
@@ -575,6 +576,14 @@ export default function AdminBillingRatePerKeyPage() {
             </table>
           </div>
         </div>
+
+        {/* ── Profit Optimizer Panel ── */}
+        <ProfitOptimizerPanel
+          billingRate={global}
+          showCurve
+          showKeyTable
+          simulationSec={3600}
+        />
 
         {/* ── Footer info ── */}
         <div className="rounded-xl p-4" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>

@@ -18,6 +18,7 @@ import {
   Clock, Loader2, RefreshCw, RotateCcw, Save,
   Timer, TrendingUp, Wifi, Zap, DollarSign,
 } from "lucide-react";
+import { ProfitOptimizerPanel } from "@/components/profit-optimizer-panel";
 
 const COST_RATE = 2.3; // Decart API fixed cost — never changes
 
@@ -620,6 +621,16 @@ export default function AdminBillingPage() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* ════════ PROFIT OPTIMIZER ════════ */}
+            {tab === "control" && (
+              <ProfitOptimizerPanel
+                billingRate={currentRate ?? undefined}
+                showCurve
+                showKeyTable={false}
+                simulationSec={3600}
+              />
             )}
 
             {/* ════════ PER-KEY MONITOR ════════ */}
