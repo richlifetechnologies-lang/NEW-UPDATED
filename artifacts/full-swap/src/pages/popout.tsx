@@ -122,7 +122,7 @@ export default function PopoutPage() {
         ref={videoRef}
         autoPlay
         playsInline
-        style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", transform: "scaleX(-1)" }}
+        style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
       />
 
       {/* OBS MODE button — replaces badge. Click to lock controls off for a clean OBS capture */}
