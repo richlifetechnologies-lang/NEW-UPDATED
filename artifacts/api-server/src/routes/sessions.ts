@@ -20,6 +20,7 @@ import {
   SINGLE_SESSION_GRACE_MS,
   DEDUCTION_FREEZE_MS,
   MINIMUM_RESERVATION_SEC,
+  HARD_KILL_SAFETY_RESERVE_SEC,
   calculateDebit,
   applyMinimumDuration,
   wallClockIncrement,
@@ -142,6 +143,22 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
     .set({ status: "stopped", stoppedAt: endAt, durationSeconds: totalDuration, lastDeductedAt: endAt })
     .where(eq(sessionsTable.id, sessionId));
 
+  // ── Observability: settle (fire-and-forget) — captures full lifecycle metrics ──
+  logSessionBillingEvent({
+    sessionId,
+    decartSessionId: session.decartSessionId ?? undefined,
+    eventType: "settle",
+    walletRemainingSeconds: license
+      ? Math.max(0, licenseRemainingSeconds(license.minutesAllocated ?? 0, (license.usedSeconds ?? 0) + debited))
+      : null,
+    metadata: {
+      totalDuration,
+      debited,
+      stopAt: endAt.toISOString(),
+      billingRateSnapshot: (session as any).billingRateSnapshot ?? null,
+    },
+  });
+
   // Observability push — does NOT affect billing (non-fatal)
   emitSessionSettled(sessionId, session.licenseKeyId ?? null, totalDuration, "client_stop");
   if (license) {
@@ -230,6 +247,8 @@ async function settleStartupOrphans() {
       const licKey = await getLicenseKeyString(s.licenseKeyId);
       if (licKey) invalidateLicenseTokenCache(licKey);
       notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
+      // ── Observability: startup_orphan_kill (fire-and-forget) ─────────────────
+      logSessionBillingEvent({ sessionId: s.id, eventType: "startup_orphan_kill", walletRemainingSeconds: null, metadata: { durationSecs, reason: "startup_orphan", killedAt: endAt.toISOString() } });
     }
     if (stale.length > 0) {
       logger.info({ count: stale.length }, "[Session] startup_orphan_cleanup_done");
@@ -552,9 +571,13 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   const newUsed = used + Math.min(incrementSec, remaining);
   const newRealRemaining = Math.max(0, allocated - newUsed);
 
-  if (newRealRemaining <= 0) {
-    // Display time is exhausted — commercial entitlement ends here.
-    // Auto-stop the session so reconnects and future /token calls are denied.
+  // Hard-kill safety reserve (HARD_KILL_SAFETY_RESERVE_SEC = 5):
+  // Kill the session when the compressed wallet remaining falls to/below the
+  // reserve threshold instead of waiting for it to hit exactly zero.
+  // The 5-second reserve absorbs WebRTC teardown delay (2-8 s) and heartbeat
+  // lag (0-10 s) so Decart never bills meaningfully past the user's entitlement.
+  if (newRealRemaining <= HARD_KILL_SAFETY_RESERVE_SEC) {
+    // Commercial entitlement is exhausted — auto-stop immediately.
     const totalDuration = Math.floor((now.getTime() - billingStart.getTime()) / 1000);
     await db.update(sessionsTable)
       .set({ status: "stopped", stoppedAt: now, durationSeconds: totalDuration })
@@ -563,12 +586,21 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
     invalidateLicenseTokenCache(licenseKey);
     // Fire Telegram alert: display time ran out during active stream
     notifySessionDead({ sessionId, licenseKey: license?.key ?? null, durationSecs: totalDuration, reason: "out_of_time", killedAt: now }).catch(() => {});
-    // ── Observability: heartbeat_exhausted (fire-and-forget) ──────────────────
+    // ── Observability: hard_kill + heartbeat_exhausted (fire-and-forget) ──────
+    const hbBillingRateSnap = (session as any).billingRateSnapshot ?? null;
     logSessionBillingEvent({
       sessionId,
+      decartSessionId: session.decartSessionId ?? undefined,
+      eventType: "hard_kill",
+      walletRemainingSeconds: newRealRemaining,
+      metadata: { totalDuration, safetyReserveSec: HARD_KILL_SAFETY_RESERVE_SEC, billingRateSnapshot: hbBillingRateSnap },
+    });
+    logSessionBillingEvent({
+      sessionId,
+      decartSessionId: session.decartSessionId ?? undefined,
       eventType: "heartbeat_exhausted",
-      walletRemainingSeconds: 0,
-      metadata: { reason: "no_time", totalDuration },
+      walletRemainingSeconds: newRealRemaining,
+      metadata: { reason: "hard_kill", totalDuration, safetyReserveSec: HARD_KILL_SAFETY_RESERVE_SEC, billingRateSnapshot: hbBillingRateSnap },
     });
     res.json({ ok: false, reason: "no_time" });
     return;

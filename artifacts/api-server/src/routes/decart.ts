@@ -38,12 +38,15 @@ setInterval(() => {
 }, 10 * 60 * 1000); // every 10 minutes
 
 // TOKEN_WINDOW_SEC — fallback default when no per-key/sub-admin/global window is set.
-// BUG #1 FIX: was Math.min(remainingSeconds, 4 * 3600) which caused Decart to
-// pre-charge or pre-reserve the FULL remaining licence time (e.g. 4 hours) at
-// token-creation time. Cap to 15 minutes so each token covers one streaming
-// session without pre-charging hours of credits up-front.
-// The frontend tokenRefreshRef fetches a new token when the current one nears expiry.
-const TOKEN_WINDOW_SEC_DEFAULT = 15 * 60; // 15 minutes fallback
+// RC#1 FIX: was 15 * 60 (15 min) which caused Decart to reserve/pre-charge up to
+// 15 minutes of credits at realtime.connect() time. Hard-capped to 90 seconds so
+// the worst-case Decart reservation is 90 × 2.3 = 207 credits per session start.
+// The frontend pre-warm + token-refresh mechanism transparently refreshes tokens
+// before they expire so shorter windows are invisible to the user.
+const TOKEN_WINDOW_SEC_DEFAULT = 90; // 90s hard cap — minimal reservation exposure
+// RC#1: Absolute hard cap applied AFTER any per-key/sub-admin/global override.
+// Ensures no configuration path can accidentally restore a large reservation window.
+const TOKEN_WINDOW_HARD_CAP_SEC = 90;
 
 const GLOBAL_TOKEN_WINDOW_SETTING = "global_default_token_window_minutes";
 
@@ -226,10 +229,12 @@ router.get("/token", requireLicense, async (req, res) => {
   }
 
   try {
-    // Dynamic token window: resolve per-key > sub-admin > global > fallback (15 min).
-    // Cap to remaining seconds so we never pre-reserve more than what's left.
+    // Dynamic token window: resolve per-key > sub-admin > global > fallback.
+    // RC#1: Hard-cap to TOKEN_WINDOW_HARD_CAP_SEC (90s) AFTER all overrides.
+    // This ensures no admin config can accidentally restore a large reservation
+    // window that causes Decart to pre-charge minutes of credits at connect time.
     const resolvedWindowSec = await resolveTokenWindowSec(license);
-    const tokenWindow = Math.min(remainingSeconds, resolvedWindowSec);
+    const tokenWindow = Math.min(remainingSeconds, Math.min(resolvedWindowSec, TOKEN_WINDOW_HARD_CAP_SEC));
     const tokenResult = await getOrCreateToken(licenseKey, resolvedKey.apiKey, tokenWindow, resolvedKey.id, remainingSeconds);
 
     if (!tokenResult) {

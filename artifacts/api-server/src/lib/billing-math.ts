@@ -76,10 +76,18 @@ export const DECART_REAL_API_COST_RATE = 2.3;
 export const DECART_API_COST_PER_SEC  = DECART_REAL_API_COST_RATE; // 2.3 cr/s
 export const MINIMUM_RESERVATION_SEC  = 1;
 export const HEARTBEAT_GRACE_MS       = 35_000;
-export const ORPHAN_GRACE_MS          = 120_000; // 2 minutes — orphan kill threshold
+// RC#3: Reduced from 120,000 (2 min) to 15,000 (15 s).
+// Abnormal disconnects now stop the orphan session in 15s instead of 2 minutes,
+// cutting maximum post-disconnect Decart billing from ~276 credits to ~34 credits.
+export const ORPHAN_GRACE_MS          = 15_000;
 export const SWEEP_INTERVAL_MS        = 10_000;
 export const SINGLE_SESSION_GRACE_MS  = 5_000;
 export const DEDUCTION_FREEZE_MS      = 45_000;
+// Hard-kill safety reserve: backend kills the session when compressed wallet
+// remaining falls to this threshold rather than at zero. The reserve absorbs
+// WebRTC teardown delay (~2-8 s) and heartbeat lag (~0-10 s) so Decart never
+// bills past the user's intended entitlement.
+export const HARD_KILL_SAFETY_RESERVE_SEC = 5;
 
 // BASE_BILLING_RATE and computeBurnMultiplier REMOVED per HARDENING PATCH.
 // No hardcoded billing rate reference constants are permitted.

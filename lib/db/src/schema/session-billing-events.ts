@@ -26,6 +26,10 @@ export const billingEventTypeEnum = pgEnum("billing_event_type", [
   "stream_start",
   "heartbeat_ok",
   "heartbeat_exhausted",
+  // RC fixes — added for billing audit tracking
+  "hard_kill",          // backend killed session at safety reserve threshold
+  "settle",             // full lifecycle settlement record (debited, duration, rate)
+  "startup_orphan_kill", // startup sweep killed a previously-orphaned session
   "disconnect",
   "stop",
   "orphan_kill",

@@ -417,6 +417,17 @@ export default function StreamPage() {
   //   "dropped"         — Decart WebRTC drop (no toast — caller already toasted)
   //   "unload"          — page close / beforeunload (no toast, fire-and-forget)
   const teardownStream = useCallback(async (reason?: string) => {
+    // RC#4 FIX: Capture and null both critical refs SYNCHRONOUSLY at the very top,
+    // before any await. Without this, a rapid reconnect can write a new client/session
+    // into decartClientRef/activeSessionRef while this teardown is still awaiting
+    // disconnect() — and then the null below would wipe the NEW session's ref,
+    // leaving its Decart WebRTC runtime alive with no handle to ever disconnect it.
+    const clientToClose = decartClientRef.current;
+    decartClientRef.current = null;
+    const sid  = activeSessionRef.current;
+    activeSessionRef.current = null;
+    const secs = elapsedSecsRef.current;
+
     // 1. Clear timers immediately
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
@@ -437,9 +448,10 @@ export default function StreamPage() {
     audioAnalyserRef.current  = null;
     micStreamRef.current = null;
 
-    // 4. Disconnect Decart WebRTC session (wrapped — already disconnected on drop path)
-    try { await decartClientRef.current?.disconnect(); } catch { /* best effort */ }
-    decartClientRef.current = null;
+    // 4. Disconnect using the CAPTURED ref snapshot (clientToClose).
+    // decartClientRef.current is already null (cleared above) so if a new session
+    // starts concurrently it writes its own client without interference from here.
+    try { await clientToClose?.disconnect(); } catch { /* best effort */ }
 
     // 5. Clear video UI
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -459,9 +471,7 @@ export default function StreamPage() {
     audioEnabledRef.current = false;
 
     // 7. Call backend /stop using fetch+keepalive (safe for all paths including unload)
-    const sid  = activeSessionRef.current;
-    const secs = elapsedSecsRef.current;
-    activeSessionRef.current = null;
+    // Note: sid, secs, and activeSessionRef.current=null already handled at top (RC#4).
     if (sid) {
       const lk = localStorage.getItem("fullswap_license_key") ?? "";
       try {
@@ -1336,16 +1346,28 @@ export default function StreamPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Heartbeat — ping the server every 10s while streaming.
-  // The server re-checks the user's live balance on each ping.
-  // FREEZE DETECTION: 3 consecutive failures (30s) = stream is frozen →
-  // auto-kill the session immediately to stop wasting Decart credits.
+  // Heartbeat — ticks every 3s but fires at variable intervals.
+  // RC#2: Normal mode fires every 10s. Low-wallet mode (<=30s remaining) fires
+  // every 3s to tighten the detection gap and reduce post-expiry Decart billing.
+  // FREEZE DETECTION: 3 consecutive fired heartbeats that all fail = frozen →
+  // auto-kill immediately. In low-wallet mode this is 9s; normal mode is 30s.
   useEffect(() => {
     if (!isStreaming || !activeSession) return;
     let consecutiveFailures = 0;
-    const MAX_FAILURES = 3; // 3 × 10s = 30s of silence → treat as frozen
+    const MAX_FAILURES = 3;
+    // RC#2: gate controls actual heartbeat fire frequency
+    let lastHbFiredMs = 0;
+    const NORMAL_HB_MS         = 10_000; // fire every 10s when wallet is healthy
+    const LOW_WALLET_HB_MS     = 3_000;  // fire every 3s when wallet is nearly empty
+    const LOW_WALLET_THRESH_SEC = 30;     // threshold to switch to fast mode
 
     const id = setInterval(async () => {
+      // RC#2: compute wallet remaining from refs (no React state read in interval)
+      const walletSec = Math.max(0, streamStartRemRef.current - elapsedSecsRef.current);
+      const minGapMs  = walletSec <= LOW_WALLET_THRESH_SEC ? LOW_WALLET_HB_MS : NORMAL_HB_MS;
+      if (Date.now() - lastHbFiredMs < minGapMs) return; // too soon — skip this tick
+      lastHbFiredMs = Date.now();
+
       try {
         // AbortSignal.timeout may be unsupported in some environments —
         // fall back gracefully so heartbeats always reach the server.
@@ -1420,7 +1442,7 @@ export default function StreamPage() {
         });
         if (sid) stopStreamInternally(sid, elapsedSecsRef.current, false);
       }
-    }, 10_000); // 10s — well under the server's 35s HEARTBEAT_GRACE_MS
+    }, 3_000); // RC#2: tick every 3s; gate above controls actual fire at 10s or 3s
 
     return () => clearInterval(id);
   // elapsedSecs removed from deps — read via elapsedSecsRef.current instead.
