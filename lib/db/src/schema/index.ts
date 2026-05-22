@@ -15,3 +15,4 @@ export * from "./billing-rate-audit";
 export * from "./session-accounting";
 export * from "./stream-ledger";
 export * from "./license-wallet";
+export * from "./session-billing-events";

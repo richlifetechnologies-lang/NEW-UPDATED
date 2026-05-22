@@ -8,6 +8,7 @@ import { notifySessionDead } from "../lib/notifications";
 import { logger } from "../lib/logger";
 import { emitSessionStarted, emitSessionSettled, emitWalletUpdated } from "../lib/billing-ws";
 import { getBillingRateForLicense } from "../lib/billing-rate-cache";
+import { logSessionBillingEvent } from "../lib/session-billing-logger";
 
 // ── All billing/timing constants imported from single source of truth ──────
 // Billing rate IS needed for heartbeat exhaustion check (DISPLAY-BOUND model):
@@ -250,6 +251,8 @@ function startOrphanSweeper() {
         const licKey = await getLicenseKeyString(s.licenseKeyId);
         if (licKey) invalidateLicenseTokenCache(licKey);
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
+        // ── Observability: orphan_kill (fire-and-forget) ──────────────────────
+        logSessionBillingEvent({ sessionId: s.id, eventType: "orphan_kill", metadata: { durationSecs, reason: "orphan" } });
       }
 
       // ── Pass 2: Deduction-freeze kill ───────────────────────────────────────
@@ -272,6 +275,8 @@ function startOrphanSweeper() {
         const licKey = await getLicenseKeyString(s.licenseKeyId);
         if (licKey) invalidateLicenseTokenCache(licKey);
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "freeze", killedAt: endAt }).catch(() => {});
+        // ── Observability: freeze_kill (fire-and-forget) ──────────────────────
+        logSessionBillingEvent({ sessionId: s.id, eventType: "freeze_kill", metadata: { durationSecs, reason: "freeze" } });
       }
     } catch (err) {
       logger.error({ err }, "[sessions] sweeper failed");
@@ -380,6 +385,14 @@ router.post("/", requireLicense, async (req, res) => {
 
   logger.info({ sessionId, licenseId: license.id, reservedSec: MINIMUM_RESERVATION_SEC, remainingSec: Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC) }, "[Session] session_start");
 
+  // ── Observability: connect event (fire-and-forget) ────────────────────────
+  logSessionBillingEvent({
+    sessionId,
+    eventType: "connect",
+    walletRemainingSeconds: Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC),
+    metadata: { licenseId: license.id, style },
+  });
+
   // Observability push — does NOT affect billing (non-fatal)
   emitSessionStarted(sessionId, license.id);
   emitWalletUpdated(license.id, (license.usedSeconds ?? 0) + MINIMUM_RESERVATION_SEC, Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC));
@@ -400,6 +413,15 @@ router.post("/:sessionId/output-started", requireLicense, async (req, res) => {
   await db.update(sessionsTable)
     .set({ billingStartedAt: now, lastDeductedAt: now, lastHeartbeatAt: now })
     .where(eq(sessionsTable.id, sessionId));
+
+  // ── Observability: stream_start (fire-and-forget) ─────────────────────────
+  logSessionBillingEvent({
+    sessionId,
+    decartSessionId: session.decartSessionId ?? undefined,
+    eventType: "stream_start",
+    metadata: { billingStartedAt: now.toISOString() },
+  });
+
   res.json({ billingStartedAt: now });
 });
 
@@ -509,9 +531,23 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
     invalidateLicenseTokenCache(licenseKey);
     // Fire Telegram alert: display time ran out during active stream
     notifySessionDead({ sessionId, licenseKey: license?.key ?? null, durationSecs: totalDuration, reason: "out_of_time", killedAt: now }).catch(() => {});
+    // ── Observability: heartbeat_exhausted (fire-and-forget) ──────────────────
+    logSessionBillingEvent({
+      sessionId,
+      eventType: "heartbeat_exhausted",
+      walletRemainingSeconds: 0,
+      metadata: { reason: "no_time", totalDuration },
+    });
     res.json({ ok: false, reason: "no_time" });
     return;
   }
+
+  // ── Observability: heartbeat_ok (fire-and-forget) ─────────────────────────
+  logSessionBillingEvent({
+    sessionId,
+    eventType: "heartbeat_ok",
+    walletRemainingSeconds: newRealRemaining,
+  });
 
   res.json({ ok: true });
 });
@@ -534,6 +570,9 @@ router.post("/:sessionId/stop", requireLicense, async (req, res) => {
   await settleSession(sessionId);
   // Invalidate token cache so no stale token can be immediately reused
   invalidateLicenseTokenCache(licenseKey);
+  // ── Observability: stop + disconnect (fire-and-forget) ───────────────────
+  logSessionBillingEvent({ sessionId, eventType: "stop", metadata: { trigger: "client_stop" } });
+  logSessionBillingEvent({ sessionId, eventType: "disconnect", metadata: { trigger: "client_stop" } });
   const [updated] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   res.json(formatSession(updated));
 });

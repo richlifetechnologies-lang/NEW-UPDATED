@@ -19,6 +19,7 @@ import adminUnifiedRouter from "./admin-unified";
 import streamHealthRouter from "./admin-stream-health";
 import profitOptimizerRouter from "./admin-profit-optimizer";
 import tokenWindowRouter from "./admin-token-window";
+import sessionIntelligenceRouter from "./admin-session-intelligence";
 
 const router: IRouter = Router();
 
@@ -39,6 +40,7 @@ router.use("/admin/unified", adminUnifiedRouter);
 router.use("/admin", streamHealthRouter);
 router.use("/admin/profit-optimizer", profitOptimizerRouter);
 router.use("/admin/token-window", tokenWindowRouter);
+router.use("/admin/session-intelligence", sessionIntelligenceRouter);
 router.use(downloadRouter);
 router.use("/subadmin", subAdminRouter);
 router.use("/license", licenseRouter);

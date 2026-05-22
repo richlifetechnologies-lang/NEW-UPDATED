@@ -6,6 +6,7 @@ import { db, decartApiKeysTable, sessionsTable, licenseKeysTable, settingsTable 
 import { eq, isNull, and } from "drizzle-orm";
 import { getBillingRateForLicense } from "../lib/billing-rate-cache";
 import { computeCompressionFactor, computeDisplaySeconds, licenseRemainingSeconds } from "../lib/billing-math";
+import { logSessionBillingEvent } from "../lib/session-billing-logger";
 
 const router = Router();
 
@@ -121,7 +122,7 @@ async function getOrCreateToken(
     // Reuse token if still valid AND was issued for the SAME API key.
     // FIX (Bug #3): invalidate cache when license is reassigned to a different
     // Decart API key so the old key's token is never used for the new key.
-    return { apiKey: cached.apiKey, expiresAt: cached.expiresAt };
+    return { apiKey: cached.apiKey, expiresAt: cached.expiresAt, _cacheHit: true as const };
   }
 
   // Create new token
@@ -146,7 +147,7 @@ async function getOrCreateToken(
   };
 
   tokenCache.set(licenseKey, cached_token);
-  return { apiKey: tokenResponse.apiKey, expiresAt: expiresAtMs };
+  return { apiKey: tokenResponse.apiKey, expiresAt: expiresAtMs, _cacheHit: false as const };
 }
 
 // GET /api/decart/token -- returns a short-lived Decart streaming token for licensed users
@@ -221,6 +222,36 @@ router.get("/token", requireLicense, async (req, res) => {
     }
 
     decartPool.reportSuccess(resolvedKey.id);
+
+    // ── Observability: log token_issued / token_cache_hit ──────────────────────
+    // True fire-and-forget via setImmediate — NEVER blocks the response pipeline.
+    // Capture all closure variables by value before the async boundary.
+    const _cacheHit = (tokenResult as any)._cacheHit === true;
+    const _licenseKey = licenseKey;
+    const _remainingSeconds = remainingSeconds;
+    const _tokenWindow = tokenWindow;
+    const _resolvedKeyId = resolvedKey.id;
+    setImmediate(() => {
+      (async () => {
+        try {
+          const [activeLic] = await db.select({ id: licenseKeysTable.id })
+            .from(licenseKeysTable).where(eq(licenseKeysTable.key, _licenseKey)).limit(1);
+          if (!activeLic) return;
+          const [activeS] = await db.select({ id: sessionsTable.id })
+            .from(sessionsTable)
+            .where(and(eq(sessionsTable.licenseKeyId, activeLic.id), eq(sessionsTable.status, "active")))
+            .limit(1);
+          if (!activeS) return;
+          logSessionBillingEvent({
+            sessionId: activeS.id,
+            eventType: _cacheHit ? "token_cache_hit" : "token_issued",
+            walletRemainingSeconds: _remainingSeconds,
+            tokenWindowSeconds: _tokenWindow,
+            metadata: { cacheHit: _cacheHit, resolvedKeyId: _resolvedKeyId },
+          });
+        } catch { /* non-fatal */ }
+      })();
+    });
 
     // Track which Decart key served this session (for credit tracking)
     try {
