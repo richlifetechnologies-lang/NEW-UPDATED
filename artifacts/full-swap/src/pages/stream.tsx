@@ -448,6 +448,9 @@ export default function StreamPage() {
     setIsStreaming(false);
     setAudioPipelineActive(false);
     setConnectionStatus("idle");
+    // Reset audio toggle so it auto-starts fresh on the next session
+    setAudioEnabled(false);
+    audioEnabledRef.current = false;
 
     // 7. Call backend /stop using fetch+keepalive (safe for all paths including unload)
     const sid  = activeSessionRef.current;
@@ -987,6 +990,15 @@ export default function StreamPage() {
             audioDelayNodeRef.current.delayTime.setTargetAtTime(autoDelay / 1000, audioContextRef.current.currentTime, 0.1);
             audioDelayMsRef.current = autoDelay;
             setAudioDelayMs(autoDelay);
+          }
+
+          // Auto-start audio pipeline on every new stream so voice always syncs
+          // to video without the user needing to toggle it on manually.
+          // Guard prevents double-starting if the user already enabled it before clicking Stream Now.
+          if (!audioEnabledRef.current) {
+            audioEnabledRef.current = true;
+            setAudioEnabled(true);
+            startAudioPipeline(selectedMicId || undefined);
           }
 
           // Stamp wall-clock start so the elapsed timer is accurate even when the
