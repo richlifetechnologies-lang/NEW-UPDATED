@@ -1,4 +1,4 @@
-import { pgTable, text, integer, real, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, real, timestamp, varchar, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -22,6 +22,7 @@ export const sessionsTable = pgTable("sessions", {
   billingStartedAt: timestamp("billing_started_at"),
   lastDeductedAt: timestamp("last_deducted_at"),
   billingRateSnapshot: real("billing_rate_snapshot"), // H-02: immutable snapshot of billing rate at session creation
+  decartSessionId: varchar("decart_session_id", { length: 255 }), // SDK cross-reference ID captured after realtime.connect()
 });
 
 export const insertSessionSchema = createInsertSchema(sessionsTable).omit({ startedAt: true });

@@ -5,7 +5,7 @@ import { decartPool } from "../lib/decart-pool";
 import { db, decartApiKeysTable, sessionsTable, licenseKeysTable, settingsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { getBillingRateForLicense } from "../lib/billing-rate-cache";
-import { computeCompressionFactor, computeDisplaySeconds } from "../lib/billing-math";
+import { computeCompressionFactor, computeDisplaySeconds, licenseRemainingSeconds } from "../lib/billing-math";
 
 const router = Router();
 
@@ -17,10 +17,14 @@ interface RateLimitEntry { count: number; resetAt: number }
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
 // ---- Token cache (by license key) --------------------------------
-// BUG #2 FIX: persist to DB instead of in-process Map so cache survives Railway
-// restarts. If DB persist is unavailable we fall back to the in-process Map so
-// cold starts still work — they just issue one extra token that cycle.
-interface CachedToken { apiKey: string; expiresAt: number; sourceKeyId: number }
+// tokenWindowSec is stored so wallet-window validation can detect when the
+// cached token's original window exceeds the current wallet balance.
+interface CachedToken {
+  apiKey: string;
+  expiresAt: number;
+  sourceKeyId: number;
+  tokenWindowSec: number; // window used at creation time — for wallet-window validation
+}
 const tokenCache = new Map<string, CachedToken>();
 
 // TOKEN_WINDOW_SEC — fallback default when no per-key/sub-admin/global window is set.
@@ -98,15 +102,25 @@ async function getOrCreateToken(
   licenseKey: string,
   apiKeyToUse: string,
   tokenWindowSec: number,
-  sourceKeyId: number
+  sourceKeyId: number,
+  currentRemainingSeconds: number
 ): Promise<{ apiKey: string; expiresAt: number } | null> {
   const now = Date.now();
   const cached = tokenCache.get(licenseKey);
 
-  // Reuse token if still valid AND was issued for the SAME API key.
-  // FIX (Bug #3): invalidate cache when license is reassigned to a different
-  // Decart API key so the old key's token is never used for the new key.
-  if (cached && cached.expiresAt - now > 30000 && cached.sourceKeyId === sourceKeyId) {
+  // Wallet-window validation: discard cached token if wallet shrank below its window.
+  // A stale token with tokenWindowSec > currentRemainingSeconds would allow a Decart
+  // session longer than the user's wallet can cover.
+  if (cached && cached.tokenWindowSec > currentRemainingSeconds) {
+    tokenCache.delete(licenseKey);
+  } else if (
+    cached &&
+    cached.expiresAt - now > 30_000 &&
+    cached.sourceKeyId === sourceKeyId
+  ) {
+    // Reuse token if still valid AND was issued for the SAME API key.
+    // FIX (Bug #3): invalidate cache when license is reassigned to a different
+    // Decart API key so the old key's token is never used for the new key.
     return { apiKey: cached.apiKey, expiresAt: cached.expiresAt };
   }
 
@@ -128,6 +142,7 @@ async function getOrCreateToken(
     apiKey: tokenResponse.apiKey,
     expiresAt: expiresAtMs,
     sourceKeyId,
+    tokenWindowSec, // store for wallet-window validation on next reuse
   };
 
   tokenCache.set(licenseKey, cached_token);
@@ -197,7 +212,7 @@ router.get("/token", requireLicense, async (req, res) => {
     // Cap to remaining seconds so we never pre-reserve more than what's left.
     const resolvedWindowSec = await resolveTokenWindowSec(license);
     const tokenWindow = Math.min(remainingSeconds, resolvedWindowSec);
-    const tokenResult = await getOrCreateToken(licenseKey, resolvedKey.apiKey, tokenWindow, resolvedKey.id);
+    const tokenResult = await getOrCreateToken(licenseKey, resolvedKey.apiKey, tokenWindow, resolvedKey.id, remainingSeconds);
 
     if (!tokenResult) {
       decartPool.reportFailure(resolvedKey.id);
@@ -253,9 +268,11 @@ export function getDecartKeyIdFromCache(licenseKey: string): number | null {
 
 /**
  * Evict the cached token for a license key immediately.
- * Call this after admin reassigns a license key to a different Decart API key
- * so the very next stream request fetches a fresh token from the new key
- * instead of reusing the old key's token for up to 30+ more seconds.
+ * Call this after:
+ *   - Admin reassigns a license key to a different Decart API key
+ *   - Session wallet becomes exhausted (heartbeat no_time)
+ *   - Session is stopped or settled by the orphan sweeper
+ *   - Admin force-stops a session
  */
 export function invalidateLicenseTokenCache(licenseKey: string): void {
   tokenCache.delete(licenseKey.trim().toUpperCase());

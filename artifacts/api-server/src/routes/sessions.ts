@@ -3,7 +3,7 @@ import { db, sessionsTable, licenseKeysTable, decartApiKeysTable } from "@worksp
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireLicense } from "../lib/auth";
 import { randomUUID } from "crypto";
-import { getDecartKeyIdFromCache } from "./decart";
+import { getDecartKeyIdFromCache, invalidateLicenseTokenCache } from "./decart";
 import { notifySessionDead } from "../lib/notifications";
 import { logger } from "../lib/logger";
 import { emitSessionStarted, emitSessionSettled, emitWalletUpdated } from "../lib/billing-ws";
@@ -160,6 +160,22 @@ async function ensureDecartKeyLinked(s: { id: string; decartKeyId: number | null
   }
 }
 
+/**
+ * Look up the license key string for a given licenseKeyId.
+ * Returns null if not found or on DB error.
+ * Used by the orphan sweeper to invalidate the token cache after settling.
+ */
+async function getLicenseKeyString(licenseKeyId: number | null): Promise<string | null> {
+  if (!licenseKeyId) return null;
+  try {
+    const [lic] = await db.select({ key: licenseKeysTable.key })
+      .from(licenseKeysTable)
+      .where(eq(licenseKeysTable.id, licenseKeyId))
+      .limit(1);
+    return lic?.key ?? null;
+  } catch { return null; }
+}
+
 // ───────────────────────────────────────────────────────────────────
 //  Startup cleanup — settle sessions left open from before this
 //  process started (server crash / restart). Runs once, immediately.
@@ -186,6 +202,9 @@ async function settleStartupOrphans() {
       const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
       logger.info({ sessionId: s.id, durationSecs }, "[Session] startup_orphan_kill");
       await settleSession(s.id, { endAt });
+      // Invalidate token cache so no stale token can be reused for this license
+      const licKey = await getLicenseKeyString(s.licenseKeyId);
+      if (licKey) invalidateLicenseTokenCache(licKey);
       notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
     }
     if (stale.length > 0) {
@@ -227,6 +246,9 @@ function startOrphanSweeper() {
         const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
         logger.info({ sessionId: s.id, durationSecs }, "[Session] orphan_kill no_heartbeat");
         await settleSession(s.id, { endAt });
+        // Invalidate token cache for this license key after orphan settle
+        const licKey = await getLicenseKeyString(s.licenseKeyId);
+        if (licKey) invalidateLicenseTokenCache(licKey);
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
       }
 
@@ -246,6 +268,9 @@ function startOrphanSweeper() {
         const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
         logger.info({ sessionId: s.id, durationSecs }, "[Session] freeze_kill deduction_frozen");
         await settleSession(s.id, { endAt });
+        // Invalidate token cache for this license key after freeze kill
+        const licKey = await getLicenseKeyString(s.licenseKeyId);
+        if (licKey) invalidateLicenseTokenCache(licKey);
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "freeze", killedAt: endAt }).catch(() => {});
       }
     } catch (err) {
@@ -480,6 +505,8 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
     await db.update(sessionsTable)
       .set({ status: "stopped", stoppedAt: now, durationSeconds: totalDuration })
       .where(eq(sessionsTable.id, sessionId));
+    // Invalidate token cache immediately so no stale token can start a new stream
+    invalidateLicenseTokenCache(licenseKey);
     // Fire Telegram alert: display time ran out during active stream
     notifySessionDead({ sessionId, licenseKey: license?.key ?? null, durationSecs: totalDuration, reason: "out_of_time", killedAt: now }).catch(() => {});
     res.json({ ok: false, reason: "no_time" });
@@ -490,8 +517,9 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
 });
 
 router.post("/:sessionId/stop", requireLicense, async (req, res) => {
-  const license   = (req as any).license;
-  const sessionId = req.params["sessionId"] as string;
+  const license    = (req as any).license;
+  const licenseKey = (req as any).licenseKey as string;
+  const sessionId  = req.params["sessionId"] as string;
 
   const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   if (!session || session.licenseKeyId !== license.id) { res.status(404).json({ error: "Session not found" }); return; }
@@ -504,8 +532,40 @@ router.post("/:sessionId/stop", requireLicense, async (req, res) => {
 
   logger.info({ sessionId, trigger: "client_stop" }, "[Session] stop_session");
   await settleSession(sessionId);
+  // Invalidate token cache so no stale token can be immediately reused
+  invalidateLicenseTokenCache(licenseKey);
   const [updated] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
   res.json(formatSession(updated));
+});
+
+// ───────────────────────────────────────────────────────────────────
+//  Attach Decart Session ID
+//  Called by the frontend immediately after realtime.connect() resolves
+//  if the SDK exposes a sessionId or connectionId on the client object.
+//  Stores the cross-reference for potential future SDK terminate() support.
+// ───────────────────────────────────────────────────────────────────
+router.post("/:sessionId/attach-decart-session", requireLicense, async (req, res) => {
+  const license   = (req as any).license;
+  const sessionId = req.params["sessionId"] as string;
+  const { decartSessionId } = (req.body as any) ?? {};
+
+  if (!decartSessionId || typeof decartSessionId !== "string") {
+    res.status(400).json({ error: "decartSessionId is required" });
+    return;
+  }
+
+  const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
+  if (!session || session.licenseKeyId !== license.id) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  await db.update(sessionsTable)
+    .set({ decartSessionId: decartSessionId.trim() })
+    .where(eq(sessionsTable.id, sessionId));
+
+  logger.info({ sessionId, decartSessionId }, "[Session] decart_session_id_attached");
+  res.json({ ok: true });
 });
 
 export default router;

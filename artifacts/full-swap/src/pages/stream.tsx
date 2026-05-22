@@ -391,38 +391,84 @@ export default function StreamPage() {
 
   const selectedStyleData = STYLES.find(s => s.id === selectedStyle);
 
-  const stopStreamInternally = useCallback(async (sessionId: string, secs: number, trialExpired = false) => {
-    if (timerRef.current)        clearInterval(timerRef.current);
-    timerRef.current = null;  // must null so next stream's first-frame guard works correctly
-    if (tokenRefreshRef.current) clearInterval(tokenRefreshRef.current);
-    tokenRefreshRef.current = null;
-    decartClientRef.current?.disconnect();
+  // ── Centralized stream teardown ───────────────────────────────────────────
+  // ALL disconnect paths funnel through here. Reads from refs so it is safe to
+  // call from async contexts, closures, and unload handlers without stale state.
+  //
+  // reason values:
+  //   undefined         — normal user stop (shows "Session stopped" toast)
+  //   "license_exhausted" — wallet empty (no toast — caller shows its own)
+  //   "dropped"         — Decart WebRTC drop (no toast — caller already toasted)
+  //   "unload"          — page close / beforeunload (no toast, fire-and-forget)
+  const teardownStream = useCallback(async (reason?: string) => {
+    // 1. Clear timers immediately
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
+
+    // 2. Stop camera and microphone tracks explicitly
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    micStreamRef.current?.getTracks().forEach(t => t.stop());
+
+    // 3. Audio pipeline cleanup
+    if (vuAnimFrameRef.current) { cancelAnimationFrame(vuAnimFrameRef.current); vuAnimFrameRef.current = null; }
+    if (audioContextRef.current) { audioContextRef.current.close().catch(() => {}); audioContextRef.current = null; }
+    audioDelayNodeRef.current = null;
+    audioGainNodeRef.current  = null;
+    audioAnalyserRef.current  = null;
+    micStreamRef.current = null;
+
+    // 4. Disconnect Decart WebRTC session (wrapped — already disconnected on drop path)
+    try { await decartClientRef.current?.disconnect(); } catch { /* best effort */ }
     decartClientRef.current = null;
-    // Clear popout video so OBS shows a black/idle frame — window stays open
+
+    // 5. Clear video UI
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
       try {
         const v = popoutWindowRef.current.document.getElementById("v") as HTMLVideoElement | null;
         if (v) v.srcObject = null;
       } catch { /* cross-origin guard */ }
     }
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-    activeSessionRef.current = null;
 
-    try {
-      await stopSession.mutateAsync({ sessionId, data: {} });
-      queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
-    } catch { /* best effort */ }
-
+    // 6. Reset state
     setIsStreaming(false);
-    setActiveSession(null);
-    setElapsedSecs(0);
+    setAudioPipelineActive(false);
     setConnectionStatus("idle");
 
-    if (!trialExpired) {
+    // 7. Call backend /stop using fetch+keepalive (safe for all paths including unload)
+    const sid  = activeSessionRef.current;
+    const secs = elapsedSecsRef.current;
+    activeSessionRef.current = null;
+    if (sid) {
+      const lk = localStorage.getItem("fullswap_license_key") ?? "";
+      try {
+        await fetch(`/api/sessions/${sid}/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-License-Key": lk, "X-Device-ID": getDeviceId() },
+          body: JSON.stringify({}),
+          keepalive: true,
+        });
+      } catch { /* best effort */ }
+      if (reason !== "unload") {
+        queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
+      }
+    }
+
+    setActiveSession(null);
+    setElapsedSecs(0);
+
+    if (!reason || (reason !== "license_exhausted" && reason !== "dropped" && reason !== "unload")) {
       toast({ title: "Session stopped", description: `Streamed for ${formatTime(secs)}` });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopSession, queryClient, licKey, toast]);
+  }, [queryClient, licKey, toast]);
+
+  // Thin wrapper preserving the legacy call signature used across the component.
+  // Delegates entirely to teardownStream so all paths share a single code path.
+  const stopStreamInternally = useCallback(async (sessionId: string, secs: number, trialExpired = false) => {
+    await teardownStream(trialExpired ? "license_exhausted" : undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teardownStream]);
 
   const enumerateCameras = useCallback(async () => {
     try {
@@ -838,25 +884,10 @@ export default function StreamPage() {
               description: "Connection lost — click Stream Now to reconnect.",
               variant: "destructive",
             });
-            // Stop the server session immediately so billing halts.
-            // Without this the session stays "active" and keeps charging until the
-            // orphan sweeper runs (up to HEARTBEAT_GRACE_MS = 35s later).
-            const droppedSid = activeSessionRef.current;
-            if (droppedSid) {
-              const licKey = localStorage.getItem("fullswap_license_key") ?? "";
-              console.info(`[Stream] decart_drop_stop sessionId=${droppedSid}`);
-              fetch(`/api/sessions/${droppedSid}/stop`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-                body: JSON.stringify({}),
-                keepalive: true,
-              }).catch(() => {});
-              activeSessionRef.current = null;
-              if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-              if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
-              setIsStreaming(false);
-              setElapsedSecs(0);
-            }
+            // Route through centralized teardown. "dropped" suppresses the
+            // generic "Session stopped" toast (we just showed our own above).
+            // Uses fetch+keepalive internally so the /stop call always flushes.
+            teardownStream("dropped").catch(() => {});
           }
         },
         onError: (err: unknown) => {
@@ -869,6 +900,24 @@ export default function StreamPage() {
 
       decartClientRef.current = realtimeClient;
       console.info("[Decart] SDK client connected successfully. Waiting for first remote frame...");
+
+      // Capture Decart's internal session ID for cross-reference and potential
+      // future SDK terminate() support. Fire-and-forget — non-fatal if absent.
+      {
+        const decartSid = (realtimeClient as any).sessionId
+          ?? (realtimeClient as any).connectionId
+          ?? (realtimeClient as any).id
+          ?? null;
+        if (decartSid) {
+          const _lk = localStorage.getItem("fullswap_license_key") ?? "";
+          fetch(`/api/sessions/${sessionId}/attach-decart-session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-License-Key": _lk, "X-Device-ID": getDeviceId() },
+            body: JSON.stringify({ decartSessionId: String(decartSid) }),
+          }).catch(() => {});
+          console.info("[Decart] session ID captured for cross-reference:", decartSid);
+        }
+      }
 
       // Apply reference image after connect — setImage() is the correct post-connect API.
       // We intentionally do NOT pass image in initialState: passing a File there causes
@@ -963,45 +1012,26 @@ export default function StreamPage() {
 
   useEffect(() => {
     return () => {
-      if (timerRef.current)        clearInterval(timerRef.current);
-      if (tokenRefreshRef.current) clearInterval(tokenRefreshRef.current);
-      decartClientRef.current?.disconnect();
-      if (popoutWindowRef.current && !popoutWindowRef.current.closed) { popoutWindowRef.current.close(); popoutWindowRef.current = null; }
-      cameraStreamRef.current?.getTracks().forEach(t => t.stop());
-      // Audio pipeline cleanup
-      if (vuAnimFrameRef.current) cancelAnimationFrame(vuAnimFrameRef.current);
-      if (audioContextRef.current) { audioContextRef.current.close().catch(() => {}); audioContextRef.current = null; }
-      micStreamRef.current?.getTracks().forEach(t => t.stop());
-      const sid = activeSessionRef.current;
-      if (sid) {
-        const licKey = localStorage.getItem("fullswap_license_key") ?? "";
-        fetch(`/api/sessions/${sid}/stop`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-          body: JSON.stringify({}),
-          keepalive: true,
-        }).catch(() => {});
-        activeSessionRef.current = null;
+      // Route through centralized teardown so all media/audio/billing cleanup
+      // is handled in one place. teardownStream uses fetch+keepalive internally
+      // so the /stop call flushes even after the component unmounts.
+      // Popout window is still closed explicitly here since teardownStream
+      // leaves it open (OBS users may want the window to persist between streams).
+      if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+        popoutWindowRef.current.close();
+        popoutWindowRef.current = null;
       }
+      teardownStream("unload").catch(() => {});
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     function handleUnload() {
-      const sid = activeSessionRef.current;
-      if (!sid) return;
-      const licKey = localStorage.getItem("fullswap_license_key") ?? "";
-      // fetch+keepalive is the correct approach for unload — it supports custom headers
-      // (unlike sendBeacon which cannot set X-License-Key, causing a 401 → orphaned session).
-      // Browsers guarantee keepalive fetches flush even after the page unloads.
-      const url = `/api/sessions/${sid}/stop`;
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
-        body: JSON.stringify({}),
-        keepalive: true,
-      }).catch(() => {});
-      activeSessionRef.current = null;
+      // Cannot await in synchronous unload handlers.
+      // teardownStream("unload") uses fetch+keepalive internally so the /stop
+      // request flushes even after the page is destroyed.
+      teardownStream("unload").catch(() => {});
     }
     window.addEventListener("pagehide", handleUnload);
     window.addEventListener("beforeunload", handleUnload);
@@ -1009,6 +1039,7 @@ export default function StreamPage() {
       window.removeEventListener("pagehide", handleUnload);
       window.removeEventListener("beforeunload", handleUnload);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Heartbeat — ping the server every 10s while streaming.
