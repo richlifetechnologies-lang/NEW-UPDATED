@@ -125,19 +125,25 @@ export default function PopoutPage() {
         style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", transform: "scaleX(-1)" }}
       />
 
-      {/* Badge — hidden in OBS mode or when controls are hidden */}
+      {/* OBS MODE button — replaces badge. Click to lock controls off for a clean OBS capture */}
       {!obsMode && (
-        <div style={{
-          position: "fixed", top: 12, left: 12,
-          background: "rgba(0,210,211,0.85)", color: "#fff",
-          fontFamily: "monospace", fontSize: 11, fontWeight: 700,
-          padding: "4px 10px", borderRadius: 20, letterSpacing: 1,
-          pointerEvents: "none",
-          opacity: controlsVisible ? 1 : 0,
-          transition: "opacity 0.4s ease",
-        }}>
-          ● FULL SWAP BY RICH · AI OUTPUT
-        </div>
+        <button
+          onClick={() => setControlsVisible(false)}
+          title="Click to hide all controls for clean OBS capture"
+          style={{
+            position: "fixed", top: 12, left: 12,
+            background: "rgba(0,210,211,0.85)", color: "#fff",
+            fontFamily: "monospace", fontSize: 11, fontWeight: 700,
+            padding: "4px 14px", borderRadius: 20, letterSpacing: 1,
+            border: "none", cursor: "pointer",
+            opacity: controlsVisible ? 1 : 0,
+            transition: "opacity 0.4s ease",
+            pointerEvents: controlsVisible ? "auto" : "none",
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+        >
+          <span style={{ fontSize: 9, opacity: 0.85 }}>●</span> OBS MODE
+        </button>
       )}
 
       {/* Top-right controls — hidden in OBS mode, fade out on inactivity */}
