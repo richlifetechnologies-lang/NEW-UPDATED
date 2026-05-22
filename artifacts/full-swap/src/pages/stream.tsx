@@ -906,21 +906,41 @@ export default function StreamPage() {
       decartClientRef.current = realtimeClient;
       console.info("[Decart] SDK client connected successfully. Waiting for first remote frame...");
 
-      // Capture Decart's internal session ID for cross-reference and potential
-      // future SDK terminate() support. Fire-and-forget — non-fatal if absent.
+      // Attach Decart's session ID for cross-reference tracking.
+      // Fire-and-forget — never blocks streaming, never throws.
+      // Always fires: retries after 500 ms in case the SDK populates IDs
+      // asynchronously, then falls back to a generated connection marker so
+      // the /attach-decart-session call is NEVER skipped.
       {
-        const decartSid = (realtimeClient as any).sessionId
-          ?? (realtimeClient as any).connectionId
-          ?? (realtimeClient as any).id
-          ?? null;
-        if (decartSid) {
-          const _lk = localStorage.getItem("fullswap_license_key") ?? "";
+        const _lk  = localStorage.getItem("fullswap_license_key") ?? "";
+        const _did = getDeviceId();
+        const extractDecartSid = (client: unknown): string | null => {
+          const c = client as any;
+          return c?.sessionId
+            ?? c?.connectionId
+            ?? c?.id
+            ?? c?.session?.id
+            ?? c?.connection?.id
+            ?? c?.peer?.id
+            ?? null;
+        };
+        const doAttach = (sid: string) => {
           fetch(`/api/sessions/${sessionId}/attach-decart-session`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-License-Key": _lk, "X-Device-ID": getDeviceId() },
-            body: JSON.stringify({ decartSessionId: String(decartSid) }),
+            headers: { "Content-Type": "application/json", "X-License-Key": _lk, "X-Device-ID": _did },
+            body: JSON.stringify({ decartSessionId: sid }),
           }).catch(() => {});
-          console.info("[Decart] session ID captured for cross-reference:", decartSid);
+          console.info("[Decart] attach-decart-session →", sid);
+        };
+        const immediateSid = extractDecartSid(realtimeClient);
+        if (immediateSid) {
+          doAttach(immediateSid);
+        } else {
+          setTimeout(() => {
+            const delaySid = extractDecartSid(realtimeClient)
+              ?? `decart-conn-${sessionId.slice(0, 8)}-${Date.now()}`;
+            doAttach(delaySid);
+          }, 500);
         }
       }
 
