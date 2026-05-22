@@ -325,6 +325,8 @@ export default function StreamPage() {
   const [selectedStyle,     setSelectedStyle]     = useState("natural");
   const [isStreaming,       setIsStreaming]        = useState(false);
   const [isPopoutOpen,      setIsPopoutOpen]      = useState(false);
+  const [isObsModeActive,   setIsObsModeActive]   = useState(false);
+  const [obsInstructions,   setObsInstructions]   = useState(false);
   const [cameraReady,       setCameraReady]        = useState(false);
   const [elapsedSecs,       setElapsedSecs]        = useState(0);
   const [connectionStatus,  setConnectionStatus]   = useState<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
@@ -781,7 +783,53 @@ export default function StreamPage() {
     }
     popoutWindowRef.current = null;
     setIsPopoutOpen(false);
+    setIsObsModeActive(false);
+    setObsInstructions(false);
   }, []);
+
+  // Opens a clean popout with all UI hidden — designed to be captured by OBS
+  const openObsMode = useCallback(() => {
+    if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+      popoutWindowRef.current.focus();
+      setObsInstructions(true);
+      return;
+    }
+    const popWin = window.open(
+      "/popout?obs=1",
+      "fullswap-popout",
+      "width=1280,height=720,resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no",
+    );
+    if (!popWin) {
+      toast({ title: "Popup blocked", description: "Allow popups for this site in your browser, then try again.", variant: "destructive" });
+      return;
+    }
+    popoutWindowRef.current = popWin;
+    setIsPopoutOpen(true);
+    setIsObsModeActive(true);
+    setObsInstructions(true);
+
+    const pipe = () => {
+      if (!popWin || popWin.closed) return;
+      try {
+        const v = popWin.document.getElementById("v") as HTMLVideoElement | null;
+        if (!v) { setTimeout(pipe, 100); return; }
+        const stream = remoteVideoRef.current?.srcObject as MediaStream | null;
+        if (stream) { v.srcObject = stream; v.play().catch(() => {}); }
+      } catch { /* cross-origin guard */ }
+    };
+    if (popWin.document.readyState === "complete") { pipe(); }
+    else { popWin.addEventListener("load", pipe, { once: true }); }
+
+    const poll = setInterval(() => {
+      if (popWin.closed) {
+        clearInterval(poll);
+        popoutWindowRef.current = null;
+        setIsPopoutOpen(false);
+        setIsObsModeActive(false);
+        setObsInstructions(false);
+      }
+    }, 500);
+  }, [toast]);
 
   const stopAudioPipeline = useCallback(() => {
     stopVuMeter();
@@ -1698,15 +1746,57 @@ export default function StreamPage() {
               {/* Top-right controls — OBS popout + fullscreen (hidden in fullscreen) */}
               {!isFullscreen && (
                 <div className="absolute top-3 right-3 flex gap-2" style={{ zIndex: 20 }}>
-                  {/* OBS popout button */}
+                  {/* OBS MODE button — opens clean popout designed for OBS capture */}
                   <button
-                    onClick={isPopoutOpen ? closePopout : openPopout}
-                    title={isPopoutOpen ? "Close OBS popout" : "Float for OBS (opens watermark-free popout)"}
+                    onClick={isObsModeActive ? closePopout : openObsMode}
+                    title={isObsModeActive ? "Close OBS Mode" : "Open OBS Mode — clean window for OBS capture"}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-full transition-all hover:brightness-125 cursor-pointer"
+                    style={{
+                      background: isObsModeActive ? "rgba(0,210,211,0.9)" : "rgba(0,0,0,0.55)",
+                      color: "#fff",
+                      border: isObsModeActive ? "1px solid rgba(0,210,211,0.6)" : "1px solid rgba(255,255,255,0.2)",
+                      fontSize: 11, fontWeight: 700, fontFamily: "monospace", letterSpacing: 1,
+                      boxShadow: isObsModeActive ? "0 0 12px rgba(0,210,211,0.4)" : "none",
+                    }}
+                  >
+                    <Monitor className="w-3 h-3" />
+                    OBS
+                  </button>
+                  {/* OBS instructions panel — shown when OBS mode is active */}
+                  {obsInstructions && (
+                    <div
+                      className="absolute top-10 right-0 rounded-xl p-3 text-left"
+                      style={{
+                        width: 260, background: "hsl(222 44% 7%)", border: "1px solid rgba(0,210,211,0.3)",
+                        boxShadow: "0 8px 32px rgba(0,0,0,0.6)", zIndex: 30,
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(0,210,211,1)", fontFamily: "monospace", letterSpacing: 1 }}>
+                          ● OBS CONNECTED
+                        </span>
+                        <button onClick={() => setObsInstructions(false)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
+                      </div>
+                      <p style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginBottom: 8, lineHeight: 1.5 }}>
+                        A clean output window is open with all controls hidden.
+                      </p>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", lineHeight: 1.6 }}>
+                        <p style={{ fontWeight: 700, marginBottom: 4, color: "rgba(0,210,211,0.9)" }}>Option A — Window Capture:</p>
+                        <p style={{ marginBottom: 8, color: "rgba(255,255,255,0.55)" }}>In OBS → Sources → + → Window Capture → select the AI Output window</p>
+                        <p style={{ fontWeight: 700, marginBottom: 4, color: "rgba(0,210,211,0.9)" }}>Option B — Browser Source:</p>
+                        <p style={{ color: "rgba(255,255,255,0.55)" }}>In OBS → + → Browser Source → paste your app URL + <code style={{ color: "rgba(0,210,211,0.9)" }}>/popout?obs=1</code></p>
+                      </div>
+                    </div>
+                  )}
+                  {/* Regular popout button */}
+                  <button
+                    onClick={isPopoutOpen && !isObsModeActive ? closePopout : openPopout}
+                    title={isPopoutOpen && !isObsModeActive ? "Close popout" : "Float output in a separate window"}
                     className="flex items-center justify-center w-8 h-8 rounded-full transition-all hover:brightness-125 cursor-pointer"
                     style={{
-                      background: isPopoutOpen ? "rgba(0,210,211,0.85)" : "rgba(0,0,0,0.55)",
+                      background: isPopoutOpen && !isObsModeActive ? "rgba(0,210,211,0.85)" : "rgba(0,0,0,0.55)",
                       color: "#fff",
-                      border: isPopoutOpen ? "1px solid rgba(0,210,211,0.5)" : "1px solid rgba(255,255,255,0.2)",
+                      border: isPopoutOpen && !isObsModeActive ? "1px solid rgba(0,210,211,0.5)" : "1px solid rgba(255,255,255,0.2)",
                     }}
                   >
                     <Monitor className="w-3.5 h-3.5" />
