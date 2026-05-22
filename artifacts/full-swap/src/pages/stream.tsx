@@ -482,6 +482,54 @@ export default function StreamPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryClient, licKey, toast]);
 
+  // ══════════════════════════════════════════════════════════════════════
+  // THREE-LAYER ARCHITECTURE (HOTFIX — FINAL CORRECT MODEL)
+  //
+  //  LAYER 1 — BILLING (real seconds, backend-only):
+  //    paidSecsRemaining = streamStartRemRef - elapsedSecs
+  //    → used ONLY for cost / Decart burn tracking — NEVER displayed
+  //
+  //  LAYER 2 — LICENSE CONTROL (server authority):
+  //    realRemainingSeconds + licenseStatus from /api/license/status
+  //    → access gating ONLY (noAccess, licenseExhausted) — NEVER for UI timer
+  //
+  //  LAYER 3 — DISPLAY (UX experience — what users see):
+  //    displayPaidSecsRemaining = displayStartRemRef - elapsedSecs
+  //    Seeded from server's displayRemainingSeconds at stream start.
+  //    Resyncs from server every 5s heartbeat.
+  //    Counts down 1 display-second per real second.
+  //    NEVER used for stream termination, billing, or license checks.
+  //
+  // NOTE: These computations are declared HERE (before the exhaustion useEffects)
+  // to prevent a TDZ crash. displayPaidSecsRemaining is referenced in the
+  // useEffect deps array below — it must be initialized before that line executes.
+  // ══════════════════════════════════════════════════════════════════════
+
+  // LAYER 1: Real seconds — for billing tracking only, not rendered
+  const paidSecsRemaining = isStreaming
+    ? Math.max(0, streamStartRemRef.current - elapsedSecs)
+    : remainingSeconds;
+  const totalCapacitySecs    = Math.max(1, minutesAllocated * 60);
+  const liveRemainingBarSecs = Math.max(0, paidSecsRemaining);
+
+  // Display factor (billing_rate / 2.3 base rate)
+  const TCE_BASE_RATE = 2.3;
+  const displayFactor = liveRate != null && liveRate > 0
+    ? Math.round((liveRate / TCE_BASE_RATE) * 1000) / 1000
+    : 1;
+
+  // LAYER 3: Display countdown — advances at displayFactor speed per real second
+  // Matches server-side deduction rate: wallet drains at (billingRate/2.3) × real speed
+  // At billingRate = 3 → factor ≈ 1.304 → 60-min key shows 0 at ~46 real minutes
+  const displayPaidSecsRemaining: number = isStreaming
+    ? Math.max(0, displayStartRemRef.current - Math.round(elapsedSecs * displayFactor))
+    : Math.max(0, (licenseStatus.data as any)?.remainingSeconds ?? remainingSeconds);
+
+  // Bar and label all derive from the display layer.
+  const displayTotalCapacitySecs = Math.max(1, minutesAllocated * 60);
+  const displayRemainingBarSecs  = displayPaidSecsRemaining;
+  const barPct = Math.max(0, Math.min(1, displayPaidSecsRemaining / displayTotalCapacitySecs));
+
   // ── Pre-exhaustion client-side safety stop ──────────────────────────────────
   // Fires teardownStream slightly before wallet hits 0 to prevent UI/stream drift.
   // GUARD CONDITIONS (all must be true before triggering):
@@ -1350,55 +1398,6 @@ export default function StreamPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [stopStreamInternally, openPopout]);
-
-  // ══════════════════════════════════════════════════════════════════════
-  // THREE-LAYER ARCHITECTURE (HOTFIX — FINAL CORRECT MODEL)
-  //
-  //  LAYER 1 — BILLING (real seconds, backend-only):
-  //    paidSecsRemaining = streamStartRemRef - elapsedSecs
-  //    → used ONLY for cost / Decart burn tracking — NEVER displayed
-  //
-  //  LAYER 2 — LICENSE CONTROL (server authority):
-  //    realRemainingSeconds + licenseStatus from /api/license/status
-  //    → access gating ONLY (noAccess, licenseExhausted) — NEVER for UI timer
-  //
-  //  LAYER 3 — display DISPLAY (UX experience — what users see):
-  //    displayPaidSecsRemaining = displayStartRemRef - elapsedSecs
-  //    Seeded from server's displayRemainingSeconds at stream start.
-  //    Resyncs from server every 5s heartbeat.
-  //    Counts down 1 display-second per real second.
-  //    NEVER used for stream termination, billing, or license checks.
-  // ══════════════════════════════════════════════════════════════════════
-
-  // LAYER 1: Real seconds — for billing tracking only, not rendered
-  const paidSecsRemaining = isStreaming
-    ? Math.max(0, streamStartRemRef.current - elapsedSecs)
-    : remainingSeconds;
-  const totalCapacitySecs    = Math.max(1, minutesAllocated * 60);
-  const liveRemainingBarSecs = Math.max(0, paidSecsRemaining);
-
-  // Display factor (billing_rate / 2.3 base rate)
-  const TCE_BASE_RATE = 2.3;
-  const displayFactor = liveRate != null && liveRate > 0
-    ? Math.round((liveRate / TCE_BASE_RATE) * 1000) / 1000
-    : 1;
-
-  // LAYER 3: Display countdown — advances at displayFactor speed per real second
-  // Matches server-side deduction rate: wallet drains at (billingRate/2.3) × real speed
-  // At billingRate = 3 → factor ≈ 1.304 → 60-min key shows 0 at ~46 real minutes
-  const displayPaidSecsRemaining: number = isStreaming
-    ? Math.max(0, displayStartRemRef.current - Math.round(elapsedSecs * displayFactor))
-    : Math.max(0, (licenseStatus.data as any)?.remainingSeconds ?? remainingSeconds);
-
-  // Bar and label all derive from the display display layer.
-  // displayTotalCapacitySecs must equal displayStartRemRef + displaySecondsUsed at stream start
-  // so that remaining/total is always consistent (avoids bar > 100% when server display seconds
-  // are seeded per-key and don't match the global displayFactor approximation).
-  // We read the server's own displayAllocatedSeconds when available; fall back to compressed real.
-  // Total capacity = actual minutesAllocated (no display multiplication needed)
-  const displayTotalCapacitySecs = Math.max(1, minutesAllocated * 60);
-  const displayRemainingBarSecs  = displayPaidSecsRemaining;
-  const barPct = Math.max(0, Math.min(1, displayPaidSecsRemaining / displayTotalCapacitySecs));
 
   return (
     <AppLayout>
