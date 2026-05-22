@@ -6,7 +6,19 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Play, Square, Camera, Zap, Monitor, Loader2, ImagePlus, X, CreditCard, Lock, Maximize2, RefreshCw, ChevronDown, Key, AlertCircle, CheckCircle, Timer, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
-import { createDecartClient, models } from "@decartai/sdk";
+// @decartai/sdk is loaded dynamically to prevent a TDZ crash caused by a
+// circular initialisation order in the bundled chunk.  A static import would
+// cause `ReferenceError: Cannot access 'he' before initialization` on load.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import type { createDecartClient as _CreateDecartClient, models as _Models } from "@decartai/sdk";
+type _SdkModule = { createDecartClient: typeof _CreateDecartClient; models: typeof _Models };
+let _sdkCache: _SdkModule | null = null;
+async function getDecartSdk(): Promise<_SdkModule> {
+  if (!_sdkCache) {
+    _sdkCache = (await import("@decartai/sdk")) as unknown as _SdkModule;
+  }
+  return _sdkCache;
+}
 import { Link } from "wouter";
 import { useLicense } from "@/hooks/useLicense";
 import { getLicenseKey, getDeviceId } from "@/lib/auth";
@@ -73,7 +85,7 @@ function formatTime(secs: number) {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
-type DecartClient = Awaited<ReturnType<ReturnType<typeof createDecartClient>["realtime"]["connect"]>>;
+type DecartClient = Awaited<ReturnType<ReturnType<typeof _CreateDecartClient>["realtime"]["connect"]>>;
 
 
 // ─── Electron Update Banner ───────────────────────────────────────────────────
@@ -552,7 +564,8 @@ export default function StreamPage() {
         cameraStreamRef.current.getTracks().forEach(t => t.stop());
         cameraStreamRef.current = null;
       }
-      const model = models.realtime(LUCY_MODEL);
+      const { models: sdk } = await getDecartSdk();
+      const model = sdk.realtime(LUCY_MODEL);
       const videoConstraints: MediaTrackConstraints = {
         frameRate: model.fps,
         width: model.width,
@@ -810,7 +823,16 @@ export default function StreamPage() {
       return;
     }
 
-    // Guard: verify the Decart SDK exported correctly
+    // Guard: verify the Decart SDK exported correctly (loaded dynamically to avoid TDZ)
+    let _sdk: _SdkModule;
+    try {
+      _sdk = await getDecartSdk();
+    } catch {
+      toast({ title: "SDK error", description: "Streaming SDK failed to load. Please refresh the page.", variant: "destructive" });
+      setIsStreamStarting(false);
+      return;
+    }
+    const { createDecartClient, models } = _sdk;
     if (typeof createDecartClient !== "function") {
       console.error("[Decart] createDecartClient is not available:", createDecartClient);
       toast({ title: "SDK error", description: "Streaming SDK failed to load. Please refresh the page.", variant: "destructive" });
