@@ -28,7 +28,7 @@
  *   getBillingRateForLicense(licenseKeyId) MUST be used in all billing paths.
  */
 
-import { db, settingsTable, licenseKeysTable } from "@workspace/db";
+import { db, settingsTable, licenseKeysTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
@@ -125,10 +125,13 @@ export async function getBillingRateForLicense(licenseKeyId: number | null | und
     // requiring a custom rate on every individual license key.
     const subAdminId = row?.createdBySubAdminId;
     if (subAdminId != null) {
-      const saResult = await db.execute(
-        `SELECT sub_admin_billing_rate FROM users WHERE id = ${subAdminId} AND sub_admin_billing_rate IS NOT NULL LIMIT 1`
-      );
-      const saRate = (saResult.rows as any[])[0]?.sub_admin_billing_rate;
+      // FIX (BUG-003): replaced raw SQL string interpolation with parameterized ORM query
+      const [saRow] = await db
+        .select({ subAdminBillingRate: usersTable.subAdminBillingRate })
+        .from(usersTable)
+        .where(eq(usersTable.id, subAdminId))
+        .limit(1);
+      const saRate = saRow?.subAdminBillingRate;
       if (saRate != null && Number.isFinite(Number(saRate)) && Number(saRate) >= 0.1) {
         logger.debug({ licenseKeyId, subAdminId, subAdminRate: saRate }, "[BillingRate] using sub-admin rate override");
         return Number(saRate);

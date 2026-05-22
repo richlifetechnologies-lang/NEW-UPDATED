@@ -2,7 +2,7 @@ import { Router } from "express";
 import { createDecartClient } from "@decartai/sdk";
 import { requireLicense } from "../lib/auth";
 import { decartPool } from "../lib/decart-pool";
-import { db, decartApiKeysTable, sessionsTable, licenseKeysTable, settingsTable } from "@workspace/db";
+import { db, decartApiKeysTable, sessionsTable, licenseKeysTable, settingsTable, usersTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { getBillingRateForLicense } from "../lib/billing-rate-cache";
 import { computeCompressionFactor, computeDisplaySeconds, licenseRemainingSeconds } from "../lib/billing-math";
@@ -61,15 +61,19 @@ async function resolveTokenWindowSec(license: any): Promise<number> {
     }
 
     // 2. Sub-admin default
+    // NOTE: In this system the admin always sets tokenWindowMinutes per key (priority 1 above).
+    // This path is a safety fallback for keys created before per-key windows were enforced.
     const subAdminId = (license as any).createdBySubAdminId;
     if (subAdminId) {
       try {
-        const result = await db.execute(
-          `SELECT default_token_window_minutes FROM users WHERE id = ${subAdminId} AND is_sub_admin = 1 LIMIT 1`
-        );
-        const row = result.rows[0] as any;
-        if (row?.default_token_window_minutes != null && row.default_token_window_minutes > 0) {
-          return Math.round(row.default_token_window_minutes * 60);
+        // FIX (BUG-003): replaced raw SQL string interpolation with parameterized ORM query
+        const [saRow] = await db
+          .select({ defaultTokenWindowMinutes: usersTable.defaultTokenWindowMinutes })
+          .from(usersTable)
+          .where(and(eq(usersTable.id, subAdminId), eq(usersTable.isSubAdmin, 1)))
+          .limit(1);
+        if (saRow?.defaultTokenWindowMinutes != null && saRow.defaultTokenWindowMinutes > 0) {
+          return Math.round(saRow.defaultTokenWindowMinutes * 60);
         }
       } catch { /* non-fatal */ }
     }

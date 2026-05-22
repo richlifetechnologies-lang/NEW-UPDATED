@@ -93,10 +93,12 @@ class DecartKeyPool {
       return soonest ?? null;
     }
 
-    // Round-robin across healthy keys
-    this.cursor = this.cursor % healthyKeys.length;
-    const chosen = healthyKeys[this.cursor];
-    this.cursor = (this.cursor + 1) % healthyKeys.length;
+    // FIX (BUG-013): advance cursor against full pool size so round-robin stays
+    // fair when keys enter/leave cooldown between calls. Previously cursor modulo
+    // used healthyKeys.length which skipped lower-index keys more often.
+    const idx    = this.cursor % healthyKeys.length;
+    const chosen = healthyKeys[idx];
+    this.cursor  = (this.cursor + 1) % Math.max(1, this.keys.length);
     return chosen;
   }
 
@@ -176,7 +178,19 @@ class DecartKeyPool {
 // Singleton — shared across all requests in the process
 export const decartPool = new DecartKeyPool();
 
-// Bootstrap the pool on startup
-decartPool.load().catch((err) =>
-  logger.error({ err }, "[DecartPool] Initial load failed")
-);
+// FIX (BUG-008): Bootstrap with automatic retry so a slow DB startup (common in
+// container restarts) doesn't leave the pool empty for up to 5 minutes, causing
+// every /api/decart/token request to return 503 "No API keys available".
+decartPool.load().catch((err) => {
+  logger.error({ err }, "[DecartPool] Initial load failed — retrying in 5s");
+  setTimeout(() => {
+    decartPool.load().catch((err2) => {
+      logger.error({ err: err2 }, "[DecartPool] Retry 1 failed — retrying in 15s");
+      setTimeout(() => {
+        decartPool.load().catch((err3) => {
+          logger.error({ err: err3 }, "[DecartPool] Retry 2 failed — pool may be empty until next reload");
+        });
+      }, 15_000);
+    });
+  }, 5_000);
+});
