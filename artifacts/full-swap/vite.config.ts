@@ -57,6 +57,29 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Force workspace libs and the streaming SDK into stable shared chunks.
+        // Without this, Rollup inlines their barrel-file (export *) code into
+        // every lazy chunk that imports them, creating two evaluation instances
+        // with unresolved live-bindings — the root cause of the TDZ crash:
+        //   ReferenceError: Cannot access 'he' before initialization
+        manualChunks(id) {
+          if (
+            id.includes("api-client-react") ||
+            id.includes("/lib/api-client")
+          ) {
+            return "api-client";
+          }
+          if (
+            id.includes("@decartai/sdk") ||
+            id.includes("decartai")
+          ) {
+            return "decart-sdk";
+          }
+        },
+      },
+    },
   },
   server: {
     port,
