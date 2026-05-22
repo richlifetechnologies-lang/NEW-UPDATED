@@ -614,37 +614,64 @@ export default function StreamPage() {
   }, [enumerateCameras]);
 
   const startCamera = async (deviceId?: string) => {
-    try {
-      if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach(t => t.stop());
-        cameraStreamRef.current = null;
-      }
-      const { models: sdk } = await getDecartSdk();
-      const model = sdk.realtime(LUCY_MODEL);
-      const videoConstraints: MediaTrackConstraints = {
-        frameRate: model.fps,
-        width: model.width,
-        height: model.height,
-      };
-      if (deviceId || selectedCameraId) {
-        videoConstraints.deviceId = { exact: deviceId || selectedCameraId };
-      }
-      // FIX: audio: false here — audio is captured separately by the audio pipeline.
-      // Including audio in the camera stream causes the Decart SDK to receive an
-      // unexpected audio track, which breaks the WebRTC connection and produces a
-      // blank black AI output. It also causes the local preview to go black when
-      // Decart takes ownership of the stream and stops its tracks on any error.
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: videoConstraints,
-      });
-      cameraStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      setCameraReady(true);
-      await enumerateCameras();
-    } catch {
-      toast({ title: "Camera access denied", description: "Please allow camera and microphone access", variant: "destructive" });
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(t => t.stop());
+      cameraStreamRef.current = null;
     }
+    const { models: sdk } = await getDecartSdk();
+    const model = sdk.realtime(LUCY_MODEL);
+    const baseConstraints: MediaTrackConstraints = {
+      frameRate: model.fps,
+      width: model.width,
+      height: model.height,
+    };
+    const resolvedId = deviceId || selectedCameraId;
+
+    // FIX (BUG-004): Try with exact deviceId first; fall back to ideal if the device
+    // is momentarily unavailable (OverconstrainedError / NotReadableError).
+    // Without the fallback, switching cameras while one briefly initialises leaves
+    // the camera feed permanently black with a misleading "access denied" toast.
+    const attempts: MediaTrackConstraints[] = resolvedId
+      ? [
+          { ...baseConstraints, deviceId: { exact: resolvedId } },
+          { ...baseConstraints, deviceId: { ideal: resolvedId } },
+          baseConstraints,
+        ]
+      : [baseConstraints];
+
+    let stream: MediaStream | null = null;
+    let lastErr: unknown;
+    for (const constraints of attempts) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: constraints });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const name = (err as DOMException)?.name ?? "";
+        // Only retry on device/constraint errors — stop immediately on permission denial
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") break;
+      }
+    }
+
+    if (!stream) {
+      const name = (lastErr as DOMException)?.name ?? "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        toast({ title: "Camera permission denied", description: "Allow camera access in your browser settings, then try again.", variant: "destructive" });
+      } else if (name === "OverconstrainedError") {
+        toast({ title: "Camera not available", description: "The selected camera is unavailable. Try choosing a different one.", variant: "destructive" });
+      } else if (name === "NotReadableError") {
+        toast({ title: "Camera in use", description: "Another application is using this camera. Close it and try again.", variant: "destructive" });
+      } else {
+        toast({ title: "Camera error", description: (lastErr as DOMException)?.message || "Could not access camera.", variant: "destructive" });
+      }
+      return;
+    }
+
+    // FIX: audio: false — audio is captured separately by the audio pipeline.
+    cameraStreamRef.current = stream;
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    setCameraReady(true);
+    await enumerateCameras();
   };
 
   const handleCameraSwitch = async (deviceId: string) => {
@@ -1304,7 +1331,10 @@ export default function StreamPage() {
 
       // ── Freeze detected — kill stream to save Decart credits ─────────────
       if (consecutiveFailures >= MAX_FAILURES) {
+        // FIX (BUG-007): clear ref BEFORE calling stopStreamInternally to prevent
+        // a second interval tick from firing another /stop call for the same session.
         const sid = activeSessionRef.current;
+        activeSessionRef.current = null;
         console.warn(`[Stream] freeze_detected sessionId=${sid} — killing stream after ${consecutiveFailures} failed heartbeats`);
         toast({
           title: "Stream connection lost",
@@ -1313,7 +1343,7 @@ export default function StreamPage() {
         });
         if (sid) stopStreamInternally(sid, elapsedSecsRef.current, false);
       }
-    }, 10_000); // 10s — well under the server's 20s HEARTBEAT_GRACE_MS
+    }, 10_000); // 10s — well under the server's 35s HEARTBEAT_GRACE_MS
 
     return () => clearInterval(id);
   // elapsedSecs removed from deps — read via elapsedSecsRef.current instead.
@@ -1377,19 +1407,25 @@ export default function StreamPage() {
       setRenewLoading(false);
     }
   }, [renewKey, queryClient]);
-  // Listen for stop/close signals from the popout window
-  // Fires when user clicks "Stop Stream" in the popout OR closes the popout window
+  // Listen for stop/reconnect signals from the popout window
+  // "fullswap-stop"      — user clicked Stop Stream or closed the popout
+  // "fullswap-reconnect" — user clicked Reconnect Stream after the feed dropped
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data === "fullswap-stop") {
         const sid = activeSessionRef.current;
         if (sid) stopStreamInternally(sid, elapsedSecsRef.current, false);
+      } else if (e.data === "fullswap-reconnect") {
+        // Only reconnect if we are not already streaming
+        if (!activeSessionRef.current && cameraReady) {
+          handleStartStream();
+        }
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopStreamInternally]);
+  }, [stopStreamInternally, cameraReady]);
 
   // Pre-warm the Decart token as soon as the camera is ready
   // so the first click on "Stream Now" doesn't wait for the API round-trip

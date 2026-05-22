@@ -280,12 +280,6 @@ export async function recordTopupDelta(
     const currentTotalSeconds = Number(usageResult[0]?.totalSeconds ?? 0);
     newBaseline = currentTotalSeconds * DECART_CREDITS_PER_SEC;
 
-    // creditsUsedSinceTopup = credits burned since last baseline reset
-    const creditsUsedSinceTopup = calculateCreditsUsedSinceTopup(
-      0,
-      0,
-      key.creditsBaseline ?? 0
-    );
     // remaining = totalLoaded - usedSinceTopup (clamped to 0)
     previousRemaining = calculateCreditsRemaining(
       key.totalCreditsLoaded ?? 0,

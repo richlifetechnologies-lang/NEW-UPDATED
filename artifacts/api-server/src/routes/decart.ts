@@ -28,6 +28,15 @@ interface CachedToken {
 }
 const tokenCache = new Map<string, CachedToken>();
 
+// FIX (BUG-017): Periodically evict expired entries so the cache doesn't grow
+// unboundedly when many unique license keys authenticate but never stream again.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of tokenCache) {
+    if (entry.expiresAt <= now) tokenCache.delete(key);
+  }
+}, 10 * 60 * 1000); // every 10 minutes
+
 // TOKEN_WINDOW_SEC — fallback default when no per-key/sub-admin/global window is set.
 // BUG #1 FIX: was Math.min(remainingSeconds, 4 * 3600) which caused Decart to
 // pre-charge or pre-reserve the FULL remaining licence time (e.g. 4 hours) at
@@ -105,15 +114,19 @@ async function getOrCreateToken(
   tokenWindowSec: number,
   sourceKeyId: number,
   currentRemainingSeconds: number
-): Promise<{ apiKey: string; expiresAt: number } | null> {
+): Promise<{ apiKey: string; expiresAt: number; _cacheHit: boolean } | null> {
+  // FIX (BUG-002): normalize to uppercase so cache set/get/delete all use the same key.
+  // Previously tokenCache.set used raw case but invalidateLicenseTokenCache used
+  // .toUpperCase(), causing silent cache-miss on deletion and stale tokens persisting.
+  const normalizedKey = licenseKey.trim().toUpperCase();
   const now = Date.now();
-  const cached = tokenCache.get(licenseKey);
+  const cached = tokenCache.get(normalizedKey);
 
   // Wallet-window validation: discard cached token if wallet shrank below its window.
   // A stale token with tokenWindowSec > currentRemainingSeconds would allow a Decart
   // session longer than the user's wallet can cover.
   if (cached && cached.tokenWindowSec > currentRemainingSeconds) {
-    tokenCache.delete(licenseKey);
+    tokenCache.delete(normalizedKey);
   } else if (
     cached &&
     cached.expiresAt - now > 30_000 &&
@@ -122,7 +135,7 @@ async function getOrCreateToken(
     // Reuse token if still valid AND was issued for the SAME API key.
     // FIX (Bug #3): invalidate cache when license is reassigned to a different
     // Decart API key so the old key's token is never used for the new key.
-    return { apiKey: cached.apiKey, expiresAt: cached.expiresAt, _cacheHit: true as const };
+    return { apiKey: cached.apiKey, expiresAt: cached.expiresAt, _cacheHit: true };
   }
 
   // Create new token
@@ -146,8 +159,8 @@ async function getOrCreateToken(
     tokenWindowSec, // store for wallet-window validation on next reuse
   };
 
-  tokenCache.set(licenseKey, cached_token);
-  return { apiKey: tokenResponse.apiKey, expiresAt: expiresAtMs, _cacheHit: false as const };
+  tokenCache.set(normalizedKey, cached_token);
+  return { apiKey: tokenResponse.apiKey, expiresAt: expiresAtMs, _cacheHit: false };
 }
 
 // GET /api/decart/token -- returns a short-lived Decart streaming token for licensed users
@@ -226,7 +239,7 @@ router.get("/token", requireLicense, async (req, res) => {
     // ── Observability: log token_issued / token_cache_hit ──────────────────────
     // True fire-and-forget via setImmediate — NEVER blocks the response pipeline.
     // Capture all closure variables by value before the async boundary.
-    const _cacheHit = (tokenResult as any)._cacheHit === true;
+    const _cacheHit = tokenResult._cacheHit === true;
     const _licenseKey = licenseKey;
     const _remainingSeconds = remainingSeconds;
     const _tokenWindow = tokenWindow;
@@ -294,7 +307,7 @@ router.get("/token", requireLicense, async (req, res) => {
  * Decart key for credit tracking when decartKeyId is still null on the row.
  */
 export function getDecartKeyIdFromCache(licenseKey: string): number | null {
-  return tokenCache.get(licenseKey)?.sourceKeyId ?? null;
+  return tokenCache.get(licenseKey.trim().toUpperCase())?.sourceKeyId ?? null;
 }
 
 /**
