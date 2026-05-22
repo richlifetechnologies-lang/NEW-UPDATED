@@ -16,11 +16,17 @@ import OpenAI from "openai";
 
 const router = Router();
 
-// ── OpenAI client (for AI Copilot — read-only explainability only) ────────────
-const openai = new OpenAI({
-  apiKey: process.env["OPENAI_API_KEY"],
-  baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"] ?? undefined,
-});
+// ── OpenAI client — lazy singleton so missing key never crashes startup ───────
+let _openai: OpenAI | null = null;
+function getOpenAIClient(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({
+      apiKey: process.env["OPENAI_API_KEY"],
+      baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"] ?? undefined,
+    });
+  }
+  return _openai;
+}
 
 // ── GET /api/admin/session-intelligence ──────────────────────────────────────
 router.get("/", requireAdmin, async (req, res) => {
@@ -243,7 +249,7 @@ For riskLevel use EXACTLY one of: "LOW", "MEDIUM", "HIGH"`;
   };
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAIClient().chat.completions.create({
       model: "gpt-4o-mini",
       max_completion_tokens: 1500,
       temperature: 0,
