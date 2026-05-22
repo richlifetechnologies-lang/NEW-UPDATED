@@ -112,8 +112,16 @@ router.get("/status", requireLicense, async (req, res) => {
         .where(and(eq(sessionsTable.licenseKeyId, license.id), eq(sessionsTable.status, "active")))
         .limit(1);
       if (activeSession) {
-        const billingStart = activeSession.billingStartedAt ?? activeSession.startedAt;
-        const rawSessionSeconds = Math.max(0, Math.floor((Date.now() - billingStart.getTime()) / 1000));
+        // FIX: use lastDeductedAt (not billingStartedAt) as the unbilled-from anchor.
+        // billingStartedAt = session start; heartbeats already deducted all time from
+        // billingStartedAt → lastDeductedAt into usedSeconds. Using billingStartedAt here
+        // would double-count that already-deducted interval, making remainingSeconds drop
+        // far too fast and showing 0:00 on the display long before the wallet is empty.
+        // Using lastDeductedAt counts ONLY the unbilled window since the last heartbeat.
+        const unbilledFrom = activeSession.lastDeductedAt
+          ?? activeSession.billingStartedAt
+          ?? activeSession.startedAt;
+        const rawSessionSeconds = Math.max(0, Math.floor((Date.now() - unbilledFrom.getTime()) / 1000));
         // Apply same billing-rate compression as heartbeat deductions so live status matches drain speed
         let statusCompressionFactor = 1.0;
         try {
