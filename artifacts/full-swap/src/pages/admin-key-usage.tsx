@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
   import { AdminLayout } from "@/components/admin-layout";
   import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
   import { Badge } from "@/components/ui/badge";
   import { useQuery } from "@tanstack/react-query";
   import { getAdminToken } from "@/lib/auth";
-  import { Key, Clock, Zap, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+  import { Key, Clock, Zap, CheckCircle, XCircle, RefreshCw, ExternalLink } from "lucide-react";
   import { Button } from "@/components/ui/button";
 
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -56,6 +57,7 @@ import { useState } from "react";
 
   export default function AdminKeyUsagePage() {
     const [showAll, setShowAll] = useState(false);
+  const [, setLocation] = useLocation();
 
     const { data, isLoading, error, refetch } = useQuery({
       queryKey: ["key-usage"],
@@ -232,6 +234,18 @@ import { useState } from "react";
                           <p className="text-xs text-muted-foreground mt-1 text-right">{pct}% drained</p>
                         </div>
                       </div>
+                        {/* Audit last session link */}
+                        {k.lastSessionId && (
+                          <div className="mt-3 pt-3 border-t border-border/50 flex justify-end">
+                            <button
+                              onClick={() => setLocation(`/admin/billing-audit?sessionId=${k.lastSessionId}`)}
+                              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Audit last session
+                            </button>
+                          </div>
+                        )}
                     </CardContent>
                   </Card>
                 );
