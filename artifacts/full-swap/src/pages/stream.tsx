@@ -14,6 +14,13 @@ import { LicenseActivationModal } from "@/components/license-modal";
 
 const LUCY_MODEL = "lucy-2.1" as const;
 
+// Client-side pre-exhaustion safety threshold.
+// When wallet drops to this many seconds, the frontend stops the stream slightly
+// early — BEFORE the server-side heartbeat catch-up fires — to eliminate UI drift.
+// Backend (heartbeat + /stop) remains the authoritative enforcement layer.
+// This is ONLY a UX smoothness layer. Billing is unaffected.
+const PRE_EXHAUSTION_THRESHOLD_SECS = 5;
+
 type Style = { id: string; name: string; description: string; prompt: string };
 
 const STYLES: Style[] = [
@@ -284,6 +291,9 @@ export default function StreamPage() {
   // Remaining seconds from the most recent validate call — used as fallback when
   // licenseStatus query hasn't loaded yet for a freshly-entered key.
   const validatedRemainingRef = useRef<number>(0);
+  // Pre-exhaustion guard — ensures the early-stop fires at most once per session.
+  // Reset to false at the start of every new session in handleStartStream.
+  const hasTriggeredPreStopRef = useRef<boolean>(false);
 
   // ── Audio sync refs ──────────────────────────────────────────────────
   const audioContextRef     = useRef<AudioContext | null>(null);
@@ -380,6 +390,29 @@ export default function StreamPage() {
 
   // Keep connectionStatusRef in sync so interval callbacks always read the latest value
   useEffect(() => { connectionStatusRef.current = connectionStatus; }, [connectionStatus]);
+
+  // ── Pre-exhaustion client-side safety stop ──────────────────────────────────
+  // Fires teardownStream slightly before wallet hits 0 to prevent UI/stream drift.
+  // GUARD CONDITIONS (all must be true before triggering):
+  //   • stream is actively running
+  //   • pre-stop has NOT already been triggered this session
+  //   • wallet data is available from the server (not null/undefined)
+  //   • remaining seconds has fallen to or below the threshold
+  // Backend remains the authoritative enforcement layer — this is advisory only.
+  useEffect(() => {
+    if (
+      !isStreaming ||
+      hasTriggeredPreStopRef.current ||
+      remainingSeconds == null ||
+      remainingSeconds > PRE_EXHAUSTION_THRESHOLD_SECS
+    ) return;
+    hasTriggeredPreStopRef.current = true;
+    console.info(
+      `[Stream] pre_exhaustion_warning: ${remainingSeconds}s remaining — stopping stream early (threshold=${PRE_EXHAUSTION_THRESHOLD_SECS}s)`
+    );
+    setLicenseExhausted(true);
+    teardownStream("pre_exhaustion_warning");
+  }, [remainingSeconds, isStreaming, teardownStream]);
 
   useEffect(() => {
     if (!localStorage.getItem("fullswap_license_key")) setLocation("/");
@@ -785,6 +818,7 @@ export default function StreamPage() {
       const sessionId = session.id;
       setActiveSession(sessionId);
       activeSessionRef.current = sessionId;
+      hasTriggeredPreStopRef.current = false; // reset pre-exhaustion guard for this new session
       setIsStreamStarting(false);
 
       // Capture remaining seconds from license status at stream start for smooth countdown
