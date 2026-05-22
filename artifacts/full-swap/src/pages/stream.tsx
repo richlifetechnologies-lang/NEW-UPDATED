@@ -868,6 +868,16 @@ export default function StreamPage() {
       return;
     }
 
+    // Start audio pipeline immediately while still inside the user-gesture context
+    // (the button click). Browsers block getUserMedia calls that originate outside
+    // a direct user gesture — starting it here, before any await, guarantees the
+    // permission prompt is allowed and the mic is ready by the time the first frame arrives.
+    if (!audioEnabledRef.current) {
+      audioEnabledRef.current = true;
+      setAudioEnabled(true);
+      startAudioPipeline(selectedMicId || undefined);
+    }
+
     // Guard: verify WebRTC is available before attempting to use the Decart SDK
     if (typeof RTCPeerConnection === "undefined" || !RTCPeerConnection) {
       toast({
@@ -952,12 +962,12 @@ export default function StreamPage() {
       const prompt = customPrompt || selectedStyleData?.prompt || "A person with a natural, realistic face";
 
       connectStartMsRef.current = performance.now();
-      // FIX: Pass a video-only stream to Decart. Even though startCamera now requests
-      // audio:false, this guard ensures the Decart SDK only ever sees video tracks.
-      // It also isolates cameraStreamRef from Decart's internal stream management —
-      // if Decart stops the tracks on disconnect/error, the local camera preview
-      // (which uses cameraStreamRef.current directly) stays alive.
-      const videoOnlyStream = new MediaStream(cameraStreamRef.current.getVideoTracks());
+      // FIX: Clone each video track before handing to Decart.
+      // MediaStreamTrack objects are shared by reference — if Decart internally calls
+      // track.stop(), it would stop the track inside cameraStreamRef too, killing
+      // the local camera preview. Cloning gives Decart fully independent tracks so
+      // cameraStreamRef.current (and the local PiP) are never affected.
+      const videoOnlyStream = new MediaStream(cameraStreamRef.current.getVideoTracks().map(t => t.clone()));
       const realtimeClient = await client.realtime.connect(videoOnlyStream, {
         model,
         initialState: {
@@ -990,15 +1000,6 @@ export default function StreamPage() {
             audioDelayNodeRef.current.delayTime.setTargetAtTime(autoDelay / 1000, audioContextRef.current.currentTime, 0.1);
             audioDelayMsRef.current = autoDelay;
             setAudioDelayMs(autoDelay);
-          }
-
-          // Auto-start audio pipeline on every new stream so voice always syncs
-          // to video without the user needing to toggle it on manually.
-          // Guard prevents double-starting if the user already enabled it before clicking Stream Now.
-          if (!audioEnabledRef.current) {
-            audioEnabledRef.current = true;
-            setAudioEnabled(true);
-            startAudioPipeline(selectedMicId || undefined);
           }
 
           // Stamp wall-clock start so the elapsed timer is accurate even when the
