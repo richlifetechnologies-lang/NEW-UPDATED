@@ -54,13 +54,12 @@ import { lazy, Suspense } from "react";
     },
   });
 
-  const isDesktopApp = Boolean((window as any).electronAPI?.isElectron);
 
   function Router() {
     return (
       <Suspense fallback={null}>
         <Switch>
-          <Route path="/" component={isDesktopApp ? StreamPage : LoginPage} />
+          <Route path="/" component={LoginPage} />
           <Route path="/stream" component={StreamPage} />
           <Route path="/dashboard" component={DashboardPage} />
           <Route path="/admin" component={AdminLoginPage} />
