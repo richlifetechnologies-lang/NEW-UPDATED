@@ -22,8 +22,7 @@
     "nodemailer": "^8.0.7",
     "pino": "^9",
     "pino-http": "^10",
-    "ws": "^8.18.3",
-    "openai": "^4.98.0"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

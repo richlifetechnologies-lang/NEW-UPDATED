@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, DollarSign, Key, Settings, Cpu, Radio, UserCog, Brain, Sparkles } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield, Activity, Menu, X, FileKey, BarChart3, Zap, DollarSign, Key, Settings, Cpu, Radio, UserCog, Brain } from "lucide-react";
 import { clearAdminToken, clearAdminProfile, getAdminProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -17,7 +17,6 @@ const navItems = [
   { href: "/admin/sessions",             label: "Session Monitor",       icon: Activity },
   { href: "/admin/stream-health",        label: "Stream Health",         icon: Radio },
   { href: "/admin/session-intelligence", label: "Session Intelligence",  icon: Brain },
-  { href: "/admin/ai-copilot",           label: "AI Billing Copilot",    icon: Sparkles },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {

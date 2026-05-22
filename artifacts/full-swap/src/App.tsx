@@ -35,7 +35,6 @@ import AdminControlCenterPage from "@/pages/admin-control-center";
 import AdminUnifiedDashboardPage from "@/pages/admin-unified-dashboard";
 import AdminStreamHealthPage from "@/pages/admin-stream-health";
 import AdminSessionIntelligencePage from "@/pages/admin-session-intelligence";
-import AdminAiCopilotPage from "@/pages/admin-ai-copilot";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,7 +80,6 @@ function Router() {
       <Route path="/admin/unified" component={AdminUnifiedDashboardPage} />
       <Route path="/admin/stream-health" component={AdminStreamHealthPage} />
       <Route path="/admin/session-intelligence" component={AdminSessionIntelligencePage} />
-      <Route path="/admin/ai-copilot" component={AdminAiCopilotPage} />
       <Route path="/subadmin" component={SubAdminLoginPage} />
       <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
       <Route path="/subadmin/stream" component={SubAdminStreamPage} />
