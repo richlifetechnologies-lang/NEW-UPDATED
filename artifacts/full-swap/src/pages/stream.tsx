@@ -962,8 +962,33 @@ export default function StreamPage() {
       if (tokenIsFresh) prewarmedTokenRef.current = null; // consume once
       const tokenPromise = tokenIsFresh ? Promise.resolve(cachedToken!) : fetchDecartToken();
 
+      // PATCH-02: 409 auto-recovery — if SESSION_ALREADY_ACTIVE, auto-stop the
+      // orphan and retry once so the user never has to wait 2 minutes manually.
       const [session, shortLivedKey] = await Promise.all([
-        startSession.mutateAsync({ data: { style: selectedStyle } }),
+        (async () => {
+          try {
+            return await startSession.mutateAsync({ data: { style: selectedStyle } });
+          } catch (startErr: unknown) {
+            const errAny = startErr as any;
+            const body: any = errAny?.response?.data ?? errAny?.data ?? (() => {
+              try { return JSON.parse(errAny?.message ?? "{}"); } catch { return {}; }
+            })();
+            if (body?.code === "SESSION_ALREADY_ACTIVE" && body?.existingSessionId) {
+              const orphanId = String(body.existingSessionId);
+              const licKey = localStorage.getItem("fullswap_license_key") ?? "";
+              console.info(`[Stream] orphan_auto_recovering orphanId=${orphanId}`);
+              await fetch(`/api/sessions/${orphanId}/stop`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-License-Key": licKey, "X-Device-ID": getDeviceId() },
+                body: JSON.stringify({}),
+                keepalive: true,
+              }).catch(() => {});
+              await new Promise(r => setTimeout(r, 1500));
+              return startSession.mutateAsync({ data: { style: selectedStyle } });
+            }
+            throw startErr; // not a 409 — re-throw for outer catch
+          }
+        })(),
         tokenPromise,
       ]);
 
@@ -1278,7 +1303,11 @@ export default function StreamPage() {
         // fall back gracefully so heartbeats always reach the server.
         let abortSignal: AbortSignal | undefined;
         try { abortSignal = AbortSignal.timeout(8_000); } catch { abortSignal = undefined; }
-        const res = await fetch(`/api/sessions/${activeSession}/heartbeat`, {
+        // PATCH-01: read session ID from ref (not closure) so a reconnect cycle
+        // cannot fire a stale heartbeat against an already-stopped session.
+        const currentSid = activeSessionRef.current;
+        if (!currentSid) return; // session cleared between ticks — skip
+        const res = await fetch(`/api/sessions/${currentSid}/heartbeat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

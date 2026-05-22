@@ -30,6 +30,29 @@ import {
 
 const router = Router();
 
+// ── PATCH-03: Session creation rate limiter ──────────────────────────────────
+// Max 3 session creates per 60s per license key — prevents reconnect storms
+// from draining wallet time (each create debits MINIMUM_RESERVATION_SEC upfront).
+const SESSION_RL_MAX    = 3;
+const SESSION_RL_WINDOW = 60_000;
+interface SrlEntry { count: number; resetAt: number }
+const sessionRlStore = new Map<string, SrlEntry>();
+function checkSessionRateLimit(key: string): { allowed: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const e = sessionRlStore.get(key);
+  if (!e || now >= e.resetAt) {
+    sessionRlStore.set(key, { count: 1, resetAt: now + SESSION_RL_WINDOW });
+    return { allowed: true, retryAfterMs: 0 };
+  }
+  if (e.count >= SESSION_RL_MAX) return { allowed: false, retryAfterMs: e.resetAt - now };
+  e.count++;
+  return { allowed: true, retryAfterMs: 0 };
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, e] of sessionRlStore) if (now >= e.resetAt) sessionRlStore.delete(k);
+}, 5 * 60_000).unref?.();
+
 function formatSession(s: any) {
   return {
     id: s.id,
@@ -299,6 +322,15 @@ router.get("/", requireLicense, async (req, res) => {
 
 router.post("/", requireLicense, async (req, res) => {
   const license = (req as any).license;
+
+  // ── PATCH-03: rate-limit check ────────────────────────────────────────────
+  const { allowed: sessionAllowed, retryAfterMs } = checkSessionRateLimit(license.key as string);
+  if (!sessionAllowed) {
+    res.setHeader("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
+    res.status(429).json({ error: "Too many session creation attempts. Please wait.", code: "SESSION_RATE_LIMITED" });
+    return;
+  }
+
   const style = (req.body as any)?.style ?? null;
   const allocatedSeconds = (license.minutesAllocated ?? 0) * 60;
   const usedSeconds      = license.usedSeconds ?? 0;

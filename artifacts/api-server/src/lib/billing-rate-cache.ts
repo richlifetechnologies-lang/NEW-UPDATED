@@ -9,9 +9,12 @@
  *   (cold start with DB unreachable), log an error and throw — billing must not
  *   silently use a wrong constant.
  *
- * SPEC §8 — Real-time sync:
- *   Billing rate is fetched live from the DB on EVERY call — NO cache TTL.
- *   Any admin change propagates instantly to all consumers.
+ * SPEC §8 — Near-real-time sync:
+ *   PATCH-04 adds a 5-second micro-cache (< one heartbeat interval = 10s) to
+ *   reduce DB query pressure at high session concurrency without sacrificing
+ *   meaningful real-time sync. Admin billing rate changes propagate within
+ *   ≤15s (5s TTL + 10s heartbeat cycle). Call invalidateBillingRateCache()
+ *   from admin billing-rate change routes to force immediate propagation.
  *
  * SPEC §9 — Safety:
  *   If DB fails mid-stream, fall back to the last-known DB rate so streaming
@@ -42,19 +45,30 @@ const SETTING_KEY = "billing_credits_per_sec";
  */
 let _lastKnownGlobalRate: number | null = null;
 
+// ── PATCH-04: 5-second micro-cache ─────────────────────────────────────────
+// Reduces DB query load at high heartbeat concurrency (20 sessions × 10s = 2 queries/s
+// for global rate alone before this patch). 5s TTL < one heartbeat interval (10s).
+const RATE_CACHE_TTL_MS = 5_000;
+let _globalRateCache: { rate: number; expiresAt: number } | null = null;
+const _licenseRateCache = new Map<number, { rate: number; expiresAt: number }>();
+
 /**
  * Returns the active GLOBAL billing rate (credits/sec).
- * Fetched live from the DB on every call — NO cache TTL.
+ * Micro-cached for 5s to reduce DB pressure. Falls back to last-known value on DB error.
  *
  * Fallback hierarchy (spec §6/§9):
- *   1. Live value from DB  (preferred — always)
- *   2. Last-known DB value from this process (if DB temporarily unreachable)
- *   3. Throws — no hardcoded constant (spec §6)
+ *   1. Micro-cache (< 5s old)           (fastest path)
+ *   2. Live value from DB               (preferred — authoritative)
+ *   3. Last-known DB value from process (if DB temporarily unreachable)
+ *   4. Throws — no hardcoded constant   (spec §6)
  *
  * NOTE: For per-license effective rate, always use getBillingRateForLicense().
  * This global rate is only the fallback when no custom rate is set.
  */
 export async function getBillingRate(): Promise<number> {
+  // ── PATCH-04: micro-cache check ──────────────────────────────────────────
+  if (_globalRateCache && _globalRateCache.expiresAt > Date.now()) return _globalRateCache.rate;
+
   try {
     const [row] = await db
       .select({ value: settingsTable.value })
@@ -64,6 +78,7 @@ export async function getBillingRate(): Promise<number> {
     const parsed = row ? parseFloat(row.value) : NaN;
     if (Number.isFinite(parsed) && parsed >= 0.1) {
       _lastKnownGlobalRate = parsed;
+      _globalRateCache = { rate: parsed, expiresAt: Date.now() + RATE_CACHE_TTL_MS };
       return parsed;
     }
 
@@ -87,22 +102,11 @@ export async function getBillingRate(): Promise<number> {
 }
 
 /**
- * Returns the EFFECTIVE billing rate for a specific license key.
- *
- * Three-tier resolution order (spec §1 — single source of truth):
- *   1. license.custom_billing_rate   — when use_custom_billing_rate = true (highest priority)
- *   2. sub-admin billing rate        — the rate assigned to the sub-admin who created this key
- *   3. global billing rate           — system default (lowest priority)
- *
- * Spec §9 — Safety: any tier lookup failure falls through to the next tier / global.
- * This is the ONLY function that should be called in billing paths.
- *
- * @param licenseKeyId  The integer PK of the license key (license_keys.id)
- * @returns Effective billing rate in cr/s
+ * Core resolution logic for per-license billing rate (uncached).
+ * Three-tier resolution (spec §1): license custom → sub-admin → global.
+ * Extracted so the public function can wrap it with the PATCH-04 micro-cache.
  */
-export async function getBillingRateForLicense(licenseKeyId: number | null | undefined): Promise<number> {
-  if (licenseKeyId == null) return getBillingRate();
-
+async function _getBillingRateForLicenseUncached(licenseKeyId: number): Promise<number> {
   try {
     // ── Tier 1: license custom rate ─────────────────────────────────────────
     const [row] = await db
@@ -120,12 +124,8 @@ export async function getBillingRateForLicense(licenseKeyId: number | null | und
     }
 
     // ── Tier 2: sub-admin billing rate override ──────────────────────────────
-    // If the license was created by a sub-admin who has a billing rate override,
-    // use that rate. This allows per-sub-admin rate differentiation without
-    // requiring a custom rate on every individual license key.
     const subAdminId = row?.createdBySubAdminId;
     if (subAdminId != null) {
-      // FIX (BUG-003): replaced raw SQL string interpolation with parameterized ORM query
       const [saRow] = await db
         .select({ subAdminBillingRate: usersTable.subAdminBillingRate })
         .from(usersTable)
@@ -146,9 +146,45 @@ export async function getBillingRateForLicense(licenseKeyId: number | null | und
 }
 
 /**
- * No-op kept for backward compatibility — caching is disabled per spec §8.
- * Billing rate changes propagate instantly via live DB reads.
+ * Returns the EFFECTIVE billing rate for a specific license key.
+ * Micro-cached for 5s (PATCH-04) to reduce heartbeat DB pressure.
+ *
+ * Three-tier resolution order (spec §1 — single source of truth):
+ *   1. license.custom_billing_rate   — when use_custom_billing_rate = true (highest priority)
+ *   2. sub-admin billing rate        — the rate assigned to the sub-admin who created this key
+ *   3. global billing rate           — system default (lowest priority)
+ *
+ * Spec §9 — Safety: any tier lookup failure falls through to the next tier / global.
+ * This is the ONLY function that should be called in billing paths.
+ *
+ * @param licenseKeyId  The integer PK of the license key (license_keys.id)
+ * @returns Effective billing rate in cr/s
  */
-export function invalidateBillingRateCache(): void {
-  // No-op: caching removed per spec §8 (real-time sync)
+export async function getBillingRateForLicense(licenseKeyId: number | null | undefined): Promise<number> {
+  if (licenseKeyId == null) return getBillingRate();
+
+  // ── PATCH-04: micro-cache check ──────────────────────────────────────────
+  const cached = _licenseRateCache.get(licenseKeyId);
+  if (cached && cached.expiresAt > Date.now()) return cached.rate;
+
+  const rate = await _getBillingRateForLicenseUncached(licenseKeyId);
+  _licenseRateCache.set(licenseKeyId, { rate, expiresAt: Date.now() + RATE_CACHE_TTL_MS });
+  return rate;
+}
+
+/**
+ * Invalidate the billing rate micro-cache.
+ * Call from admin routes when the billing rate is changed so the new rate
+ * propagates immediately rather than waiting for the 5s TTL to expire.
+ *
+ * @param licenseKeyId  If provided, invalidates only that license's cached rate.
+ *                      If omitted, invalidates all cached rates (global + all licenses).
+ */
+export function invalidateBillingRateCache(licenseKeyId?: number): void {
+  if (licenseKeyId != null) {
+    _licenseRateCache.delete(licenseKeyId);
+  } else {
+    _licenseRateCache.clear();
+    _globalRateCache = null;
+  }
 }

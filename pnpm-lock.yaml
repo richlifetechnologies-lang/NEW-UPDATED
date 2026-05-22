@@ -174,8 +174,8 @@ importers:
   artifacts/api-server:
     dependencies:
       '@decartai/sdk':
-        specifier: ^0.0.63
-        version: 0.0.63
+        specifier: 0.0.66
+        version: 0.0.66
       '@google-cloud/storage':
         specifier: ^7.19.0
         version: 7.19.0
@@ -786,9 +786,6 @@ packages:
 
   '@date-fns/tz@1.4.1':
     resolution: {integrity: sha512-P5LUNhtbj6YfI3iJjw5EL9eUAG6OitD0W3fWQcpQjDRc/QIsL0tRNuO1PcDvPccWL1fSTXXdE1ds+l95DV/OFA==}
-
-  '@decartai/sdk@0.0.63':
-    resolution: {integrity: sha512-hweT07qTjYX03n5K7d9nTQl8WGcYv+a0gaTrIGpavrMg0Lvl9Ot2FSphFu/D1PMFFyi+Cf5yAtvq60ONkwen4w==}
 
   '@decartai/sdk@0.0.66':
     resolution: {integrity: sha512-FnBxsICP/Qy/hWFquGcfHTxZwVe0ybLT2d6rxn5TVIEU5dINdq673ehURQN8PxCprOfNEmdpL/6u1Oy+wXC4lQ==}
@@ -3856,12 +3853,6 @@ snapshots:
       commander: 14.0.3
 
   '@date-fns/tz@1.4.1': {}
-
-  '@decartai/sdk@0.0.63':
-    dependencies:
-      mitt: 3.0.1
-      p-retry: 6.2.1
-      zod: 4.3.6
 
   '@decartai/sdk@0.0.66':
     dependencies:
