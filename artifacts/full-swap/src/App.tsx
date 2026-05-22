@@ -35,6 +35,7 @@ import AdminControlCenterPage from "@/pages/admin-control-center";
 import AdminUnifiedDashboardPage from "@/pages/admin-unified-dashboard";
 import AdminStreamHealthPage from "@/pages/admin-stream-health";
 import AdminSessionIntelligencePage from "@/pages/admin-session-intelligence";
+  import AdminKeyUsagePage from "@/pages/admin-key-usage";
 import AdminBillingAuditPage from "@/pages/admin-billing-audit";
 
 const queryClient = new QueryClient({
@@ -82,6 +83,7 @@ function Router() {
       <Route path="/admin/stream-health" component={AdminStreamHealthPage} />
       <Route path="/admin/session-intelligence" component={AdminSessionIntelligencePage} />
       <Route path="/admin/billing-audit" component={AdminBillingAuditPage} />
+        <Route path="/admin/key-usage" component={AdminKeyUsagePage} />
       <Route path="/subadmin" component={SubAdminLoginPage} />
       <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
       <Route path="/subadmin/stream" component={SubAdminStreamPage} />
