@@ -622,8 +622,13 @@ export default function StreamPage() {
       if (deviceId || selectedCameraId) {
         videoConstraints.deviceId = { exact: deviceId || selectedCameraId };
       }
+      // FIX: audio: false here — audio is captured separately by the audio pipeline.
+      // Including audio in the camera stream causes the Decart SDK to receive an
+      // unexpected audio track, which breaks the WebRTC connection and produces a
+      // blank black AI output. It also causes the local preview to go black when
+      // Decart takes ownership of the stream and stops its tracks on any error.
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: false,
         video: videoConstraints,
       });
       cameraStreamRef.current = stream;
@@ -933,7 +938,7 @@ export default function StreamPage() {
 
       const model = models.realtime(LUCY_MODEL);
 
-      console.info("[Decart] Initialising SDK client with model:", LUCY_MODEL, "| enhance: false (real-time mode)");
+      console.info("[Decart] Initialising SDK client with model:", LUCY_MODEL, "| enhance: true (quality mode)");
       let client;
       try {
         client = createDecartClient({ apiKey: shortLivedKey });
@@ -944,10 +949,16 @@ export default function StreamPage() {
       const prompt = customPrompt || selectedStyleData?.prompt || "A person with a natural, realistic face";
 
       connectStartMsRef.current = performance.now();
-      const realtimeClient = await client.realtime.connect(cameraStreamRef.current, {
+      // FIX: Pass a video-only stream to Decart. Even though startCamera now requests
+      // audio:false, this guard ensures the Decart SDK only ever sees video tracks.
+      // It also isolates cameraStreamRef from Decart's internal stream management —
+      // if Decart stops the tracks on disconnect/error, the local camera preview
+      // (which uses cameraStreamRef.current directly) stays alive.
+      const videoOnlyStream = new MediaStream(cameraStreamRef.current.getVideoTracks());
+      const realtimeClient = await client.realtime.connect(videoOnlyStream, {
         model,
         initialState: {
-          prompt: { text: prompt, enhance: false },
+          prompt: { text: prompt, enhance: true },
         },
         onRemoteStream: (editedStream) => {
           // Update video element on every frame (lightweight, no React state)
@@ -1527,13 +1538,13 @@ export default function StreamPage() {
               }}
               data-testid="transform-output"
             >
-              {/* FIX: scaleX(-1) mirrors the AI output to match the local webcam preview.
-              The Decart SDK receives the raw unmirrored camera stream, so its output is
-              also raw (unmirrored). Without this transform, a right-hand movement in the
-              webcam preview appears as a left-hand movement in the AI output. */}
+              {/* AI output — NO scaleX(-1) here. The Decart SDK mirrors its output
+              internally, so applying scaleX(-1) a second time double-mirrors it and
+              makes right-hand movements appear on the left in the AI output. The local
+              webcam PiP keeps its own scaleX(-1) for the natural selfie-view look. */}
               <video ref={remoteVideoRef} autoPlay playsInline
                 className="w-full h-full"
-                style={{ display: "block", transform: "scaleX(-1) translateZ(0)", objectFit: "cover", backfaceVisibility: "hidden", willChange: "transform" }} />
+                style={{ display: "block", objectFit: "cover", backfaceVisibility: "hidden", willChange: "transform" }} />
 
               {/* Idle placeholder — z-index 1 so controls above it */}
               {connectionStatus === "idle" && (
