@@ -1291,13 +1291,13 @@ export default function StreamPage() {
     setSelectedStyle(styleId);
     if (!decartClientRef.current || !isStreaming) return;
     const style = STYLES.find(s => s.id === styleId);
-    try { await decartClientRef.current.set({ prompt: customPrompt || style?.prompt || "", enhance: false }); } catch { /* non-fatal */ }
+    try { await decartClientRef.current.set({ prompt: customPrompt || style?.prompt || "", enhance: true }); } catch { /* non-fatal */ }
   };
 
   const handlePromptChange = async (prompt: string) => {
     setCustomPrompt(prompt);
     if (!decartClientRef.current || !isStreaming) return;
-    try { await decartClientRef.current.setPrompt(prompt || selectedStyleData?.prompt || "", { enhance: false }); } catch { /* non-fatal */ }
+    try { await decartClientRef.current.setPrompt(prompt || selectedStyleData?.prompt || "", { enhance: true }); } catch { /* non-fatal */ }
   };
 
   useEffect(() => {
@@ -1685,13 +1685,14 @@ export default function StreamPage() {
               }}
               data-testid="transform-output"
             >
-              {/* AI output — NO scaleX(-1) here. The Decart SDK mirrors its output
-              internally, so applying scaleX(-1) a second time double-mirrors it and
-              makes right-hand movements appear on the left in the AI output. The local
-              webcam PiP keeps its own scaleX(-1) for the natural selfie-view look. */}
+              {/* AI output — scaleX(-1) mirrors the output to selfie-view orientation.
+              The raw camera is sent to Decart unmirrored; Lucy 2.1 outputs in the same
+              orientation (physical left hand appears on right side of frame). Applying
+              scaleX(-1) here matches the local webcam PiP selfie view so hand movements
+              appear on the correct side as the user expects. */}
               <video ref={remoteVideoRef} autoPlay playsInline
                 className="w-full h-full"
-                style={{ display: "block", objectFit: "cover", backfaceVisibility: "hidden", willChange: "transform" }} />
+                style={{ display: "block", objectFit: "cover", backfaceVisibility: "hidden", willChange: "transform", transform: "scaleX(-1)" }} />
 
               {/* Idle placeholder — z-index 1 so controls above it */}
               {connectionStatus === "idle" && (
