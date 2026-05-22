@@ -414,6 +414,26 @@ export default function StreamPage() {
     teardownStream("pre_exhaustion_warning");
   }, [remainingSeconds, isStreaming, teardownStream]);
 
+  // ── Display-exhaustion kill — stops stream the moment the UI timer hits 0:00 ──
+  // ROOT CAUSE FIX: When displayPaidSecsRemaining reaches 0, the user's allocated
+  // streaming time (as shown on screen) is fully consumed. Without this effect,
+  // the stream continues running for up to 10+ seconds after the display shows
+  // 0:00 — waiting for either the 5s poll pre-exhaustion or the 10s heartbeat
+  // to fire. This closes that gap: the stream stops the instant the clock hits 0.
+  //
+  // The display timer uses the same billing-rate compression factor as server
+  // billing, so display=0 is equivalent to wallet=0 from the user's perspective.
+  // The backend heartbeat remains the authoritative kill for any edge cases
+  // (e.g. disconnected tab where the display timer cannot run).
+  useEffect(() => {
+    if (!isStreaming || hasTriggeredPreStopRef.current || displayPaidSecsRemaining > 0) return;
+    hasTriggeredPreStopRef.current = true;
+    console.info("[Stream] display_exhaustion: displayPaidSecsRemaining=0 — stopping stream now");
+    setLicenseExhausted(true);
+    teardownStream("license_exhausted");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayPaidSecsRemaining, isStreaming, teardownStream]);
+
   useEffect(() => {
     if (!localStorage.getItem("fullswap_license_key")) setLocation("/");
   }, [setLocation]);
