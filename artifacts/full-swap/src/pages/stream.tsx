@@ -449,9 +449,14 @@ export default function StreamPage() {
           keepalive: true,
         });
       } catch { /* best effort */ }
-      if (reason !== "unload") {
-        queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
-      }
+    }
+    // Always invalidate license cache after any teardown (except page unload where
+    // React state/query-client may already be destroyed). This covers the no_time
+    // path where activeSessionRef was pre-cleared by the heartbeat handler before
+    // teardownStream ran — without this, the exhausted wallet stayed stale until
+    // the next 5s poll tick.
+    if (reason !== "unload") {
+      queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
     }
 
     setActiveSession(null);
