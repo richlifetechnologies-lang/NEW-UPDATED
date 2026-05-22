@@ -419,8 +419,12 @@ export default function StreamPage() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
 
-    // 2. Stop camera and microphone tracks explicitly
-    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    // 2. Stop microphone tracks only — intentionally leave camera tracks running.
+    // Camera tracks are stopped in teardownStream via cameraStreamRef ONLY when the
+    // user navigates away (beforeunload). During a stream failure or normal stop the
+    // camera preview must stay alive so the user can click Stream Now again without
+    // having to re-enable the camera. Stopping camera tracks here caused the local
+    // PiP to go black every time Decart disconnected or errored.
     micStreamRef.current?.getTracks().forEach(t => t.stop());
 
     // 3. Audio pipeline cleanup
@@ -868,6 +872,19 @@ export default function StreamPage() {
       return;
     }
 
+    // Guard: if camera tracks were externally stopped (e.g. OS revoked permission),
+    // restart the camera now before attempting to connect. This keeps the flow
+    // self-healing without requiring the user to manually re-enable the camera.
+    const liveTracks = cameraStreamRef.current.getVideoTracks().filter(t => t.readyState === "live");
+    if (liveTracks.length === 0) {
+      await startCamera(selectedCameraId || undefined);
+      if (!cameraStreamRef.current || cameraStreamRef.current.getVideoTracks().filter(t => t.readyState === "live").length === 0) {
+        toast({ title: "Camera not ready", description: "Camera could not be restarted. Please enable it manually.", variant: "destructive" });
+        setIsStreamStarting(false);
+        return;
+      }
+    }
+
     // Start audio pipeline immediately while still inside the user-gesture context
     // (the button click). Browsers block getUserMedia calls that originate outside
     // a direct user gesture — starting it here, before any await, guarantees the
@@ -1204,6 +1221,10 @@ export default function StreamPage() {
       // Cannot await in synchronous unload handlers.
       // teardownStream("unload") uses fetch+keepalive internally so the /stop
       // request flushes even after the page is destroyed.
+      // Also stop camera tracks here (only place we do it) so the OS camera
+      // indicator light turns off when the user closes the tab/app.
+      cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+      cameraStreamRef.current = null;
       teardownStream("unload").catch(() => {});
     }
     window.addEventListener("pagehide", handleUnload);
