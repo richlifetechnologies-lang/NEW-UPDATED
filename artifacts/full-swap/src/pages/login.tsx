@@ -146,7 +146,8 @@ interface DownloadAvailability { windows: boolean; macosArm64: boolean; macosX64
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
-  const [licenseKey, setLicenseKeyState] = useState("");
+  const [licenseKey, setLicenseKeyState] = useState(() => getLicenseKey() ?? "");
+    const [rememberKey, setRememberKey] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contact, setContact] = useState<ContactSettings>({
@@ -255,7 +256,16 @@ export default function LoginPage() {
               </div>
             )}
 
-            <Button
+            <label className="flex items-center gap-2 cursor-pointer select-none mb-3">
+                <input
+                  type="checkbox"
+                  checked={rememberKey}
+                  onChange={e => setRememberKey(e.target.checked)}
+                  className="w-4 h-4 accent-cyan-400 cursor-pointer rounded"
+                />
+                <span className="text-xs text-muted-foreground">Remember my key on this device</span>
+              </label>
+              <Button
               onClick={handleActivate}
               disabled={loading || !licenseKey.trim()}
               className="w-full h-12 text-base font-bold tracking-wide gap-2"

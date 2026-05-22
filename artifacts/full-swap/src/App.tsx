@@ -6,11 +6,12 @@ import { lazy, Suspense } from "react";
   import { ErrorBoundary } from "@/components/error-boundary";
   import NotFound from "@/pages/not-found";
 
-  // Core pages: always in the initial bundle (desktop + web users need these immediately)
+  // LoginPage is the only eager page — stream is lazy to avoid TDZ from @decartai/sdk
   import LoginPage from "@/pages/login";
-  import StreamPage from "@/pages/stream";
 
   // All other pages: lazy-loaded so they never affect the initial bundle
+  // StreamPage MUST be lazy — it imports @decartai/sdk + @workspace/api-client-react which cause TDZ crashes
+  const StreamPage = lazy(() => import("@/pages/stream"));
   const DashboardPage = lazy(() => import("@/pages/dashboard"));
   const PopoutPage = lazy(() => import("@/pages/popout"));
   const AdminLoginPage = lazy(() => import("@/pages/admin-login"));
