@@ -1577,12 +1577,9 @@ export default function StreamPage() {
                 </div>
               )}
 
-              {/* Top-left group: OUTPUT badge + close button below it — z-index 20 */}
+              {/* Top-left group: close button — z-index 20 */}
               <div className="absolute top-3 left-3 flex flex-col items-start gap-2" style={{ zIndex: 20 }}>
-                <div className="px-3 py-1 bg-black/60 rounded-full text-[11px] text-white/80 font-mono tracking-widest">
-                  REAL TIME OUTPUT
-                </div>
-                {/* X close button — only visible in fullscreen, sits directly below the label */}
+                {/* X close button — only visible in fullscreen */}
                 {isFullscreen && (
                   <button
                     onClick={() => {
@@ -1598,14 +1595,6 @@ export default function StreamPage() {
                 )}
               </div>
 
-              {/* Live badge — z-index 10 */}
-              {connectionStatus === "connected" && (
-                <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1 rounded-full bg-primary/90 text-primary-foreground text-[11px] font-bold font-mono tracking-wide"
-                     style={{ zIndex: 10 }}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                  LIVE
-                </div>
-              )}
 
               {/* Top-right controls — OBS popout + fullscreen (hidden in fullscreen) */}
               {!isFullscreen && (
