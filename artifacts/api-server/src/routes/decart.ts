@@ -52,15 +52,21 @@ const TOKEN_WINDOW_HARD_CAP_SEC = 30;
 
 const GLOBAL_TOKEN_WINDOW_SETTING = "global_default_token_window_minutes";
 
+/** Minimum shape of a license object needed by resolveTokenWindowSec. */
+interface LicenseForTokenWindow {
+  tokenWindowMinutes?: number | null;
+  createdBySubAdminId?: number | null;
+}
+
 /**
  * Resolve the effective token window in seconds for a license.
  * Priority: licenceKey.tokenWindowMinutes > subAdmin.defaultTokenWindowMinutes > global setting > hardcoded default
  * Never throws — falls back to TOKEN_WINDOW_SEC_DEFAULT on any error.
  */
-async function resolveTokenWindowSec(license: any): Promise<number> {
+async function resolveTokenWindowSec(license: LicenseForTokenWindow): Promise<number> {
   try {
     // 1. Per-key override (highest priority)
-    const keyWindow = (license as any).tokenWindowMinutes;
+    const keyWindow = license.tokenWindowMinutes;
     if (keyWindow != null && keyWindow > 0) {
       return Math.round(keyWindow * 60);
     }
@@ -68,7 +74,7 @@ async function resolveTokenWindowSec(license: any): Promise<number> {
     // 2. Sub-admin default
     // NOTE: In this system the admin always sets tokenWindowMinutes per key (priority 1 above).
     // This path is a safety fallback for keys created before per-key windows were enforced.
-    const subAdminId = (license as any).createdBySubAdminId;
+    const subAdminId = license.createdBySubAdminId;
     if (subAdminId) {
       try {
         // FIX (BUG-003): replaced raw SQL string interpolation with parameterized ORM query

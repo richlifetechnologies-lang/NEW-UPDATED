@@ -93,12 +93,10 @@ class DecartKeyPool {
       return soonest ?? null;
     }
 
-    // FIX (BUG-013): advance cursor against full pool size so round-robin stays
-    // fair when keys enter/leave cooldown between calls. Previously cursor modulo
-    // used healthyKeys.length which skipped lower-index keys more often.
-    const idx    = this.cursor % healthyKeys.length;
+    // Random selection across healthy keys — simpler than cursor-based round-robin
+    // and naturally fair regardless of keys entering/leaving cooldown between calls.
+    const idx    = Math.floor(Math.random() * healthyKeys.length);
     const chosen = healthyKeys[idx];
-    this.cursor  = (this.cursor + 1) % Math.max(1, this.keys.length);
     return chosen;
   }
 

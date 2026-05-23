@@ -1,3 +1,5 @@
+import { DECART_CREDITS_PER_MIN } from "./billing-math";
+
 let cachedUsdtRate: number | null = null;
 let usdtCacheTime = 0;
 let cachedGhsRate: number | null = null;
@@ -91,6 +93,6 @@ export async function getAllRates(): Promise<{
   return {
     usdtPerUsd: 1 / usdtRate,    // how many USDT per 1 USD
     ghsPerUsd: ghsRate,           // how many GHS per 1 USD
-    creditsPerMinute: 1,          // Decart Lucy 2.1: 1 minute = 1 credit (configurable)
+    creditsPerMinute: DECART_CREDITS_PER_MIN,  // 138 (2.3 cr/s × 60)
   };
 }

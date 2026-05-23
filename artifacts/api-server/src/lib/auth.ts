@@ -3,11 +3,13 @@ import { Request, Response, NextFunction } from "express";
 import { db, usersTable, licenseKeysTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
-const SESSION_SECRET = process.env.SESSION_SECRET || "fullswap-secret-key";
-
-if (!process.env.SESSION_SECRET) {
-  console.warn("WARNING: SESSION_SECRET env var not set - using insecure default. Set it in Railway!");
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+  throw new Error(
+    "FATAL: SESSION_SECRET env var is missing or too short (need 32+ chars). " +
+    "Set a strong random secret in your environment secrets."
+  );
 }
+const SESSION_SECRET = process.env.SESSION_SECRET;
 
 export function hashPassword(password: string): string {
   return crypto.createHmac("sha256", SESSION_SECRET).update(password).digest("hex");
@@ -26,7 +28,10 @@ export function verifyToken(token: string): { userId: number; isAdmin: boolean; 
     if (!datab64 || !sig) return null;
     const data = Buffer.from(datab64, "base64").toString();
     const expectedSig = crypto.createHmac("sha256", SESSION_SECRET).update(data).digest("hex");
-    if (sig !== expectedSig) return null;
+    const sigBuf      = Buffer.from(sig);
+    const expectedBuf = Buffer.from(expectedSig);
+    if (sigBuf.length !== expectedBuf.length ||
+        !crypto.timingSafeEqual(sigBuf, expectedBuf)) return null;
     const payload = JSON.parse(data);
     if (payload.exp < Date.now()) return null;
     return { userId: payload.userId, isAdmin: payload.isAdmin, isSubAdmin: payload.isSubAdmin ?? false };
@@ -120,11 +125,8 @@ export async function requireLicense(req: Request, res: Response, next: NextFunc
       licenseKey = authHeader.slice(7);
     }
   }
-  // sendBeacon cannot set custom headers — accept key from query param or body as fallback.
-  // This covers the pagehide/beforeunload stop-session call that fires on page refresh.
-  if (!licenseKey && req.query["licenseKey"]) {
-    licenseKey = req.query["licenseKey"] as string;
-  }
+  // sendBeacon cannot set custom headers — accept key from POST body only (never query
+  // params, which would expose the license key in server access logs permanently).
   if (!licenseKey && (req.body as any)?.licenseKey) {
     licenseKey = (req.body as any).licenseKey as string;
   }

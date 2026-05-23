@@ -69,8 +69,19 @@ function formatSession(s: any) {
 // Settle billing for a single session. Pure function (no side-effects on res).
 // Returns the number of seconds debited from the license.
 async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
-  const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
-  if (!session || session.status !== "active") return 0;
+  // ── Atomic claim — only one concurrent caller can proceed ─────────────────
+  // We set status to "stopped" + stoppedAt in a single UPDATE WHERE status='active'.
+  // PostgreSQL guarantees this is atomic: exactly one concurrent caller will get
+  // the row back via RETURNING; every other caller gets an empty result and exits.
+  // This prevents the double-settle race between the orphan sweeper, the /stop
+  // handler, startup cleanup, and heartbeat exhaustion from double-debiting the wallet.
+  const endAt = opts?.endAt ?? new Date();
+  const [session] = await db
+    .update(sessionsTable)
+    .set({ status: "stopped", stoppedAt: endAt })
+    .where(and(eq(sessionsTable.id, sessionId), eq(sessionsTable.status, "active")))
+    .returning();
+  if (!session) return 0; // already claimed and settled by another concurrent caller
 
   // If decartKeyId is still null (race: stop beat the first heartbeat), link it now
   // so the credit tracker can count this session against the right API key.
@@ -84,7 +95,6 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
     }
   }
 
-  const endAt = opts?.endAt ?? new Date();
   const billingStart = session.billingStartedAt ?? session.startedAt;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
 
@@ -139,8 +149,10 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
     "[Session] session_end"
   );
 
+  // status and stoppedAt were already written atomically at the top of this function.
+  // Only write the computed fields that were not known at claim time.
   await db.update(sessionsTable)
-    .set({ status: "stopped", stoppedAt: endAt, durationSeconds: totalDuration, lastDeductedAt: endAt })
+    .set({ durationSeconds: totalDuration, lastDeductedAt: endAt })
     .where(eq(sessionsTable.id, sessionId));
 
   // ── Observability: settle (fire-and-forget) — captures full lifecycle metrics ──
@@ -379,6 +391,19 @@ router.post("/", requireLicense, async (req, res) => {
     // Otherwise it's effectively orphaned --- settle it before continuing.
     logger.info({ sessionId: other.id }, "[Session] settling_orphaned_before_new");
     await settleSession(other.id, { endAt: lastBeat });
+  }
+
+  // Re-read the license balance after settling any orphaned sessions (C-3).
+  // The settle may have consumed remaining seconds; confirm there is still time
+  // before proceeding to create a new session.
+  const [refreshedLicense] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, license.id));
+  const freshRemaining = Math.max(
+    0,
+    ((refreshedLicense?.minutesAllocated ?? 0) * 60) - (refreshedLicense?.usedSeconds ?? 0)
+  );
+  if (freshRemaining <= 0) {
+    res.status(402).json({ error: "No streaming time remaining on this license." });
+    return;
   }
 
   // Resolve the decart key for this session. Prefer the license's explicit assignment.

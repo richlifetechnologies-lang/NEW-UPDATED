@@ -64,7 +64,7 @@ export const DECART_CREDITS_PER_MIN   = DECART_CREDITS_PER_SEC * 60; // 138 (2.3
  * - NOT a dynamic setting
  * - Used ONLY for: infrastructure cost tracking and profit calculations
  *
- * wallet deduction uses DECART_CREDITS_PER_SEC (5 cr/s) — a separate constant.
+ * wallet deduction uses DECART_CREDITS_PER_SEC (2.3 cr/s) — a separate constant.
  */
 export const DECART_REAL_API_COST_RATE = 2.3;
 
@@ -80,14 +80,15 @@ export const HEARTBEAT_GRACE_MS       = 35_000;
 // Abnormal disconnects now stop the orphan session in 15s instead of 2 minutes,
 // cutting maximum post-disconnect Decart billing from ~276 credits to ~34 credits.
 export const ORPHAN_GRACE_MS          = 15_000;
-export const SWEEP_INTERVAL_MS        = 10_000;
+export const SWEEP_INTERVAL_MS        = 5_000;
 export const SINGLE_SESSION_GRACE_MS  = 5_000;
 export const DEDUCTION_FREEZE_MS      = 45_000;
 // Hard-kill safety reserve: backend kills the session when compressed wallet
 // remaining falls to this threshold rather than at zero. The reserve absorbs
 // WebRTC teardown delay (~2-8 s) and heartbeat lag (~0-10 s) so Decart never
-// bills past the user's intended entitlement.
-export const HARD_KILL_SAFETY_RESERVE_SEC = 5;
+// bills past the user's intended entitlement. 3-second buffer intentional —
+// users always retain a small non-zero balance at stream end.
+export const HARD_KILL_SAFETY_RESERVE_SEC = 3;
 
 // BASE_BILLING_RATE and computeBurnMultiplier REMOVED per HARDENING PATCH.
 // No hardcoded billing rate reference constants are permitted.
@@ -236,7 +237,7 @@ export function computeNormalisedMetrics(billableSeconds: number, dynamicRate: n
 
   // Retail revenue: compressed wallet seconds × billingRate
   const retailCredits  = Math.round(billableSeconds * dynamicRate * 100) / 100;
-  const retailSeconds  = Math.round(retailCredits / 2); // legacy half-credit metric
+  const retailSeconds  = dynamicRate > 0 ? Math.round(retailCredits / dynamicRate) : 0;
 
   // Profit per license_key: retail revenue − Decart API cost
   const profitCredits  = Math.round((retailCredits - apiCostCredits) * 100) / 100;

@@ -76,7 +76,7 @@ export async function getKeyCreditStatus(
   const completedSeconds = Number(completedResult[0]?.totalSeconds ?? 0);
 
   // Sum live session durations (status = 'active') — but only for sessions that are
-  // genuinely still alive (heartbeat received within ORPHAN_GRACE_MS = 2 min).
+  // genuinely still alive (heartbeat received within ORPHAN_GRACE_MS = 15 s).
   // Sessions that missed this window are "orphaned" and will be swept shortly;
   // excluding them prevents stale rows from inflating the admin credit display.
   const liveResult = await db
@@ -174,50 +174,58 @@ export async function recordTopup(
   keyId: number,
   creditsToAdd: number
 ): Promise<{ newTotal: number; newBaseline: number }> {
-  const [key] = await db
-    .select()
-    .from(decartApiKeysTable)
-    .where(eq(decartApiKeysTable.id, keyId))
-    .limit(1);
+  let newTotal = 0;
+  let newBaseline = 0;
 
-  if (!key) throw new Error(`Decart API key ${keyId} not found`);
+  // Wrapped in a transaction so the usage read and the credit write are atomic.
+  // Without this, a session settling between the read and write would produce a
+  // stale baseline and make the displayed remaining balance permanently wrong.
+  await db.transaction(async (tx) => {
+    const [key] = await tx
+      .select()
+      .from(decartApiKeysTable)
+      .where(eq(decartApiKeysTable.id, keyId))
+      .limit(1);
 
-  // Calculate current total credits used in sessions (to set as new baseline)
-  // Use wall-clock time to match Decart's actual billing (started_at → stopped_at)
-  const usageResult = await db
-    .select({
-      totalSeconds: sql<number>`
-        COALESCE(
-          (SELECT SUM(EXTRACT(EPOCH FROM (stopped_at - started_at))::INTEGER) FROM sessions WHERE decart_key_id = ${keyId} AND status IN ('stopped','expired') AND stopped_at IS NOT NULL),
-          0
-        ) + 
-        COALESCE(
-          (SELECT SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER) FROM sessions WHERE decart_key_id = ${keyId} AND status = 'active'),
-          0
-        )
-      `,
-    })
-    .from(decartApiKeysTable)
-    .where(eq(decartApiKeysTable.id, keyId))
-    .limit(1);
+    if (!key) throw new Error(`Decart API key ${keyId} not found`);
 
-  const currentTotalSeconds = Number(usageResult[0]?.totalSeconds ?? 0);
-  // Baseline in credits = totalSeconds × DECART_CREDITS_PER_SEC (5)
-  const newBaseline = currentTotalSeconds * DECART_CREDITS_PER_SEC;
-  // FIX (Bug #1): SET the exact value entered - do NOT accumulate with prior balance
-  // Old: newTotal = (key.totalCreditsLoaded ?? 0) + creditsToAdd  <- accumulates
-  // New: newTotal = creditsToAdd                                   <- exact SET
-  const newTotal = creditsToAdd;
+    // Calculate current total credits used in sessions (to set as new baseline)
+    // Use wall-clock time to match Decart's actual billing (started_at → stopped_at)
+    const usageResult = await tx
+      .select({
+        totalSeconds: sql<number>`
+          COALESCE(
+            (SELECT SUM(EXTRACT(EPOCH FROM (stopped_at - started_at))::INTEGER) FROM sessions WHERE decart_key_id = ${keyId} AND status IN ('stopped','expired') AND stopped_at IS NOT NULL),
+            0
+          ) + 
+          COALESCE(
+            (SELECT SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER) FROM sessions WHERE decart_key_id = ${keyId} AND status = 'active'),
+            0
+          )
+        `,
+      })
+      .from(decartApiKeysTable)
+      .where(eq(decartApiKeysTable.id, keyId))
+      .limit(1);
 
-  await db
-    .update(decartApiKeysTable)
-    .set({
-      totalCreditsLoaded: newTotal,
-      creditsBaseline: newBaseline,
-      lastTopupAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(decartApiKeysTable.id, keyId));
+    const currentTotalSeconds = Number(usageResult[0]?.totalSeconds ?? 0);
+    // Baseline in credits = totalSeconds × DECART_CREDITS_PER_SEC (2.3 cr/s)
+    newBaseline = currentTotalSeconds * DECART_CREDITS_PER_SEC;
+    // FIX (Bug #1): SET the exact value entered - do NOT accumulate with prior balance
+    // Old: newTotal = (key.totalCreditsLoaded ?? 0) + creditsToAdd  <- accumulates
+    // New: newTotal = creditsToAdd                                   <- exact SET
+    newTotal = creditsToAdd;
+
+    await tx
+      .update(decartApiKeysTable)
+      .set({
+        totalCreditsLoaded: newTotal,
+        creditsBaseline: newBaseline,
+        lastTopupAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(decartApiKeysTable.id, keyId));
+  });
 
   logger.info(
     { keyId, creditsAdded: creditsToAdd, newTotal, newBaseline },

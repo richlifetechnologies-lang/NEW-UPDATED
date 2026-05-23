@@ -69,9 +69,14 @@ export function attachBillingWebSocket(httpServer: Server): void {
     logger.error({ err }, "[BillingWS] server error");
   });
 
-  // Keepalive ping to all connected clients
+  // Keepalive: send a protocol-level WebSocket ping frame so the connection
+  // is not dropped by proxies or load-balancers. This generates no application
+  // traffic and does not trigger any dashboard refresh logic on the client.
   setInterval(() => {
-    broadcastEvent({ type: "dashboard_refresh", ts: new Date().toISOString() });
+    if (!wss) return;
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) client.ping();
+    });
   }, PING_INTERVAL_MS).unref?.();
 
   logger.info("[BillingWS] WebSocket observability server attached at /api/admin/billing-intelligence/ws");
