@@ -19,6 +19,7 @@ type LicenseKey = {
   usedSeconds?: number;
   remainingSeconds?: number;
   assignedDecartKeyId?: number | null;
+  tokenWindowMinutes?: number | null;
 };
 
 type DeviceSecurityEvent = {
@@ -106,6 +107,9 @@ export default function AdminLicenseKeysPage() {
   const [showSecurityPanel, setShowSecurityPanel] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearingTokenWindows, setClearingTokenWindows] = useState(false);
+  const [tokenWindowKey, setTokenWindowKey] = useState<LicenseKey | null>(null);
+  const [tokenWindowInput, setTokenWindowInput] = useState("");
+  const [savingTokenWindow, setSavingTokenWindow] = useState(false);
 
   const fetchKeys = useCallback(async () => {
     setLoading(true);
@@ -142,6 +146,46 @@ export default function AdminLicenseKeysPage() {
       });
     } finally {
       setClearingTokenWindows(false);
+    }
+  };
+
+  /** Returns the recommended token window in minutes for a given allocation. */
+  function getRecommendedWindow(mins: number): number {
+    if (mins <= 10) return 0.5;
+    if (mins <= 20) return 1;
+    if (mins <= 35) return 1.5;
+    if (mins <= 50) return 2;
+    if (mins <= 70) return 2.5;
+    return 3;
+  }
+
+  const handleSetTokenWindow = async (minutes: number | null) => {
+    if (!tokenWindowKey) return;
+    setSavingTokenWindow(true);
+    try {
+      const res = await fetch(API(`/admin/token-window/key/${encodeURIComponent(tokenWindowKey.key)}`), {
+        method: "PUT",
+        headers: authH(),
+        body: JSON.stringify({ minutes }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to update token window");
+      toast({
+        title: minutes === null ? "Token window cleared" : "Token window set",
+        description: minutes === null
+          ? `Key will now use the system default (30s hard cap).`
+          : `Token window set to ${minutes} min (${Math.round(minutes * 60)}s).`,
+      });
+      setTokenWindowKey(null);
+      setTokenWindowInput("");
+    } catch (err: unknown) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to update token window",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingTokenWindow(false);
     }
   };
 
@@ -465,6 +509,15 @@ export default function AdminLicenseKeysPage() {
                       >
                         <Unplug className="w-3.5 h-3.5" />
                       </Button>
+                      {/* Token Window — set per-key override */}
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => { setTokenWindowKey(lk); setTokenWindowInput(lk.tokenWindowMinutes != null ? String(lk.tokenWindowMinutes) : ""); }}
+                        className="h-7 px-2 text-sky-400 hover:bg-sky-400/10"
+                        title={lk.tokenWindowMinutes != null ? `Token window: ${lk.tokenWindowMinutes} min — click to change` : "Set token window override"}
+                      >
+                        <Clock className="w-3.5 h-3.5" />
+                      </Button>
                       {/* Delete — admin only, works even with remaining balance */}
                       <Button
                         variant="ghost" size="sm"
@@ -780,6 +833,146 @@ export default function AdminLicenseKeysPage() {
                 ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Clearing...</>
                 : <><XCircle className="w-4 h-4 mr-2" />Yes, Clear All</>
               }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Per-Key Token Window Override Dialog ───────────────────────────── */}
+      <Dialog open={!!tokenWindowKey} onOpenChange={open => { if (!open) { setTokenWindowKey(null); setTokenWindowInput(""); } }}>
+        <DialogContent style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(187 100% 52% / 0.2)", maxWidth: 520 }}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-foreground">
+              <Clock className="w-5 h-5 text-sky-400" /> Token Window Override
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {tokenWindowKey && (
+              <>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 14%)" }}>
+                  <Key className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                  <span className="text-primary tracking-widest truncate">{tokenWindowKey.key}</span>
+                  <span className="ml-auto text-muted-foreground flex-shrink-0">{tokenWindowKey.minutesAllocated ?? 0} min allocated</span>
+                </div>
+
+                {/* ── Recommendation Chart ──────────────────────────────────── */}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Recommended token window by allocation — shorter windows cost fewer credits when a session freezes.
+                  </p>
+                  <svg viewBox="0 0 400 210" className="w-full" style={{ height: 185 }}>
+                    {/* Grid lines + Y labels */}
+                    {([0, 30, 60, 90, 120, 150, 180] as number[]).map(s => {
+                      const y = 162 - (s / 180) * 140;
+                      return (
+                        <g key={s}>
+                          <text x="33" y={y + 4} textAnchor="end" fontSize="9" fill="#6b7280">{s}s</text>
+                          <line x1="36" y1={y} x2="392" y2={y} stroke="#1f2937" strokeWidth="0.8" />
+                        </g>
+                      );
+                    })}
+                    {/* X axis baseline */}
+                    <line x1="36" y1="162" x2="392" y2="162" stroke="#4b5563" strokeWidth="1" />
+                    {/* Recommendation bars */}
+                    {([
+                      { xMin: 0,  xMax: 10,  secs: 30,  color: "#10b981", label: "30s" },
+                      { xMin: 10, xMax: 20,  secs: 60,  color: "#06b6d4", label: "60s" },
+                      { xMin: 20, xMax: 35,  secs: 90,  color: "#eab308", label: "90s" },
+                      { xMin: 35, xMax: 50,  secs: 120, color: "#f97316", label: "2m" },
+                      { xMin: 50, xMax: 70,  secs: 150, color: "#f87171", label: "2.5m" },
+                      { xMin: 70, xMax: 100, secs: 180, color: "#ef4444", label: "3m" },
+                    ] as { xMin:number;xMax:number;secs:number;color:string;label:string }[]).map(({ xMin, xMax, secs, color, label }) => {
+                      const chartW = 356;
+                      const x = 36 + (xMin / 100) * chartW;
+                      const w = ((xMax - xMin) / 100) * chartW - 1;
+                      const h = (secs / 180) * 140;
+                      const y = 162 - h;
+                      const alloc = tokenWindowKey.minutesAllocated ?? 0;
+                      const isActive = alloc > xMin && alloc <= xMax;
+                      return (
+                        <g key={xMin}>
+                          <rect x={x} y={y} width={w} height={h} fill={color} opacity={isActive ? 0.85 : 0.3} rx="2" />
+                          {isActive && <rect x={x} y={y} width={w} height={h} fill="none" stroke={color} strokeWidth="1.5" rx="2" />}
+                          <text x={x + w / 2} y={y - 5} textAnchor="middle" fontSize={isActive ? "10" : "8"} fontWeight={isActive ? "bold" : "normal"} fill={color} opacity={isActive ? 1 : 0.7}>{label}</text>
+                        </g>
+                      );
+                    })}
+                    {/* Current allocation marker line */}
+                    {(tokenWindowKey.minutesAllocated ?? 0) > 0 && (tokenWindowKey.minutesAllocated ?? 0) <= 100 && (
+                      <>
+                        <line
+                          x1={36 + ((tokenWindowKey.minutesAllocated ?? 0) / 100) * 356}
+                          y1={18} x2={36 + ((tokenWindowKey.minutesAllocated ?? 0) / 100) * 356} y2={162}
+                          stroke="#60a5fa" strokeWidth="1.5" strokeDasharray="3,2"
+                        />
+                        <text
+                          x={Math.min(36 + ((tokenWindowKey.minutesAllocated ?? 0) / 100) * 356 + 3, 370)}
+                          y={14} fontSize="9" fill="#60a5fa" fontWeight="bold"
+                        >{tokenWindowKey.minutesAllocated}m</text>
+                      </>
+                    )}
+                    {/* X axis labels */}
+                    {([0, 10, 20, 35, 50, 70, 100] as number[]).map(m => (
+                      <text key={m} x={36 + (m / 100) * 356} y={178} textAnchor="middle" fontSize="9" fill="#6b7280">{m}</text>
+                    ))}
+                    <text x={214} y={196} textAnchor="middle" fontSize="9" fill="#4b5563">Minutes Allocated</text>
+                  </svg>
+                  {/* Recommended value callout */}
+                  <div className="mt-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm" style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 14%)" }}>
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    <span className="text-muted-foreground">Recommended for <span className="text-foreground font-semibold">{tokenWindowKey.minutesAllocated ?? 0} min</span>:</span>
+                    <span className="text-emerald-400 font-bold font-mono ml-auto">{getRecommendedWindow(tokenWindowKey.minutesAllocated ?? 0)} min ({Math.round(getRecommendedWindow(tokenWindowKey.minutesAllocated ?? 0) * 60)}s)</span>
+                    <button
+                      className="text-xs text-primary underline cursor-pointer hover:text-primary/80 flex-shrink-0"
+                      onClick={() => setTokenWindowInput(String(getRecommendedWindow(tokenWindowKey.minutesAllocated ?? 0)))}
+                    >Use</button>
+                  </div>
+                </div>
+
+                {/* ── Input ──────────────────────────────────────────────────── */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-muted-foreground font-medium">Custom override (minutes, 0.5–480) — leave blank to use system default</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={0.5} max={480} step={0.5}
+                      placeholder={`Recommended: ${getRecommendedWindow(tokenWindowKey.minutesAllocated ?? 0)} min`}
+                      value={tokenWindowInput}
+                      onChange={e => setTokenWindowInput(e.target.value)}
+                      className="flex-1 font-mono"
+                      style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(222 40% 18%)" }}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const v = parseFloat(tokenWindowInput);
+                        if (isNaN(v) || v < 0.5 || v > 480) {
+                          toast({ title: "Invalid value", description: "Enter a number between 0.5 and 480.", variant: "destructive" });
+                          return;
+                        }
+                        handleSetTokenWindow(v);
+                      }}
+                      disabled={savingTokenWindow || !tokenWindowInput.trim()}
+                      className="shrink-0"
+                    >
+                      {savingTokenWindow ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline" size="sm"
+              onClick={() => handleSetTokenWindow(null)}
+              disabled={savingTokenWindow}
+              className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+            >
+              <XCircle className="w-3.5 h-3.5 mr-1.5" /> Clear Override
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setTokenWindowKey(null); setTokenWindowInput(""); }} disabled={savingTokenWindow}>
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>
