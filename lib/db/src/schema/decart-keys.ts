@@ -19,6 +19,8 @@ export const decartApiKeysTable = pgTable("decart_api_keys", {
   creditsBaseline: integer("credits_baseline").notNull().default(0),
   thresholdPct: integer("threshold_pct").notNull().default(15),
   lastTopupAt: timestamp("last_topup_at"),
+  // LEAK-07: cooldown persisted to DB so it survives process restarts
+  cooldownUntil: timestamp("cooldown_until"),
 });
 
 export const insertDecartApiKeySchema = createInsertSchema(decartApiKeysTable).omit({ id: true, createdAt: true });

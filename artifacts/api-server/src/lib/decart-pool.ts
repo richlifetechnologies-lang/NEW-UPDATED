@@ -43,13 +43,17 @@ class DecartKeyPool {
 
       this.keys = rows.map((row) => {
         const existing = existingById.get(row.id);
+        // LEAK-07: restore persisted cooldown from DB so a restart doesn't
+        // immediately re-expose a key that was in cooldown before the crash.
+        const dbCooldown = row.cooldownUntil ? row.cooldownUntil.getTime() : 0;
+        const memCooldown = existing?.cooldownUntil ?? 0;
         return {
           id: row.id,
           apiKey: row.apiKey,
           label: row.label ?? `key-${row.id}`,
           isEnabled: row.isActive,
-          // Preserve runtime health state across reloads
-          cooldownUntil: existing?.cooldownUntil ?? 0,
+          // Take the later of DB cooldown (from last run) and in-memory (this run)
+          cooldownUntil: Math.max(dbCooldown, memCooldown),
           totalRequests: existing?.totalRequests ?? 0,
           failedRequests: existing?.failedRequests ?? 0,
           lastFailedAt: existing?.lastFailedAt ?? 0,
@@ -122,6 +126,14 @@ class DecartKeyPool {
         { keyId, label: key.label, cooldownMinutes: COOLDOWN_MS / 60_000 },
         "[DecartPool] Key put in cooldown after failure"
       );
+      // LEAK-07: persist cooldown to DB so it survives process restarts.
+      // Fire-and-forget (non-fatal) so this stays synchronous for the caller.
+      db.update(decartApiKeysTable)
+        .set({ cooldownUntil: new Date(key.cooldownUntil) })
+        .where(eq(decartApiKeysTable.id, keyId))
+        .catch((err: unknown) =>
+          logger.warn({ err, keyId }, "[DecartPool] Failed to persist cooldown to DB (non-fatal)")
+        );
     }
   }
 
@@ -165,6 +177,13 @@ class DecartKeyPool {
     if (key) {
       key.cooldownUntil = 0;
       logger.info({ keyId }, "[DecartPool] Cooldown manually cleared");
+      // LEAK-07: clear persisted cooldown in DB too (non-fatal fire-and-forget)
+      db.update(decartApiKeysTable)
+        .set({ cooldownUntil: null })
+        .where(eq(decartApiKeysTable.id, keyId))
+        .catch((err: unknown) =>
+          logger.warn({ err, keyId }, "[DecartPool] Failed to clear cooldown in DB (non-fatal)")
+        );
     }
   }
 

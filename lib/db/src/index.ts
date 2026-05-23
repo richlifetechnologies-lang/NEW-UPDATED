@@ -34,6 +34,8 @@ const COLUMN_FIXES: [string, string, string][] = [
   ["license_wallet",  "api_cost_credits",               "real DEFAULT 0"],
   ["license_wallet",  "retail_credits",                 "real DEFAULT 0"],
   ["sessions",        "decart_session_id",              "VARCHAR(255)"],
+  // LEAK-07: persist pool cooldown across restarts
+  ["decart_api_keys", "cooldown_until",                 "timestamp"],
 ];
 
 /**

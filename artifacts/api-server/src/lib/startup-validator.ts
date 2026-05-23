@@ -82,6 +82,36 @@ export function validateEnvironment(): ValidationResult {
 }
 
 /**
+ * LEAK-10: Warn at startup if any active sessions have NULL decartKeyId.
+ * Those sessions cannot be attributed to a Decart API key for credit tracking,
+ * creating an invisible billing blind spot.
+ * Non-fatal — purely diagnostic. Call after DB is confirmed reachable.
+ */
+export async function warnOnNullDecartKeySessions(): Promise<void> {
+  try {
+    const { db, sessionsTable } = await import("@workspace/db");
+    const { eq, isNull, and, sql } = await import("drizzle-orm");
+    const [result] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(sessionsTable)
+      .where(and(eq(sessionsTable.status, "active"), isNull(sessionsTable.decartKeyId)));
+    const count = Number(result?.count ?? 0);
+    if (count > 0) {
+      logger.warn(
+        { nullDecartKeySessionCount: count },
+        `[Startup] LEAK-10: ${count} active session(s) have NULL decart_key_id — ` +
+        `credit usage cannot be attributed to any Decart key. ` +
+        `Run: SELECT id, license_key_id, started_at FROM sessions WHERE status='active' AND decart_key_id IS NULL;`
+      );
+    } else {
+      logger.info("[Startup] LEAK-10: all active sessions have a valid decart_key_id ✓");
+    }
+  } catch (err) {
+    logger.warn({ err }, "[Startup] LEAK-10: could not check for NULL decart_key_id sessions (non-fatal)");
+  }
+}
+
+/**
  * Run startup validation and abort if any hard errors are found.
  * Call this before `app.listen()`.
  */

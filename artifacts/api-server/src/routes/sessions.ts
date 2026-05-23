@@ -443,17 +443,22 @@ router.post("/", requireLicense, async (req, res) => {
   } catch { /* non-fatal — snapshot null if DB unavailable */ }
 
   const sessionId = randomUUID();
+  // LEAK-01: capture connect() time so billing anchors to when the user called
+  // connect(), which is when Decart starts the clock — not the first video frame.
+  const sessionNow = new Date();
   const [session] = await db.insert(sessionsTable).values({
     id: sessionId, licenseKeyId: license.id, status: "active", style,
     packageLabel: `${license.minutesAllocated ?? 0}min license`,
     decartKeyId: resolvedDecartKeyId,
     billingRateSnapshot: sessionBillingRateSnapshot,
+    billingStartedAt: sessionNow,  // LEAK-01: billing anchors to connect() time
+    lastDeductedAt: sessionNow,    // LEAK-01: first heartbeat delta starts here
   }).returning();
 
   // ── BILLING-FIX: Reserve MINIMUM_RESERVATION_SEC upfront ───────────────
   // Deduct 1 second immediately so that even a failed or very short Decart
   // connection registers usage, matching Decart's minimum billing charge.
-  const nowReserve = new Date();
+  const nowReserve = sessionNow;
   await db.update(licenseKeysTable).set({
     lastSessionAt: nowReserve,
     usedSeconds: (license.usedSeconds ?? 0) + MINIMUM_RESERVATION_SEC,
@@ -639,6 +644,24 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   });
 
   res.json({ ok: true });
+});
+
+// ───────────────────────────────────────────────────────────────────
+//  Client Disconnect Signal (LEAK-04)
+//  Called via navigator.sendBeacon() from the frontend on pagehide /
+//  beforeunload so abnormal disconnects are settled immediately rather
+//  than waiting for the next orphan sweep cycle (up to SWEEP_INTERVAL_MS).
+//  Returns 200 immediately; settlement runs asynchronously.
+//  Safe: settleSession() is idempotent (atomic UPDATE WHERE status='active').
+// ───────────────────────────────────────────────────────────────────
+router.post("/:sessionId/client-disconnect", requireLicense, async (req, res) => {
+  const sessionId = req.params["sessionId"] as string;
+  res.status(200).json({ ok: true }); // respond immediately — sendBeacon won't read the body
+  setImmediate(() => {
+    settleSession(sessionId, { endAt: new Date() })
+      .then(() => logger.info({ sessionId }, "[Session] client_disconnect_settled"))
+      .catch((err: unknown) => logger.warn({ err, sessionId }, "[Session] client_disconnect_settle_failed (non-fatal)"));
+  });
 });
 
 router.post("/:sessionId/stop", requireLicense, async (req, res) => {
