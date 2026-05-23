@@ -1386,4 +1386,102 @@ router.get("/credit-savings-per-key", requireAdmin, featureGate, async (_req, re
   }
 });
 
+// ── GET /credit-usage ────────────────────────────────────────────────────────
+// Returns per-Decart-key credit consumption totals, hourly breakdown (24 h),
+// and daily breakdown (7 d). Used by the Credit Usage sub-tab on the
+// Billing Intelligence page.
+router.get("/credit-usage", requireAdmin, featureGate, async (_req, res) => {
+  try {
+    const billingRate = await getBillingRate();
+
+    const keyRows = await db.execute(sql`
+      SELECT
+        COALESCE(dk.label, 'Unassigned')                                        AS key_label,
+        COUNT(*)::int                                                            AS session_count,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}, 2)                                          AS decart_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${billingRate},            2)                                          AS retail_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * (${billingRate} - ${DECART_CREDITS_PER_SEC}), 2)                       AS margin_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}
+              FILTER (WHERE s.started_at >= NOW() - INTERVAL '24 hours'), 2)    AS decart_credits_24h,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}
+              FILTER (WHERE s.started_at >= NOW() - INTERVAL '7 days'),  2)     AS decart_credits_7d
+      FROM sessions s
+      LEFT JOIN decart_api_keys dk ON dk.id = s.decart_key_id
+      GROUP BY dk.label
+      ORDER BY decart_credits DESC
+    `);
+
+    const hourlyRows = await db.execute(sql`
+      SELECT
+        DATE_TRUNC('hour', s.started_at)                                                             AS hour,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}, 2)                  AS decart_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * (${billingRate} - ${DECART_CREDITS_PER_SEC}), 2) AS margin_credits,
+        COUNT(*)::int                                                                                 AS sessions
+      FROM sessions s
+      WHERE s.started_at >= NOW() - INTERVAL '24 hours'
+      GROUP BY DATE_TRUNC('hour', s.started_at)
+      ORDER BY hour
+    `);
+
+    const dailyRows = await db.execute(sql`
+      SELECT
+        DATE_TRUNC('day', s.started_at)                                                              AS day,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}, 2)                  AS decart_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * (${billingRate} - ${DECART_CREDITS_PER_SEC}), 2) AS margin_credits,
+        COUNT(*)::int                                                                                 AS sessions
+      FROM sessions s
+      WHERE s.started_at >= NOW() - INTERVAL '7 days'
+      GROUP BY DATE_TRUNC('day', s.started_at)
+      ORDER BY day
+    `);
+
+    const keys = ((keyRows as any).rows as any[]).map((r: any) => ({
+      keyLabel:         r.key_label       as string,
+      sessionCount:     Number(r.session_count),
+      decartCredits:    Number(r.decart_credits   ?? 0),
+      retailCredits:    Number(r.retail_credits   ?? 0),
+      marginCredits:    Number(r.margin_credits   ?? 0),
+      decartCredits24h: Number(r.decart_credits_24h ?? 0),
+      decartCredits7d:  Number(r.decart_credits_7d  ?? 0),
+    }));
+
+    const hourly = ((hourlyRows as any).rows as any[]).map((r: any) => ({
+      hour:          r.hour          as string,
+      decartCredits: Number(r.decart_credits ?? 0),
+      marginCredits: Number(r.margin_credits ?? 0),
+      sessions:      Number(r.sessions),
+    }));
+
+    const daily = ((dailyRows as any).rows as any[]).map((r: any) => ({
+      day:           r.day           as string,
+      decartCredits: Number(r.decart_credits ?? 0),
+      marginCredits: Number(r.margin_credits ?? 0),
+      sessions:      Number(r.sessions),
+    }));
+
+    const totalDecart = keys.reduce((s, k) => s + k.decartCredits, 0);
+    const totalMargin = keys.reduce((s, k) => s + k.marginCredits, 0);
+
+    res.json({
+      billingRate,
+      decartCostRate:    DECART_CREDITS_PER_SEC,
+      compressionFactor: Math.round((billingRate / DECART_CREDITS_PER_SEC) * 10000) / 10000,
+      keys,
+      hourly,
+      daily,
+      totals: {
+        totalDecartCredits: Math.round(totalDecart * 100) / 100,
+        totalMarginCredits: Math.round(totalMargin * 100) / 100,
+        marginPct: totalDecart > 0
+          ? Math.round((totalMargin / (totalDecart + totalMargin)) * 1000) / 10
+          : 0,
+      },
+      computedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[BillingIntelligence] credit-usage query failed");
+    res.status(500).json({ error: "Failed to compute credit usage" });
+  }
+});
+
 export default router;
