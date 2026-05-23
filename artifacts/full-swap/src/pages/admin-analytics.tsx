@@ -268,12 +268,14 @@ function CreditUsagePanel({ liveKeys, apiCostRate }: { liveKeys: BrkKey[]; apiCo
         )}
       </div>
 
-      {cuError && (
-        <div className="rounded-xl p-6 text-center text-sm" style={{ background: "rgba(252,92,101,0.08)", border: "1px solid rgba(252,92,101,0.25)", color: "#fc5c65" }}>
-          Failed to load credit usage data.
+      {/* Error and loading states — only shown on data-dependent tabs, never on Live Burn */}
+      {view !== "live-burn" && cuError && (
+        <div className="rounded-xl p-6 text-center text-sm space-y-2" style={{ background: "rgba(252,92,101,0.08)", border: "1px solid rgba(252,92,101,0.25)", color: "#fc5c65" }}>
+          <p>Failed to load credit usage data.</p>
+          <button onClick={load} className="text-xs underline opacity-75 hover:opacity-100">Retry</button>
         </div>
       )}
-      {cuLoading && !data && (
+      {view !== "live-burn" && cuLoading && !data && (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
