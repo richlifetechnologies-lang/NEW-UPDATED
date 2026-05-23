@@ -148,6 +148,9 @@ router.get("/recent", requireAdmin, async (req, res) => {
 });
 
 // ── GET /api/admin/billing-audit ────────────────────────────────────────────
+// Accepts either a session UUID or a license key string.
+// When a license key is provided, automatically resolves to the most recent
+// session for that key so admins don't need to look up the session UUID manually.
 router.get("/", requireAdmin, async (req, res) => {
   const sessionId = req.query["sessionId"] as string | undefined;
   if (!sessionId) {
@@ -156,12 +159,41 @@ router.get("/", requireAdmin, async (req, res) => {
   }
 
   try {
-    // 1. Session row
+    // 1. Session row — try UUID first, then fall back to license key lookup
     let session: any = null;
+    let resolvedSessionId = sessionId;
+    let licenseKeyResolved = false;
+
     try {
       const [s] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
       session = s ?? null;
     } catch { /* non-fatal */ }
+
+    // License key fallback: if no session matched the UUID, treat input as a license key.
+    // Finds the most recent session for that key so the admin gets useful data immediately.
+    if (!session) {
+      try {
+        const normalizedKey = sessionId.trim().toUpperCase();
+        const [licByKey] = await db
+          .select()
+          .from(licenseKeysTable)
+          .where(eq(licenseKeysTable.key, normalizedKey))
+          .limit(1);
+        if (licByKey) {
+          const [mostRecent] = await db
+            .select()
+            .from(sessionsTable)
+            .where(eq(sessionsTable.licenseKeyId, licByKey.id))
+            .orderBy(desc(sessionsTable.startedAt))
+            .limit(1);
+          if (mostRecent) {
+            session = mostRecent;
+            resolvedSessionId = mostRecent.id;
+            licenseKeyResolved = true;
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
 
     // 2. License key
     let license: any = null;
@@ -172,13 +204,13 @@ router.get("/", requireAdmin, async (req, res) => {
       } catch { /* non-fatal */ }
     }
 
-    // 3. All billing events ordered oldest-first
+    // 3. All billing events ordered oldest-first — always use the resolved session UUID
     let events: any[] = [];
     try {
       events = await db
         .select()
         .from(sessionBillingEventsTable)
-        .where(eq(sessionBillingEventsTable.sessionId, sessionId))
+        .where(eq(sessionBillingEventsTable.sessionId, resolvedSessionId))
         .orderBy(asc(sessionBillingEventsTable.createdAt));
     } catch { /* non-fatal */ }
 
@@ -188,7 +220,7 @@ router.get("/", requireAdmin, async (req, res) => {
       const [a] = await db
         .select()
         .from(sessionAccountingLogTable)
-        .where(eq(sessionAccountingLogTable.sessionId, sessionId));
+        .where(eq(sessionAccountingLogTable.sessionId, resolvedSessionId));
       accountingLog = a ?? null;
     } catch { /* non-fatal */ }
 
@@ -270,7 +302,9 @@ router.get("/", requireAdmin, async (req, res) => {
     const hardKillEvent = events.find(e => e.eventType === "hard_kill");
 
     res.json({
-      sessionId,
+      sessionId: resolvedSessionId,
+      queriedInput: sessionId,
+      licenseKeyResolved,
       session: session ? {
         id: session.id,
         status: session.status,
