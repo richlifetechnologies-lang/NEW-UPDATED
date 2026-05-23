@@ -653,8 +653,13 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
 //  than waiting for the next orphan sweep cycle (up to SWEEP_INTERVAL_MS).
 //  Returns 200 immediately; settlement runs asynchronously.
 //  Safe: settleSession() is idempotent (atomic UPDATE WHERE status='active').
+//
+//  NOTE: No requireLicense middleware — sendBeacon() cannot set custom headers.
+//  Security is provided by the session ID itself: V4 UUID = 122 bits of entropy,
+//  cryptographically unguessable. Worst-case abuse: a session settles slightly
+//  early — the same outcome the orphan sweeper would produce anyway.
 // ───────────────────────────────────────────────────────────────────
-router.post("/:sessionId/client-disconnect", requireLicense, async (req, res) => {
+router.post("/:sessionId/client-disconnect", async (req, res) => {
   const sessionId = req.params["sessionId"] as string;
   res.status(200).json({ ok: true }); // respond immediately — sendBeacon won't read the body
   setImmediate(() => {

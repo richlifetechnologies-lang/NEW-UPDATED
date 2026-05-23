@@ -1377,6 +1377,14 @@ export default function StreamPage() {
 
   useEffect(() => {
     function handleUnload() {
+      // LEAK-04: Fire sendBeacon to /client-disconnect FIRST so the server
+      // settles the session immediately — before the /stop keepalive request
+      // even queues. sendBeacon is guaranteed to complete after page destroy;
+      // the endpoint responds 200 instantly and settles asynchronously.
+      const sid = activeSessionRef.current;
+      if (sid) {
+        try { navigator.sendBeacon(`/api/sessions/${sid}/client-disconnect`); } catch { /* non-fatal */ }
+      }
       // Cannot await in synchronous unload handlers.
       // teardownStream("unload") uses fetch+keepalive internally so the /stop
       // request flushes even after the page is destroyed.
