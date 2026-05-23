@@ -41,7 +41,7 @@ export const sessionAccountingLogTable = pgTable("session_accounting_log", {
   computeSeconds: integer("compute_seconds"),
   /** Billing-window seconds: billing_started_at → stopped_at (active stream time) */
   billingSeconds: integer("billing_seconds"),
-  /** Decart's actual charge: computeSeconds × 5 credits/sec */
+  /** Decart's actual charge: computeSeconds × DECART_CREDITS_PER_SEC (2.3 cr/s — NOT 5) */
   actualApiCredits: integer("actual_api_credits"),
 
   // ── Retail metrics ──────────────────────────────────────────────────────────

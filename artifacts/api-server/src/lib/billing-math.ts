@@ -13,7 +13,7 @@
  *   DECART_API_COST_PER_SEC      = 2.3   (alias for DECART_REAL_API_COST_RATE)
  *   MINIMUM_RESERVATION_SEC      = 1     (reserved at session creation)
  *   HEARTBEAT_GRACE_MS           = 35_000  — max gap before a heartbeat is "late"
- *   ORPHAN_GRACE_MS              = 120_000 — no heartbeat for 2 min → orphan kill
+ *   ORPHAN_GRACE_MS              = 15_000  — no heartbeat for 15 s → orphan kill (RC#3: was 120,000)
  *   DEDUCTION_FREEZE_MS          = 45_000
  *
  * ── Dual Rate System ────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export function wallClockIncrement(endAtMs: number, lastDebitMs: number, billing
   incrementSec: number;
   totalDuration: number;
 } {
-  const incrementSec  = Math.max(0, Math.floor((endAtMs - lastDebitMs) / 1000));
+  const incrementSec  = Math.max(0, Math.ceil((endAtMs - lastDebitMs) / 1000));
   const totalDuration = Math.floor((endAtMs - billingStartMs) / 1000);
   return { incrementSec, totalDuration };
 }

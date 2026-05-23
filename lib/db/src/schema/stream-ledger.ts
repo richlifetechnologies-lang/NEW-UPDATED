@@ -49,7 +49,7 @@ export const streamLedgerTable = pgTable("stream_ledger", {
   totalBillingSeconds: integer("total_billing_seconds").default(0),
 
   // ── Decart cost side ──────────────────────────────────────────────────────────
-  /** totalComputeSeconds × DECART_CREDITS_PER_SEC (5) */
+  /** totalComputeSeconds × DECART_CREDITS_PER_SEC (2.3 cr/s — Decart Lucy 2.1 actual rate, NOT 5) */
   totalApiCreditsUsed: integer("total_api_credits_used").default(0),
 
   // ── Retail side (dynamic billing rate — never hardcoded) ─────────────────────

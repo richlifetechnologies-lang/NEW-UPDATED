@@ -190,7 +190,9 @@ export async function recordTopup(
     if (!key) throw new Error(`Decart API key ${keyId} not found`);
 
     // Calculate current total credits used in sessions (to set as new baseline)
-    // Use wall-clock time to match Decart's actual billing (started_at → stopped_at)
+    // Use wall-clock time to match Decart's actual billing (started_at → stopped_at).
+    // Active session subquery applies the same ORPHAN_GRACE_MS filter as
+    // getKeyCreditStatus() so orphaned sessions do not inflate the baseline.
     const usageResult = await tx
       .select({
         totalSeconds: sql<number>`
@@ -199,7 +201,7 @@ export async function recordTopup(
             0
           ) + 
           COALESCE(
-            (SELECT SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER) FROM sessions WHERE decart_key_id = ${keyId} AND status = 'active'),
+            (SELECT SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER) FROM sessions WHERE decart_key_id = ${keyId} AND status = 'active' AND COALESCE(last_heartbeat_at, started_at) > NOW() - make_interval(secs => ${ORPHAN_GRACE_MS / 1000})),
             0
           )
         `,
@@ -260,7 +262,9 @@ export async function recordTopupDelta(
     if (!key) throw new Error(`Decart API key ${keyId} not found`);
 
     // 2. Compute total seconds consumed by sessions for this key (NOW() is
-    //    evaluated at transaction start, so all reads share one consistent clock)
+    //    evaluated at transaction start, so all reads share one consistent clock).
+    //    Active session subquery applies the same ORPHAN_GRACE_MS filter as
+    //    getKeyCreditStatus() so orphaned sessions do not inflate the baseline.
     const usageResult = await tx
       .select({
         totalSeconds: sql<number>`
@@ -276,7 +280,8 @@ export async function recordTopupDelta(
             (SELECT SUM(EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER)
              FROM sessions
              WHERE decart_key_id = ${keyId}
-               AND status = 'active'),
+               AND status = 'active'
+               AND COALESCE(last_heartbeat_at, started_at) > NOW() - make_interval(secs => ${ORPHAN_GRACE_MS / 1000})),
             0
           )
         `,
