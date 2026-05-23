@@ -136,7 +136,311 @@ function TableWrap({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Section = "overview" | "profit" | "decart" | "ghost" | "streams" | "revenue" | "wallet";
+// ── Credit Usage types ────────────────────────────────────────────────────────
+interface CreditUsageKey {
+  keyLabel: string; sessionCount: number; decartCredits: number;
+  retailCredits: number; marginCredits: number; decartCredits24h: number; decartCredits7d: number;
+}
+interface CreditUsageBucket { hour?: string; day?: string; decartCredits: number; marginCredits: number; sessions: number; }
+interface CreditUsageData {
+  billingRate: number; decartCostRate: number; compressionFactor: number;
+  keys: CreditUsageKey[]; hourly: CreditUsageBucket[]; daily: CreditUsageBucket[];
+  totals: { totalDecartCredits: number; totalMarginCredits: number; marginPct: number };
+  computedAt: string;
+}
+
+const BI_API = (path: string) => `/api/admin/billing-intelligence${path}`;
+
+async function biApiFetch<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(BI_API(path), {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("fullswap_admin_token") ?? ""}`,
+      },
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<T>;
+  } catch { return null; }
+}
+
+function CreditUsagePanel() {
+  const [data, setData]       = useState<CreditUsageData | null>(null);
+  const [cuLoading, setCuLoading] = useState(true);
+  const [cuError, setCuError]   = useState(false);
+  const [view, setView]         = useState<"keys" | "hourly" | "daily" | "scenario">("keys");
+
+  const load = useCallback(async () => {
+    setCuLoading(true); setCuError(false);
+    const res = await biApiFetch<CreditUsageData>("/credit-usage");
+    if (res) setData(res); else setCuError(true);
+    setCuLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const fmtC = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M`
+    : n >= 1_000   ? `${(n / 1_000).toFixed(1)}k`
+    : n.toFixed(0);
+
+  const maxBar = (arr: number[]) => Math.max(...arr, 1);
+
+  const scenarios = data ? [1, 30, 60].map(mins => {
+    const walletSec  = mins * 60;
+    const realSec    = walletSec / data.compressionFactor;
+    const decartCost = realSec * data.decartCostRate;
+    const margin     = realSec * (data.billingRate - data.decartCostRate);
+    return { mins, walletSec, realSec: Math.round(realSec), decartCost: Math.round(decartCost), margin: Math.round(margin) };
+  }) : [];
+
+  const subTabs = [
+    { id: "keys"     as const, label: "Per-Key Totals" },
+    { id: "hourly"   as const, label: "Last 24 h (hourly)" },
+    { id: "daily"    as const, label: "Last 7 d (daily)" },
+    { id: "scenario" as const, label: "Real-World Scenarios" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Banner */}
+      <div className="flex items-start gap-2.5 rounded-xl p-4 text-xs"
+        style={{ background: "rgba(6,182,212,0.08)", border: "1px solid rgba(6,182,212,0.25)", color: "#67e8f9" }}>
+        <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "#22d3ee" }} />
+        <div>
+          <span className="font-semibold">Credit Usage Monitor — </span>
+          Read-only. Shows Decart credits consumed per API key and over time. Refreshes every 30 s.
+          {data && (
+            <span className="ml-1">
+              Billing rate: <strong style={{ color: "#a5f3fc" }}>{data.billingRate} cr/s</strong>
+              {" · "}Decart cost: <strong style={{ color: "#a5f3fc" }}>{data.decartCostRate} cr/s</strong>
+              {" · "}Compression: <strong style={{ color: "#a5f3fc" }}>{data.compressionFactor}×</strong>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      {data && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "Total Decart Credits", value: fmtC(data.totals.totalDecartCredits),  color: "#fc5c65" },
+            { label: "Total Margin Credits", value: fmtC(data.totals.totalMarginCredits),  color: "#26de81" },
+            { label: "Gross Margin",         value: `${data.totals.marginPct}%`,           color: "#fed330" },
+            { label: "Decart Keys",          value: String(data.keys.length),              color: "hsl(215 20% 55%)" },
+          ].map(c => (
+            <div key={c.label} className="rounded-xl p-3" style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(222 40% 14%)" }}>
+              <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{c.label}</p>
+              <p className="text-xl font-bold mt-1 font-mono" style={{ color: c.color }}>{c.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Controls */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button onClick={load} disabled={cuLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors"
+          style={{ border: "1px solid hsl(222 40% 18%)", color: "hsl(215 20% 55%)" }}>
+          <RefreshCw className={`w-3 h-3 ${cuLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+        <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ border: "1px solid hsl(222 40% 18%)", background: "hsl(222 44% 6%)" }}>
+          {subTabs.map(st => (
+            <button key={st.id} onClick={() => setView(st.id)}
+              className="px-3 py-1 rounded-md text-xs transition-colors font-mono"
+              style={view === st.id
+                ? { background: "hsl(222 40% 18%)", color: "hsl(var(--foreground))" }
+                : { color: "hsl(215 20% 55%)" }}>
+              {st.label}
+            </button>
+          ))}
+        </div>
+        {data && (
+          <span className="text-[10px] font-mono text-muted-foreground ml-auto">
+            computed {new Date(data.computedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {cuError && (
+        <div className="rounded-xl p-6 text-center text-sm" style={{ background: "rgba(252,92,101,0.08)", border: "1px solid rgba(252,92,101,0.25)", color: "#fc5c65" }}>
+          Failed to load credit usage data.
+        </div>
+      )}
+      {cuLoading && !data && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Per-Key Totals */}
+      {data && view === "keys" && (
+        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
+          <div className="px-5 py-4" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+            <p className="text-sm font-semibold">Decart Credits per API Key — all time</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Each bar = total Decart credits consumed by sessions routed through that key.</p>
+          </div>
+          <div className="p-5 space-y-4" style={{ background: "hsl(222 44% 5%)" }}>
+            {data.keys.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No session data yet.</p>}
+            {data.keys.map(k => {
+              const pct = Math.round((k.decartCredits / maxBar(data.keys.map(x => x.decartCredits))) * 100);
+              const mPct = k.decartCredits + k.marginCredits > 0
+                ? Math.round((k.marginCredits / (k.decartCredits + k.marginCredits)) * 100) : 0;
+              return (
+                <div key={k.keyLabel} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium truncate max-w-[200px]">{k.keyLabel}</span>
+                    <div className="flex items-center gap-4 text-muted-foreground shrink-0 ml-2">
+                      <span className="font-mono" style={{ color: "#fc5c65" }}>{fmtC(k.decartCredits)} cr</span>
+                      <span className="font-mono" style={{ color: "#26de81" }}>+{fmtC(k.marginCredits)} margin</span>
+                      <span>{k.sessionCount} sessions</span>
+                    </div>
+                  </div>
+                  <div className="h-5 rounded overflow-hidden flex" style={{ background: "hsl(222 40% 11%)" }}>
+                    <div className="h-full transition-all" style={{ width: `${pct * (100 - mPct) / 100}%`, background: "rgba(252,92,101,0.7)" }} />
+                    <div className="h-full transition-all" style={{ width: `${pct * mPct / 100}%`, background: "rgba(38,222,129,0.6)" }} />
+                  </div>
+                  <div className="flex gap-4 text-[10px] text-muted-foreground">
+                    <span>24 h: {fmtC(k.decartCredits24h)} cr</span>
+                    <span>7 d: {fmtC(k.decartCredits7d)} cr</span>
+                    <span>{mPct}% margin</span>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex items-center gap-4 pt-2 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-2.5 rounded-sm" style={{ background: "rgba(252,92,101,0.7)" }} />Decart cost</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-2.5 rounded-sm" style={{ background: "rgba(38,222,129,0.6)" }} />Your margin</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hourly chart */}
+      {data && view === "hourly" && (
+        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
+          <div className="px-5 py-4" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+            <p className="text-sm font-semibold">Decart Credits — last 24 hours (per hour)</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Hourly Decart credit burn rate across all keys.</p>
+          </div>
+          <div className="p-5" style={{ background: "hsl(222 44% 5%)" }}>
+            {data.hourly.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No sessions in the last 24 hours.</p>}
+            {data.hourly.length > 0 && (
+              <div className="flex items-end gap-1 h-36 overflow-x-auto">
+                {data.hourly.map((h, i) => {
+                  const maxV = maxBar(data.hourly.map(x => x.decartCredits + x.marginCredits));
+                  const totalH = h.decartCredits + h.marginCredits;
+                  const pct = Math.round((totalH / maxV) * 100);
+                  const dPct = totalH > 0 ? Math.round((h.decartCredits / totalH) * pct) : 0;
+                  const mPctH = pct - dPct;
+                  const label = h.hour ? new Date(h.hour).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-0.5 min-w-[28px] group cursor-default"
+                      title={`${label}\nDecart: ${fmtC(h.decartCredits)} cr\nMargin: ${fmtC(h.marginCredits)} cr\nSessions: ${h.sessions}`}>
+                      <div className="flex flex-col-reverse items-stretch w-full" style={{ height: "120px" }}>
+                        <div className="w-full rounded-t-sm transition-all" style={{ height: `${dPct}%`, background: "rgba(252,92,101,0.7)" }} />
+                        <div className="w-full transition-all" style={{ height: `${mPctH}%`, background: "rgba(38,222,129,0.6)" }} />
+                      </div>
+                      <span className="text-[9px] text-muted-foreground rotate-[-45deg] origin-center mt-1 w-5 truncate">{label.slice(0, 5)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Daily chart */}
+      {data && view === "daily" && (
+        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
+          <div className="px-5 py-4" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+            <p className="text-sm font-semibold">Decart Credits — last 7 days (per day)</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Daily Decart credit burn. Red = Decart cost, green = your margin on top.</p>
+          </div>
+          <div className="p-5" style={{ background: "hsl(222 44% 5%)" }}>
+            {data.daily.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No sessions in the last 7 days.</p>}
+            {data.daily.length > 0 && (
+              <div className="flex items-end gap-2 h-36">
+                {data.daily.map((d, i) => {
+                  const maxV = maxBar(data.daily.map(x => x.decartCredits + x.marginCredits));
+                  const totalD = d.decartCredits + d.marginCredits;
+                  const pct = Math.round((totalD / maxV) * 100);
+                  const dPct = totalD > 0 ? Math.round((d.decartCredits / totalD) * pct) : 0;
+                  const mPctD = pct - dPct;
+                  const label = d.day ? new Date(d.day).toLocaleDateString([], { month: "short", day: "numeric" }) : "";
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group cursor-default"
+                      title={`${label}\nDecart: ${fmtC(d.decartCredits)} cr\nMargin: ${fmtC(d.marginCredits)} cr\nSessions: ${d.sessions}`}>
+                      <div className="flex flex-col-reverse items-stretch w-full" style={{ height: "112px" }}>
+                        <div className="w-full rounded-t-sm" style={{ height: `${dPct}%`, background: "rgba(252,92,101,0.7)" }} />
+                        <div className="w-full" style={{ height: `${mPctD}%`, background: "rgba(38,222,129,0.6)" }} />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground mt-1">{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Scenario table */}
+      {data && view === "scenario" && (
+        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
+          <div className="px-5 py-4" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+            <p className="text-sm font-semibold">Real-World Key Scenarios</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              At billing rate <strong>{data.billingRate} cr/s</strong> vs Decart's{" "}
+              <strong>{data.decartCostRate} cr/s</strong> (compression <strong>{data.compressionFactor}×</strong>).
+            </p>
+          </div>
+          <div className="overflow-x-auto" style={{ background: "hsl(222 44% 5%)" }}>
+            <table className="w-full text-xs">
+              <thead>
+                <tr style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
+                  {["Key Sold", "Wallet Time", "Real Stream Time", "Decart Costs You", "Your Margin", "Margin %"].map(h => (
+                    <th key={h} className="text-left px-4 py-3 font-mono font-medium whitespace-nowrap text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {scenarios.map((sc, i) => {
+                  const mins = Math.floor(sc.realSec / 60);
+                  const secs = sc.realSec % 60;
+                  const display = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                  const mPct = Math.round((sc.margin / (sc.decartCost + sc.margin)) * 100);
+                  return (
+                    <tr key={sc.mins} style={{ background: i % 2 === 0 ? ROW_A : ROW_B, borderTop: BORDER }}>
+                      <td className="px-4 py-3 font-semibold font-mono">{sc.mins} min key</td>
+                      <td className="px-4 py-3 font-mono text-muted-foreground">{sc.mins}:00</td>
+                      <td className="px-4 py-3 font-mono" style={{ color: "#67e8f9" }}>{display}</td>
+                      <td className="px-4 py-3 font-mono" style={{ color: "#fc5c65" }}>{sc.decartCost.toLocaleString()} cr</td>
+                      <td className="px-4 py-3 font-mono" style={{ color: "#26de81" }}>+{sc.margin.toLocaleString()} cr</td>
+                      <td className="px-4 py-3 font-mono" style={{ color: "#fed330" }}>{mPct}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-5 py-4 text-xs text-muted-foreground space-y-1" style={{ background: "hsl(222 44% 6%)", borderTop: "1px solid hsl(222 40% 11%)" }}>
+            <p><strong className="text-foreground">Compression factor {data.compressionFactor}×</strong> — for every 1 wallet-second, only {(1/data.compressionFactor).toFixed(3)}s is actually streamed.</p>
+            <p><strong className="text-foreground">Hard-kill buffer:</strong> 3 wallet-seconds reserved — stream ends ~{(3 / data.compressionFactor).toFixed(1)}s before wallet hits zero.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type Section = "overview" | "profit" | "decart" | "ghost" | "streams" | "revenue" | "wallet" | "credit-usage";
 
 export default function AdminAnalyticsPage() {
   const [brkData, setBrkData]         = useState<BrkResponse | null>(null);
@@ -208,13 +512,14 @@ export default function AdminAnalyticsPage() {
   });
 
   const sections: { id: Section; label: string }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "profit",   label: "Profit" },
-    { id: "decart",   label: "Decart Pool" },
-    { id: "ghost",    label: `Ghost Sessions${ghosts.length > 0 ? ` (${ghosts.length})` : ""}` },
-    { id: "streams",  label: `Live Streams${liveStreams.length > 0 ? ` (${liveStreams.length})` : ""}` },
-    { id: "revenue",  label: "Revenue Intel" },
-    { id: "wallet",   label: "Wallet Health" },
+    { id: "overview",      label: "Overview" },
+    { id: "profit",        label: "Profit" },
+    { id: "decart",        label: "Decart Pool" },
+    { id: "ghost",         label: `Ghost Sessions${ghosts.length > 0 ? ` (${ghosts.length})` : ""}` },
+    { id: "streams",       label: `Live Streams${liveStreams.length > 0 ? ` (${liveStreams.length})` : ""}` },
+    { id: "revenue",       label: "Revenue Intel" },
+    { id: "wallet",        label: "Wallet Health" },
+    { id: "credit-usage",  label: "Credit Usage" },
   ];
 
   const ROW_A = "hsl(222 44% 5%)";
@@ -726,6 +1031,9 @@ export default function AdminAnalyticsPage() {
                 )}
               </div>
             )}
+
+            {/* ── CREDIT USAGE ── */}
+            {section === "credit-usage" && <CreditUsagePanel />}
 
           </>
         )}
