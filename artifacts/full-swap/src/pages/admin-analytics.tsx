@@ -463,21 +463,23 @@ function LiveCreditBurnPanel({ liveKeys, apiCostRate }: { liveKeys: BrkKey[]; ap
   const [entries, setEntries] = useState<Record<number, BurnEntry>>({});
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Sync live session counts from parent (every 3 s) without resetting committed balances
+  // Sync live session counts from parent (every 3 s) — adds new keys, updates existing ones,
+  // and removes any keys that have been deleted from the system
   useEffect(() => {
     setEntries(prev => {
-      const next = { ...prev };
+      // Rebuild from scratch — only keys still present in liveKeys survive.
+      // Any key deleted from the system simply won't appear in liveKeys and
+      // therefore won't be copied into next, removing it automatically.
+      const next: Record<number, BurnEntry> = {};
       liveKeys.forEach(k => {
-        if (next[k.licenseKeyId]) {
-          // update live fields only
+        if (prev[k.licenseKeyId]) {
           next[k.licenseKeyId] = {
-            ...next[k.licenseKeyId],
+            ...prev[k.licenseKeyId],
             activeSessionCount: k.activeSessionCount,
             effectiveRate: k.effectiveRate,
             isLive: k.isLive,
           };
         } else {
-          // first time we see this key
           next[k.licenseKeyId] = {
             licenseKeyId: k.licenseKeyId,
             licenseKey: k.licenseKey,
