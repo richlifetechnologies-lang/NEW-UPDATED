@@ -20,6 +20,7 @@ import streamHealthRouter from "./admin-stream-health";
 import profitOptimizerRouter from "./admin-profit-optimizer";
 import tokenWindowRouter from "./admin-token-window";
 import sessionIntelligenceRouter from "./admin-session-intelligence";
+import liveSessionsRouter from "./admin-live-sessions";
   import keyUsageRouter from "./admin-key-usage";
   import billingAuditRouter from "./admin-billing-audit";
 
@@ -43,6 +44,7 @@ router.use("/admin", streamHealthRouter);
 router.use("/admin/profit-optimizer", profitOptimizerRouter);
 router.use("/admin/token-window", tokenWindowRouter);
 router.use("/admin/session-intelligence", sessionIntelligenceRouter);
+router.use("/admin/live-sessions", liveSessionsRouter);
   router.use("/admin/billing-audit", billingAuditRouter);
   router.use("/admin/key-usage", keyUsageRouter);
 router.use(downloadRouter);
@@ -50,4 +52,4 @@ router.use("/subadmin", subAdminRouter);
 router.use("/license", licenseRouter);
 
 export default router;
-// build-trigger: stream-lazy-fix
+// build-trigger: live-sessions-compression-view
