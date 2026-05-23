@@ -422,16 +422,17 @@ export default function AdminLicenseKeysPage() {
                 <TableHead className="text-muted-foreground font-mono text-xs hidden md:table-cell">Device</TableHead>
                 <TableHead className="text-muted-foreground font-mono text-xs hidden lg:table-cell">Created</TableHead>
                 <TableHead className="text-muted-foreground font-mono text-xs hidden lg:table-cell">Notes</TableHead>
+                  <TableHead className="text-muted-foreground font-mono text-xs hidden lg:table-cell">Token Win.</TableHead>
                 <TableHead className="text-muted-foreground font-mono text-xs text-right">Admin Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                <TableRow><TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Loading...
                 </TableCell></TableRow>
               ) : keys.length === 0 ? (
-                <TableRow><TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                <TableRow><TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                   <Key className="w-8 h-8 mx-auto mb-3 opacity-30" />No license keys yet.
                 </TableCell></TableRow>
               ) : keys.map(lk => {
@@ -479,6 +480,16 @@ export default function AdminLicenseKeysPage() {
                     </TableCell>
                     <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">{fmt(lk.createdAt)}</TableCell>
                     <TableCell className="hidden lg:table-cell text-xs text-muted-foreground truncate max-w-32">{lk.notes || "&mdash;"}</TableCell>
+                    <TableCell className="hidden lg:table-cell text-xs">
+                      {lk.tokenWindowMinutes != null ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono font-semibold" style={{ background: "hsl(199 89% 52% / 0.12)", color: "#38bdf8", border: "1px solid hsl(199 89% 52% / 0.25)" }}>
+                          <Clock className="w-2.5 h-2.5" />
+                          {lk.tokenWindowMinutes}m
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/50 text-xs font-mono">sys</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       {/* Reassign API — allow reassignment to another Decart API */}
                       <Button
