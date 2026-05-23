@@ -1181,6 +1181,30 @@ export default function StreamPage() {
       decartClientRef.current = realtimeClient;
       console.info("[Decart] SDK client connected successfully. Waiting for first remote frame...");
 
+      // ── OPTION-B: 25-second token pre-warm loop ────────────────────────────
+      // The server now issues tokens with maxSessionDuration=30s (was 90s).
+      // This limits Decart freeze billing to 30×2=60 credits (was 180).
+      // To keep healthy sessions running beyond 30 seconds we pre-fetch a fresh
+      // token every 25 seconds so one is always ready the instant a reconnect
+      // is needed after a drop. The existing session is unaffected — this only
+      // populates prewarmedTokenRef for the NEXT connect() call.
+      // Safety: the interval is cleared by teardownStream on any disconnect path.
+      if (tokenRefreshRef.current) clearInterval(tokenRefreshRef.current);
+      tokenRefreshRef.current = setInterval(async () => {
+        // Only refresh while the stream is genuinely active
+        if (!decartClientRef.current) return;
+        try {
+          const freshToken = await fetchDecartToken();
+          prewarmedTokenRef.current  = freshToken;
+          prewarmedTokenExpiry.current = Date.now() + 29_000; // treat as valid for 29s
+          console.info("[Decart] token_refresh: pre-warmed fresh 30s token for instant reconnect");
+        } catch (refreshErr) {
+          // Non-fatal: if refresh fails (network blip), the next tick will retry.
+          // The running session is completely unaffected.
+          console.warn("[Decart] token_refresh: pre-warm failed (non-fatal):", refreshErr);
+        }
+      }, 25_000);
+
       // Attach Decart's session ID for cross-reference tracking.
       // Fire-and-forget — never blocks streaming, never throws.
       // Always fires: retries after 500 ms in case the SDK populates IDs
