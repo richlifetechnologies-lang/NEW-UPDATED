@@ -3,6 +3,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 import * as schema from "./schema";
 
 const { Pool } = pg;
@@ -77,7 +78,18 @@ export async function applyColumnFixes(): Promise<void> {
  * Safe to call on every startup — already-applied migrations are skipped.
  */
 export async function runMigrations(): Promise<void> {
-  const migrationsFolder = path.join(process.cwd(), "lib/db/drizzle");
+  // Resolve the drizzle folder robustly regardless of cwd or bundle location.
+  // When esbuild bundles lib/db into the API server bundle, import.meta.url
+  // points to artifacts/api-server/dist/index.mjs (3 levels below workspace root).
+  // When lib/db/dist/index.js runs standalone, it's 2 levels below workspace root.
+  // We try all candidate paths and use the first one that actually exists.
+  const _thisDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(_thisDir, "../../../lib/db/drizzle"),   // from bundled API server dist
+    path.resolve(_thisDir, "../drizzle"),                 // from lib/db/dist standalone
+    path.resolve(process.cwd(), "lib/db/drizzle"),        // from workspace root cwd
+  ];
+  const migrationsFolder = candidates.find(p => existsSync(p)) ?? candidates[2]!;
   await migrate(db, { migrationsFolder });
 }
 
