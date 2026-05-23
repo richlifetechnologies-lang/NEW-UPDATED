@@ -286,7 +286,7 @@ export default function AdminLiveSessionsPage() {
           <div className="rounded-xl border border-border bg-card p-4">
             <p className="text-xs text-muted-foreground">Total Real Stream Left</p>
             <p className="text-2xl font-bold text-blue-400 mt-1">
-              {summary.totalRealStreamRemainingMinutes.toFixed(1)}m
+              {(summary.totalRealStreamRemainingMinutes ?? 0).toFixed(1)}m
             </p>
           </div>
         </div>
