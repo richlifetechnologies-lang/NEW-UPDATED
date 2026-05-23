@@ -12,6 +12,9 @@ import {
 } from "lucide-react";
 
 const COST_RATE = 2.3; // Decart API cost — fixed infrastructure constant
+const ROW_A  = "hsl(222 44% 5%)";
+const ROW_B  = "hsl(222 44% 6%)";
+const BORDER = "1px solid hsl(222 40% 10%)";
 
 const authH = () => ({
   "Content-Type": "application/json",
@@ -831,9 +834,6 @@ export default function AdminAnalyticsPage() {
     { id: "credit-usage",  label: "Credit Usage" },
   ];
 
-  const ROW_A = "hsl(222 44% 5%)";
-  const ROW_B = "hsl(222 44% 6%)";
-  const BORDER = "1px solid hsl(222 40% 10%)";
 
   return (
     <AdminLayout>
