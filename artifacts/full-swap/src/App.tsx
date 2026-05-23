@@ -40,6 +40,7 @@ import { lazy, Suspense } from "react";
   const AdminSessionIntelligencePage = lazy(() => import("@/pages/admin-session-intelligence"));
   const AdminKeyUsagePage = lazy(() => import("@/pages/admin-key-usage"));
   const AdminBillingAuditPage = lazy(() => import("@/pages/admin-billing-audit"));
+  const AdminLiveSessionsPage = lazy(() => import("@/pages/admin-live-sessions"));
   const SubAdminLoginPage = lazy(() => import("@/pages/subadmin-login"));
   const SubAdminDashboardPage = lazy(() => import("@/pages/subadmin-dashboard"));
   const SubAdminStreamPage = lazy(() => import("@/pages/subadmin-stream"));
@@ -90,6 +91,7 @@ import { lazy, Suspense } from "react";
           <Route path="/admin/session-intelligence" component={AdminSessionIntelligencePage} />
           <Route path="/admin/billing-audit" component={AdminBillingAuditPage} />
           <Route path="/admin/key-usage" component={AdminKeyUsagePage} />
+          <Route path="/admin/live-sessions" component={AdminLiveSessionsPage} />
           <Route path="/subadmin" component={SubAdminLoginPage} />
           <Route path="/subadmin/dashboard" component={SubAdminDashboardPage} />
           <Route path="/subadmin/stream" component={SubAdminStreamPage} />
