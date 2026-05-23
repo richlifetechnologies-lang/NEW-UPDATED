@@ -1570,7 +1570,12 @@ export default function StreamPage() {
     const handler = (e: MessageEvent) => {
       if (e.data === "fullswap-stop") {
         const sid = activeSessionRef.current;
-        if (sid) stopStreamInternally(sid, elapsedSecsRef.current, false);
+        if (sid) {
+          // LEAK-04: fire sendBeacon before async teardown so the server
+          // settles the session immediately when the OBS popout window is closed.
+          try { navigator.sendBeacon(`/api/sessions/${sid}/client-disconnect`); } catch { /* non-fatal */ }
+          stopStreamInternally(sid, elapsedSecsRef.current, false);
+        }
       } else if (e.data === "fullswap-reconnect") {
         // Only reconnect if we are not already streaming
         if (!activeSessionRef.current && cameraReady) {
