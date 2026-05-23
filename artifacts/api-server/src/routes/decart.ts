@@ -41,12 +41,14 @@ setInterval(() => {
 // RC#1 FIX: was 15 * 60 (15 min) which caused Decart to reserve/pre-charge up to
 // 15 minutes of credits at realtime.connect() time. Hard-capped to 90 seconds so
 // the worst-case Decart reservation is 90 × 2.3 = 207 credits per session start.
-// The frontend pre-warm + token-refresh mechanism transparently refreshes tokens
-// before they expire so shorter windows are invisible to the user.
-const TOKEN_WINDOW_SEC_DEFAULT = 90; // 90s hard cap — minimal reservation exposure
+// OPTION-B FIX: Further reduced from 90s → 30s. Combined with the client-side
+// 25-second token refresh loop, this caps worst-case freeze credit drain to
+// 30 × 2 = 60 credits (was 180) while seamlessly extending healthy sessions
+// by pre-warming a fresh token before the window expires.
+const TOKEN_WINDOW_SEC_DEFAULT = 30; // 30s cap — limits freeze drain to 60 credits max
 // RC#1: Absolute hard cap applied AFTER any per-key/sub-admin/global override.
 // Ensures no configuration path can accidentally restore a large reservation window.
-const TOKEN_WINDOW_HARD_CAP_SEC = 90;
+const TOKEN_WINDOW_HARD_CAP_SEC = 30;
 
 const GLOBAL_TOKEN_WINDOW_SETTING = "global_default_token_window_minutes";
 
