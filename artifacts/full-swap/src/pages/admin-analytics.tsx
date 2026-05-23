@@ -164,11 +164,11 @@ async function biApiFetch<T>(path: string): Promise<T | null> {
   } catch { return null; }
 }
 
-function CreditUsagePanel() {
+function CreditUsagePanel({ liveKeys, apiCostRate }: { liveKeys: BrkKey[]; apiCostRate: number }) {
   const [data, setData]       = useState<CreditUsageData | null>(null);
   const [cuLoading, setCuLoading] = useState(true);
   const [cuError, setCuError]   = useState(false);
-  const [view, setView]         = useState<"keys" | "hourly" | "daily" | "scenario">("keys");
+  const [view, setView]         = useState<"keys" | "hourly" | "daily" | "scenario" | "live-burn">("keys");
 
   const load = useCallback(async () => {
     setCuLoading(true); setCuError(false);
@@ -199,10 +199,11 @@ function CreditUsagePanel() {
   }) : [];
 
   const subTabs = [
-    { id: "keys"     as const, label: "Per-Key Totals" },
-    { id: "hourly"   as const, label: "Last 24 h (hourly)" },
-    { id: "daily"    as const, label: "Last 7 d (daily)" },
-    { id: "scenario" as const, label: "Real-World Scenarios" },
+    { id: "live-burn" as const, label: "🔥 Live Burn" },
+    { id: "keys"      as const, label: "Per-Key Totals" },
+    { id: "hourly"    as const, label: "Last 24 h (hourly)" },
+    { id: "daily"     as const, label: "Last 7 d (daily)" },
+    { id: "scenario"  as const, label: "Real-World Scenarios" },
   ];
 
   return (
@@ -391,7 +392,11 @@ function CreditUsagePanel() {
         </div>
       )}
 
-      {/* Scenario table */}
+      {/* ── LIVE BURN (always rendered regardless of data load state) ── */}
+      {view === "live-burn" && (
+        <LiveCreditBurnPanel liveKeys={liveKeys} apiCostRate={apiCostRate} />
+      )}
+
       {data && view === "scenario" && (
         <div className="rounded-xl overflow-hidden" style={{ border: "1px solid hsl(222 40% 11%)" }}>
           <div className="px-5 py-4" style={{ background: "hsl(222 44% 6%)", borderBottom: "1px solid hsl(222 40% 11%)" }}>
@@ -436,6 +441,306 @@ function CreditUsagePanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Live Credit Burn Panel ────────────────────────────────────────────────────
+interface BurnEntry {
+  licenseKeyId: number;
+  licenseKey: string;
+  inputBalance: string;       // raw text the admin types
+  committedBalance: number;   // confirmed credit balance (set on Enter / blur)
+  burnedSinceCommit: number;  // credits burned since last commit (ticks every second)
+  committedAt: number;        // timestamp of last commit (ms)
+  activeSessionCount: number;
+  effectiveRate: number;
+  isLive: boolean;
+}
+
+function LiveCreditBurnPanel({ liveKeys, apiCostRate }: { liveKeys: BrkKey[]; apiCostRate: number }) {
+  // Map keyed by licenseKeyId — persists across parent re-renders
+  const [entries, setEntries] = useState<Record<number, BurnEntry>>({});
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Sync live session counts from parent (every 3 s) without resetting committed balances
+  useEffect(() => {
+    setEntries(prev => {
+      const next = { ...prev };
+      liveKeys.forEach(k => {
+        if (next[k.licenseKeyId]) {
+          // update live fields only
+          next[k.licenseKeyId] = {
+            ...next[k.licenseKeyId],
+            activeSessionCount: k.activeSessionCount,
+            effectiveRate: k.effectiveRate,
+            isLive: k.isLive,
+          };
+        } else {
+          // first time we see this key
+          next[k.licenseKeyId] = {
+            licenseKeyId: k.licenseKeyId,
+            licenseKey: k.licenseKey,
+            inputBalance: "",
+            committedBalance: 0,
+            burnedSinceCommit: 0,
+            committedAt: 0,
+            activeSessionCount: k.activeSessionCount,
+            effectiveRate: k.effectiveRate,
+            isLive: k.isLive,
+          };
+        }
+      });
+      return next;
+    });
+  }, [liveKeys]);
+
+  // Tick every second — burn credits on live keys
+  useEffect(() => {
+    tickRef.current = setInterval(() => {
+      setEntries(prev => {
+        const next = { ...prev };
+        Object.values(next).forEach(e => {
+          if (e.isLive && e.committedBalance > 0 && e.activeSessionCount > 0) {
+            const burnPerSec = apiCostRate * e.activeSessionCount;
+            next[e.licenseKeyId] = {
+              ...e,
+              burnedSinceCommit: Math.min(
+                e.burnedSinceCommit + burnPerSec,
+                e.committedBalance
+              ),
+            };
+          }
+        });
+        return next;
+      });
+    }, 1000);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, [apiCostRate]);
+
+  const commit = (id: number) => {
+    setEntries(prev => {
+      const e = prev[id];
+      if (!e) return prev;
+      const val = parseFloat(e.inputBalance.replace(/,/g, ""));
+      if (isNaN(val) || val <= 0) return prev;
+      return {
+        ...prev,
+        [id]: { ...e, committedBalance: val, burnedSinceCommit: 0, committedAt: Date.now() },
+      };
+    });
+  };
+
+  const handleInput = (id: number, raw: string) => {
+    setEntries(prev => ({ ...prev, [id]: { ...prev[id], inputBalance: raw } }));
+  };
+
+  const handleKey = (id: number, ev: React.KeyboardEvent<HTMLInputElement>) => {
+    if (ev.key === "Enter") commit(id);
+  };
+
+  const fmtCr = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(3)}M`
+    : n >= 1_000   ? `${(n / 1_000).toFixed(2)}k`
+    : n.toFixed(1);
+
+  const fmtEta = (remaining: number, burnPerSec: number): string => {
+    if (burnPerSec <= 0) return "∞";
+    const secs = remaining / burnPerSec;
+    if (secs >= 3600) return `~${(secs / 3600).toFixed(1)}h`;
+    if (secs >= 60)   return `~${Math.round(secs / 60)}m`;
+    return `~${Math.round(secs)}s`;
+  };
+
+  const sortedKeys = liveKeys.slice().sort((a, b) => {
+    // live keys first, then by licenseKeyId
+    if (a.isLive && !b.isLive) return -1;
+    if (!a.isLive && b.isLive) return 1;
+    return a.licenseKeyId - b.licenseKeyId;
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Header banner */}
+      <div className="flex items-start gap-2.5 rounded-xl p-4 text-xs"
+        style={{ background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>
+        <Flame className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+        <div>
+          <span className="font-semibold">Live Credit Burn — </span>
+          Enter your Decart credit balance for each licence key. It burns in real-time at{" "}
+          <strong>{apiCostRate} cr/s × active sessions</strong>. Type a number and press Enter (or click Set) to start the countdown.
+          Balance resets to your new input any time you re-enter it.
+        </div>
+      </div>
+
+      {/* Per-key burn cards */}
+      {sortedKeys.length === 0 && (
+        <div className="rounded-xl p-10 text-center font-mono text-sm text-muted-foreground"
+          style={{ border: "1px solid hsl(222 40% 11%)" }}>
+          No licence keys found. Wait for data to load.
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {sortedKeys.map(k => {
+          const e = entries[k.licenseKeyId];
+          if (!e) return null;
+
+          const burnPerSec  = apiCostRate * e.activeSessionCount;
+          const remaining   = Math.max(0, e.committedBalance - e.burnedSinceCommit);
+          const hasBalance  = e.committedBalance > 0;
+          const pct         = hasBalance ? Math.max(0, Math.min(1, remaining / e.committedBalance)) : 0;
+          const isStreaming  = e.isLive && e.activeSessionCount > 0;
+
+          const barColor =
+            !hasBalance      ? "hsl(222 40% 18%)" :
+            pct <= 0.10      ? "#fc5c65" :
+            pct <= 0.25      ? "#fed330" :
+                               "#26de81";
+
+          const remainColor =
+            !hasBalance      ? "hsl(215 20% 40%)" :
+            pct <= 0.10      ? "#fc5c65" :
+            pct <= 0.25      ? "#fed330" :
+                               "#26de81";
+
+          return (
+            <div key={k.licenseKeyId} className="rounded-xl p-4 space-y-3"
+              style={{
+                background: "hsl(222 44% 6%)",
+                border: `1px solid ${isStreaming ? "rgba(251,191,36,0.35)" : "hsl(222 40% 12%)"}`,
+                transition: "border-color 0.3s",
+              }}>
+
+              {/* Row 1: key label + live badge + sessions */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-semibold">{fmtKey(k.licenseKey)}</span>
+                  {isStreaming ? (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                      style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>
+                      <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#fbbf24" }} />
+                      BURNING · {e.activeSessionCount} session{e.activeSessionCount !== 1 ? "s" : ""}
+                    </span>
+                  ) : e.isLive ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                      style={{ background: "rgba(38,222,129,0.1)", color: "#26de81", border: "1px solid rgba(38,222,129,0.25)" }}>
+                      LIVE · 0 sessions
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px]"
+                      style={{ color: "hsl(215 20% 40%)", border: "1px solid hsl(222 40% 14%)" }}>
+                      IDLE
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {apiCostRate} cr/s × {e.activeSessionCount} = <strong style={{ color: isStreaming ? "#fbbf24" : "hsl(215 20% 40%)" }}>{burnPerSec.toFixed(1)} cr/s</strong>
+                </span>
+              </div>
+
+              {/* Row 2: manual credit input */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-lg px-3 py-2 flex-1 max-w-xs"
+                  style={{ background: "hsl(222 44% 5%)", border: "1px solid hsl(222 40% 18%)" }}>
+                  <Zap className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={e.inputBalance}
+                    onChange={ev => handleInput(k.licenseKeyId, ev.target.value)}
+                    onKeyDown={ev => handleKey(k.licenseKeyId, ev)}
+                    onBlur={() => commit(k.licenseKeyId)}
+                    placeholder="Enter credit balance…"
+                    className="bg-transparent text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none flex-1 min-w-0"
+                  />
+                </div>
+                <button
+                  onClick={() => commit(k.licenseKeyId)}
+                  className="px-3 py-2 rounded-lg text-xs font-mono font-semibold transition-colors"
+                  style={{ background: "hsl(var(--primary) / 0.15)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.3)" }}>
+                  Set
+                </button>
+                {hasBalance && (
+                  <button
+                    onClick={() => setEntries(prev => ({
+                      ...prev,
+                      [k.licenseKeyId]: { ...prev[k.licenseKeyId], committedBalance: 0, burnedSinceCommit: 0, inputBalance: "" },
+                    }))}
+                    className="px-3 py-2 rounded-lg text-xs font-mono transition-colors"
+                    style={{ color: "hsl(215 20% 45%)", border: "1px solid hsl(222 40% 14%)" }}>
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* Row 3: burn bar + stats (only shown once balance is set) */}
+              {hasBalance && (
+                <div className="space-y-2">
+                  {/* Progress bar */}
+                  <div className="relative h-4 rounded-full overflow-hidden" style={{ background: "hsl(222 40% 10%)" }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-1000"
+                      style={{ width: `${pct * 100}%`, background: barColor }}
+                    />
+                    {/* Pulse overlay when burning */}
+                    {isStreaming && pct > 0 && (
+                      <div className="absolute inset-0 rounded-full animate-pulse opacity-20"
+                        style={{ background: barColor }} />
+                    )}
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="flex items-center justify-between flex-wrap gap-x-6 gap-y-1 text-xs font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">Remaining:</span>
+                      <span className="font-bold" style={{ color: remainColor }}>{fmtCr(remaining)} cr</span>
+                      <span className="text-muted-foreground">/ {fmtCr(e.committedBalance)} cr</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">Burned:</span>
+                      <span style={{ color: "#fc5c65" }}>{fmtCr(e.burnedSinceCommit)} cr</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Timer className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">Empty in:</span>
+                      <span style={{ color: isStreaming ? remainColor : "hsl(215 20% 40%)" }}>
+                        {isStreaming ? fmtEta(remaining, burnPerSec) : "paused"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">{(pct * 100).toFixed(1)}% remaining</span>
+                    </div>
+                  </div>
+
+                  {/* Alert banners */}
+                  {pct <= 0 && (
+                    <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold"
+                      style={{ background: "rgba(252,92,101,0.12)", color: "#fc5c65", border: "1px solid rgba(252,92,101,0.3)" }}>
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      Credits exhausted — enter a new balance to continue tracking
+                    </div>
+                  )}
+                  {pct > 0 && pct <= 0.10 && (
+                    <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold"
+                      style={{ background: "rgba(252,92,101,0.08)", color: "#fc5c65", border: "1px solid rgba(252,92,101,0.25)" }}>
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 animate-pulse" />
+                      Critical — less than 10% remaining
+                    </div>
+                  )}
+                  {pct > 0.10 && pct <= 0.25 && (
+                    <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+                      style={{ background: "rgba(254,211,48,0.07)", color: "#fed330", border: "1px solid rgba(254,211,48,0.2)" }}>
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      Low — less than 25% remaining
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1033,7 +1338,12 @@ export default function AdminAnalyticsPage() {
             )}
 
             {/* ── CREDIT USAGE ── */}
-            {section === "credit-usage" && <CreditUsagePanel />}
+            {section === "credit-usage" && (
+              <CreditUsagePanel
+                liveKeys={brkData?.keys ?? []}
+                apiCostRate={apiCostRate}
+              />
+            )}
 
           </>
         )}
