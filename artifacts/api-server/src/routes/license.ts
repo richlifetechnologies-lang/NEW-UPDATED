@@ -231,14 +231,14 @@ router.post("/usage", requireLicense, async (req, res) => {
 //   minutesAllocated, decartApiKeyId, AND tokenWindowMinutes to be present.
 router.post("/generate", requireAdmin, async (req, res) => {
   try {
-    const { notes, expiresAt, minutesAllocated, decartCredits, decartApiKeyId, pricingId, tokenWindowMinutes } = req.body as {
+    const { notes, expiresAt, minutesAllocated, decartCredits, decartApiKeyId, pricingId } = req.body as {
       notes?: string;
       expiresAt?: string;
       minutesAllocated?: number;
       decartCredits?: number;
       decartApiKeyId?: number;
       pricingId?: number;
-      tokenWindowMinutes?: number;
+      // tokenWindowMinutes removed — system default is used
     };
 
     // ── New Key Validation ────────────────────────────────────────────────────
@@ -251,9 +251,9 @@ router.post("/generate", requireAdmin, async (req, res) => {
     if (!decartApiKeyId) {
       return res.status(400).json({ error: "INCOMPLETE_KEY_CONFIGURATION", missing: ["apiKey"], message: "API Key assignment is required for new licence keys." });
     }
-    if (!tokenWindowMinutes || tokenWindowMinutes <= 0) {
-      return res.status(400).json({ error: "INCOMPLETE_KEY_CONFIGURATION", missing: ["tokenWindow"], message: "Token Window (minutes) is required for new licence keys." });
-    }
+    // tokenWindowMinutes validation removed — system default (30s) is always used
+
+
     const key = [genSegment(), genSegment(), genSegment(), genSegment()].join("-");
     let assignedDecartKeyId: number | null = null;
     try {
@@ -288,7 +288,7 @@ router.post("/generate", requireAdmin, async (req, res) => {
     };
     if (assignedDecartKeyId) insertData.assignedDecartKeyId = assignedDecartKeyId;
     // Store token window — ensures dynamic window is applied at stream time
-    if (tokenWindowMinutes && tokenWindowMinutes > 0) insertData.tokenWindowMinutes = tokenWindowMinutes;
+    // tokenWindowMinutes intentionally not set — falls back to system/global default
     // Ensure new columns exist before insert (safe migration shim)
     await db.execute(`ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS token_window_minutes REAL`).catch(() => {});
     await db.execute(`ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS is_new_key BOOLEAN DEFAULT FALSE`).catch(() => {});
@@ -339,7 +339,7 @@ router.post("/generate", requireAdmin, async (req, res) => {
       // Non-fatal: transaction recording failed, but license was created successfully
     }
 
-    return res.json({ key, assignedDecartKeyId, tokenWindowMinutes: tokenWindowMinutes ?? null });
+    return res.json({ key, assignedDecartKeyId });
   } catch (err) { console.error("[license:generate]", err); return res.status(500).json({ error: "Server error" }); }
 });
 
