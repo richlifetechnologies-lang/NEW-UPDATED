@@ -230,4 +230,20 @@ router.put("/key/:licenseKey", requireAdmin, async (req, res) => {
   }
 });
 
+  // DELETE /api/admin/token-window/bulk-clear — clear token_window_minutes on ALL license keys
+  // This makes every key fall back to the global/sub-admin/system default (30s hard cap).
+  router.delete("/bulk-clear", requireAdmin, async (_req, res) => {
+    try {
+      await db.execute(`ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS token_window_minutes REAL`).catch(() => {});
+      const result = await db.execute(
+        `UPDATE license_keys SET token_window_minutes = NULL WHERE token_window_minutes IS NOT NULL`
+      );
+      const affected = (result as any).rowCount ?? (result as any).rowsAffected ?? 0;
+      res.json({ success: true, clearedCount: affected, message: `Cleared token_window_minutes from ${affected} license key(s). All keys now use the system default.` });
+    } catch (err) {
+      console.error("[token-window:bulk-clear]", err);
+      res.status(500).json({ error: "Failed to bulk-clear token window overrides" });
+    }
+  });
+  
 export default router;
