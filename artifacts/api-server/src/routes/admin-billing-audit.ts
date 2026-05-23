@@ -203,6 +203,15 @@ router.get("/", requireAdmin, async (req, res) => {
         license = l ?? null;
       } catch { /* non-fatal */ }
     }
+    if (!license) {
+      // Fallback: unused key (no session yet) — fetch license directly by key string
+      // Fixes billing audit showing all-zeros for keys with 100 min but no stream history
+      try {
+        const normalizedKey = sessionId.trim().toUpperCase();
+        const [l] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.key, normalizedKey)).limit(1);
+        license = l ?? null;
+      } catch { /* non-fatal */ }
+    }
 
     // 3. All billing events ordered oldest-first — always use the resolved session UUID
     let events: any[] = [];
