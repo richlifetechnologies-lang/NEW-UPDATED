@@ -291,6 +291,7 @@ export default function StreamPage() {
   const decartClientRef       = useRef<DecartClient | null>(null);
   const prewarmedTokenRef     = useRef<string | null>(null);   // pre-fetched before click
   const prewarmedTokenExpiry  = useRef<number>(0);             // expiry timestamp (ms)
+  const userStoppedRef        = useRef<boolean>(false);   // true when user explicitly stops
   const cameraStreamRef       = useRef<MediaStream | null>(null);
   const refImageInputRef      = useRef<HTMLInputElement>(null);
   const trialLimitRef         = useRef<number>(Infinity);
@@ -940,6 +941,7 @@ export default function StreamPage() {
   const handleStartStream = async () => {
     // FIX #3: Debounce rapid re-clicks during startup to prevent duplicate sessions
     if (isStreamStarting) return;
+    userStoppedRef.current = false; // clear for new session
     setIsStreamStarting(true);
 
     // Desktop license guard
@@ -1157,6 +1159,18 @@ export default function StreamPage() {
         onConnectionStateChange: (state: string) => {
           console.info("[Decart] Connection state →", state);
           if (state === "disconnected" || state === "failed") {
+            // RC#5: Auto-reconnect when a pre-warmed token is available (30s token window expiry).
+            // Keep button red (connectionStatus="connecting") during the seamless reconnect.
+            const storedToken = prewarmedTokenRef.current;
+            const tokenFresh = !!storedToken && prewarmedTokenExpiry.current > Date.now() + 1000;
+            if (tokenFresh && !userStoppedRef.current) {
+              connectionStatusRef.current = "connecting";
+              setConnectionStatus("connecting");
+              teardownStream("dropped").then(() => {
+                if (!userStoppedRef.current) handleStartStream();
+              }).catch(() => {});
+              return;
+            }
             connectionStatusRef.current = "dropped";
             setConnectionStatus("dropped");
             toast({
@@ -1164,9 +1178,6 @@ export default function StreamPage() {
               description: "Connection lost — click Stream Now to reconnect.",
               variant: "destructive",
             });
-            // Route through centralized teardown. "dropped" suppresses the
-            // generic "Session stopped" toast (we just showed our own above).
-            // Uses fetch+keepalive internally so the /stop call always flushes.
             teardownStream("dropped").catch(() => {});
           }
         },
@@ -1314,6 +1325,7 @@ export default function StreamPage() {
   };
 
   const handleStopStream = async () => {
+    userStoppedRef.current = true; // mark as user-initiated stop
     if (activeSession) {
       // BILLING-FIX: Log close button stop for billing audit trail
       console.info(`[Stream] close_button_stop sessionId=${activeSession} elapsed=${elapsedSecs}s`);
@@ -1958,7 +1970,7 @@ export default function StreamPage() {
 
             {/* Start / Stop button — always shown below camera source */}
             <div className="flex items-center gap-3">
-              {isStreaming ? (
+              {isStreaming || connectionStatus === "connecting" ? (
                 <Button
                   data-testid="button-stop-stream"
                   onClick={handleStopStream}
@@ -1967,7 +1979,7 @@ export default function StreamPage() {
                   className="gap-2 flex-1 h-14 text-base font-bold"
                 >
                   <Square className="w-5 h-5" />
-                  {stopSession.isPending ? "Stopping..." : "Stop Session"}
+                  {stopSession.isPending ? "Stopping..." : "Stop Stream"}
                 </Button>
               ) : (
                 <Button
