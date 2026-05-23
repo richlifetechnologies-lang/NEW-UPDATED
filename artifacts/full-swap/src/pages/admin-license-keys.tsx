@@ -87,7 +87,7 @@ export default function AdminLicenseKeysPage() {
   const [genExpiry, setGenExpiry] = useState("");
   const [genApiKeyId, setGenApiKeyId] = useState<number | null>(null);
   const [genPricingId, setGenPricingId] = useState<number | null>(null);
-  const [genTokenWindow, setGenTokenWindow] = useState("15");
+  // genTokenWindow removed — token window is now always set by the system default
   const [generating, setGenerating] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -182,11 +182,11 @@ export default function AdminLicenseKeysPage() {
   }, [reassigningKey, fetchApis]);
 
   const handleGenerate = async () => {
-    const tokenWindowNum = parseFloat(genTokenWindow);
-    if (!tokenWindowNum || tokenWindowNum < 1) {
-      toast({ title: "Token Window required", description: "Enter a token window in minutes (e.g. 15, 30, 45).", variant: "destructive" });
-      return;
-    }
+    // tokenWindowMinutes validation removed — no longer sent
+
+
+
+
     if (!genApiKeyId) {
       toast({ title: "API Key required", description: "Select a Decart API key to assign to this licence key.", variant: "destructive" });
       return;
@@ -201,7 +201,7 @@ export default function AdminLicenseKeysPage() {
           minutesAllocated: parseFloat(genMinutes) || 0,
           decartApiKeyId: genApiKeyId || undefined,
           pricingId: genPricingId || undefined,
-          tokenWindowMinutes: tokenWindowNum,
+          // tokenWindowMinutes not sent — system default (30s) used
         }),
       });
       const data = await res.json();
@@ -211,7 +211,7 @@ export default function AdminLicenseKeysPage() {
       }
       setNewKey(data.key);
       toast({ title: "License Key Generated", description: data.key });
-      setGenNotes(""); setGenExpiry(""); setGenMinutes("60"); setGenApiKeyId(null); setGenPricingId(null); setGenTokenWindow("15");
+      setGenNotes(""); setGenExpiry(""); setGenMinutes("60"); setGenApiKeyId(null); setGenPricingId(null);
       await fetchKeys();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -583,29 +583,29 @@ export default function AdminLicenseKeysPage() {
                   <span className="text-sm text-muted-foreground font-mono">min</span>
                 </div>
               </div>
-              <div>
-                <label className="text-sm text-muted-foreground mb-1.5 block">
-                  Token Window <span className="text-xs text-red-400 font-semibold">*required</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <Input type="number" min="1" max="480" step="1" value={genTokenWindow} onChange={e => setGenTokenWindow(e.target.value)}
-                    placeholder="e.g. 15"
-                    style={{ background: "hsl(222 47% 4%)", border: "1px solid hsl(187 100% 52% / 0.4)" }} />
-                  <span className="text-sm text-muted-foreground font-mono">min</span>
-                </div>
-                <div className="flex gap-2 mt-2">
-                  {[15, 30, 45, 60, 120].map(m => (
-                    <button key={m} type="button" onClick={() => setGenTokenWindow(String(m))}
-                      className="px-2 py-1 rounded text-[10px] font-mono font-bold transition-colors"
-                      style={genTokenWindow === String(m)
-                        ? { background: "hsl(187 100% 52% / 0.15)", color: "hsl(187 100% 52%)", border: "1px solid hsl(187 100% 52% / 0.4)" }
-                        : { background: "hsl(222 44% 4%)", color: "hsl(215 20% 55%)", border: "1px solid hsl(222 40% 18%)" }}>
-                      {m}m
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Max duration for each Decart streaming token. Session renews automatically before expiry.</p>
-              </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               <div>
                 <label className="text-sm text-muted-foreground mb-1.5 block">Decart API <span className="text-xs text-red-400 font-semibold">*required</span></label>
                 {loadingApis ? (
