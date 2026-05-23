@@ -31,14 +31,11 @@ try {
   process.exit(1);
 }
 
-logger.info("Running database migrations…");
-try {
-  await runMigrations();
-  logger.info("Database migrations complete");
-} catch (err) {
-  logger.error({ err }, "Database migration failed — aborting startup");
-  process.exit(1);
-}
+// Schema management is handled by `pnpm --filter @workspace/db run push` (drizzle-kit push).
+// Running the Drizzle migration system at startup would conflict with a DB that was
+// already provisioned via push (types/tables already exist → "already exists" errors).
+// applyColumnFixes() above handles any missing columns idempotently on every startup.
+logger.info("Database schema managed via drizzle-kit push — skipping migration runner");
 
 // Create an HTTP server so we can attach both Express and the billing WebSocket
 const httpServer = http.createServer(app);
