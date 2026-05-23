@@ -1159,14 +1159,27 @@ export default function StreamPage() {
         onConnectionStateChange: (state: string) => {
           console.info("[Decart] Connection state →", state);
           if (state === "disconnected" || state === "failed") {
-            // RC#5: Auto-reconnect when a pre-warmed token is available (30s token window expiry).
-            // Keep button red (connectionStatus="connecting") during the seamless reconnect.
+            // RC#5 (patched): Auto-reconnect on 30s token window expiry.
+            // Three guards must ALL pass before reconnecting:
+            //   1. tokenFresh — a pre-warmed token exists with >1 s of validity left
+            //   2. !userStoppedRef.current — user did NOT click Stop Stream
+            //   3. !!activeSessionRef.current — session is still live.
+            //      Hard-kill (freeze guard) and exhaustion-kill BOTH null
+            //      activeSessionRef BEFORE calling disconnect, so this guard
+            //      is false on those paths → reconnect is NEVER triggered by
+            //      a hard kill or wallet exhaustion.
+            // Token is consumed (nulled) BEFORE teardown to prevent re-entry
+            // if Decart drops again immediately after the reconnect.
             const storedToken = prewarmedTokenRef.current;
             const tokenFresh = !!storedToken && prewarmedTokenExpiry.current > Date.now() + 1000;
-            if (tokenFresh && !userStoppedRef.current) {
+            if (tokenFresh && !userStoppedRef.current && !!activeSessionRef.current) {
+              // Consume token immediately — blocks infinite-reconnect loops
+              prewarmedTokenRef.current = null;
+              prewarmedTokenExpiry.current = 0;
               connectionStatusRef.current = "connecting";
               setConnectionStatus("connecting");
               teardownStream("dropped").then(() => {
+                // Double-check: bail if user stopped while teardown was in-flight
                 if (!userStoppedRef.current) handleStartStream();
               }).catch(() => {});
               return;
