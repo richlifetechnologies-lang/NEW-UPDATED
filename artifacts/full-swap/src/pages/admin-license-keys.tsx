@@ -104,6 +104,8 @@ export default function AdminLicenseKeysPage() {
   const [securityEvents, setSecurityEvents] = useState<DeviceSecurityEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [showSecurityPanel, setShowSecurityPanel] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearingTokenWindows, setClearingTokenWindows] = useState(false);
 
   const fetchKeys = useCallback(async () => {
     setLoading(true);
@@ -120,6 +122,28 @@ export default function AdminLicenseKeysPage() {
       if (res.ok) setSecurityEvents(await res.json());
     } catch {} finally { setLoadingEvents(false); }
   }, []);
+
+  const handleClearTokenWindows = async () => {
+    setClearingTokenWindows(true);
+    try {
+      const res = await fetch(API("/admin/token-window/bulk-clear"), {
+        method: "DELETE",
+        headers: authH(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to clear token windows");
+      toast({ title: "Token windows cleared", description: data.message });
+      setShowClearConfirm(false);
+    } catch (err: unknown) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to clear token windows",
+        variant: "destructive",
+      });
+    } finally {
+      setClearingTokenWindows(false);
+    }
+  };
 
   const fetchApis = useCallback(async () => {
     setLoadingApis(true);
@@ -308,6 +332,15 @@ export default function AdminLicenseKeysPage() {
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={fetchKeys} disabled={loading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={clearingTokenWindows}
+              className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+            >
+              <XCircle className="w-4 h-4 mr-2" /> Clear Token Windows
             </Button>
             <Button size="sm" onClick={() => { setShowGen(true); setNewKey(null); setGenApiKeyId(null); }} style={{ boxShadow: "0 0 16px hsl(187 100% 52% / 0.25)" }}>
               <Plus className="w-4 h-4 mr-2" /> Generate Key
@@ -718,6 +751,37 @@ export default function AdminLicenseKeysPage() {
               </Button>
             </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk Clear Token Windows Confirm Dialog ─────────────────────────── */}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-foreground">
+              <ShieldAlert className="w-5 h-5 text-amber-400" /> Clear Token Window Overrides
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>This will set <span className="text-foreground font-semibold">token_window_minutes</span> to <span className="text-foreground font-semibold">NULL</span> on every license key.</p>
+            <p>All keys immediately fall back to the system default <span className="text-foreground font-semibold">(30-second hard cap)</span>. This cannot be undone.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowClearConfirm(false)} disabled={clearingTokenWindows}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleClearTokenWindows}
+              disabled={clearingTokenWindows}
+              className="bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+            >
+              {clearingTokenWindows
+                ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Clearing...</>
+                : <><XCircle className="w-4 h-4 mr-2" />Yes, Clear All</>
+              }
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </AdminLayout>
