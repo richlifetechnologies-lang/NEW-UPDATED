@@ -1396,15 +1396,13 @@ router.get("/credit-usage", requireAdmin, featureGate, async (_req, res) => {
 
     const keyRows = await db.execute(sql`
       SELECT
-        COALESCE(dk.label, 'Unassigned')                                        AS key_label,
-        COUNT(*)::int                                                            AS session_count,
-        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}, 2)                                          AS decart_credits,
-        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${billingRate},            2)                                          AS retail_credits,
-        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * (${billingRate} - ${DECART_CREDITS_PER_SEC}), 2)                       AS margin_credits,
-        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}
-              FILTER (WHERE s.started_at >= NOW() - INTERVAL '24 hours'), 2)    AS decart_credits_24h,
-        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}
-              FILTER (WHERE s.started_at >= NOW() - INTERVAL '7 days'),  2)     AS decart_credits_7d
+        COALESCE(dk.label, 'Unassigned')                                                                      AS key_label,
+        COUNT(*)::int                                                                                          AS session_count,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${DECART_CREDITS_PER_SEC}, 2)                            AS decart_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * ${billingRate},            2)                            AS retail_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) * (${billingRate} - ${DECART_CREDITS_PER_SEC}), 2)         AS margin_credits,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) FILTER (WHERE s.started_at >= NOW() - INTERVAL '24 hours') * ${DECART_CREDITS_PER_SEC}, 2) AS decart_credits_24h,
+        ROUND(SUM(COALESCE(s.duration_seconds, 0)) FILTER (WHERE s.started_at >= NOW() - INTERVAL '7 days')  * ${DECART_CREDITS_PER_SEC}, 2) AS decart_credits_7d
       FROM sessions s
       LEFT JOIN decart_api_keys dk ON dk.id = s.decart_key_id
       GROUP BY dk.label
