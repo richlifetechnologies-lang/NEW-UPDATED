@@ -587,23 +587,26 @@ export default function StreamPage() {
   // GUARD CONDITIONS (all must be true before triggering):
   //   • stream is actively running
   //   • pre-stop has NOT already been triggered this session
-  //   • wallet data is available from the server (not null/undefined)
-  //   • remaining seconds has fallen to or below the threshold
-  // Backend remains the authoritative enforcement layer — this is advisory only.
+  //   • display remaining seconds has fallen to or below the threshold
+  // Uses displayPaidSecsRemaining (not raw remainingSeconds) so the stop fires
+  // when the USER'S visible countdown is near zero — not when the raw wallet
+  // seconds hit 5 (which with billing-rate compression can show as 38s+ on screen).
+  // Billing, compression factor, and pacing are completely unaffected — this is
+  // a UX-only guard. Backend remains the authoritative enforcement layer.
   useEffect(() => {
     if (
       !isStreaming ||
       hasTriggeredPreStopRef.current ||
-      remainingSeconds == null ||
-      remainingSeconds > PRE_EXHAUSTION_THRESHOLD_SECS
+      displayPaidSecsRemaining == null ||
+      displayPaidSecsRemaining > PRE_EXHAUSTION_THRESHOLD_SECS
     ) return;
     hasTriggeredPreStopRef.current = true;
     console.info(
-      `[Stream] pre_exhaustion_warning: ${remainingSeconds}s remaining — stopping stream early (threshold=${PRE_EXHAUSTION_THRESHOLD_SECS}s)`
+      `[Stream] pre_exhaustion_warning: ${displayPaidSecsRemaining}s display remaining — stopping stream early (threshold=${PRE_EXHAUSTION_THRESHOLD_SECS}s)`
     );
     setLicenseExhausted(true);
     teardownStream("pre_exhaustion_warning");
-  }, [remainingSeconds, isStreaming, teardownStream]);
+  }, [displayPaidSecsRemaining, isStreaming, teardownStream]);
 
   // ── Display-exhaustion kill — stops stream the moment the UI timer hits 0:00 ──
   // ROOT CAUSE FIX: When displayPaidSecsRemaining reaches 0, the user's allocated
