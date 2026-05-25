@@ -318,6 +318,7 @@ function startOrphanSweeper() {
             (${sessionsTable.lastHeartbeatAt} IS NOT NULL AND ${sessionsTable.lastHeartbeatAt} < ${orphanCutoff})
           )`
         ));
+      for (const s of orphans) {
         await ensureDecartKeyLinked(s);
         const endAt = new Date(now);
         const billingStart = s.billingStartedAt ?? s.startedAt;
