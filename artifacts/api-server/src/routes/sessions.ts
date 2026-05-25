@@ -367,6 +367,7 @@ router.post("/", requireLicense, async (req, res) => {
   }
 
   const style = (req.body as any)?.style ?? null;
+  const isTokenReconnect = (req.body as any)?.tokenReconnect === true;
   const allocatedSeconds = (license.minutesAllocated ?? 0) * 60;
   const usedSeconds      = license.usedSeconds ?? 0;
   const remainingSeconds = Math.max(0, allocatedSeconds - usedSeconds);
@@ -488,6 +489,17 @@ router.post("/", requireLicense, async (req, res) => {
     walletRemainingSeconds: Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC),
     metadata: { licenseId: license.id, style },
   });
+
+  // ── Observability: token_reconnect — marks sessions created by a silent
+  // 15s token-window handoff (admin-only, no impact on billing or logic) ──────
+  if (isTokenReconnect) {
+    logSessionBillingEvent({
+      sessionId,
+      eventType: "token_reconnect",
+      walletRemainingSeconds: Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC),
+      metadata: { reason: "token_window_15s" },
+    });
+  }
 
   // Observability push — does NOT affect billing (non-fatal)
   emitSessionStarted(sessionId, license.id);
