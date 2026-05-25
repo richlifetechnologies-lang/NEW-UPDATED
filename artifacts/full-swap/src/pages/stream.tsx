@@ -341,6 +341,25 @@ export default function StreamPage() {
   const [licenseExhausted,  setLicenseExhausted]   = useState(false);
   const [isStreamStarting,  setIsStreamStarting]   = useState(false);
   const [styleCollapsed,    setStyleCollapsed]      = useState(false);
+  // Retry-After state for 503 NO_KEYS_AVAILABLE responses
+  const [noKeysRetryAt,          setNoKeysRetryAt]          = useState<number | null>(null);
+  const [noKeysRetryCountdown,   setNoKeysRetryCountdown]   = useState<number>(0);
+
+  // Countdown timer: ticks every second while noKeysRetryAt is set (503 NO_KEYS_AVAILABLE)
+  useEffect(() => {
+    if (noKeysRetryAt === null) return;
+    const tick = setInterval(() => {
+      const remaining = Math.ceil((noKeysRetryAt - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setNoKeysRetryAt(null);
+        setNoKeysRetryCountdown(0);
+        clearInterval(tick);
+      } else {
+        setNoKeysRetryCountdown(remaining);
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [noKeysRetryAt]);
 
   // ── Audio sync state ─────────────────────────────────────────────────
   const [audioEnabled,        setAudioEnabled]        = useState(false);
@@ -1030,9 +1049,26 @@ export default function StreamPage() {
             return await startSession.mutateAsync({ data: { style: selectedStyle } });
           } catch (startErr: unknown) {
             const errAny = startErr as any;
+            const statusCode = errAny?.response?.status ?? errAny?.status ?? 0;
             const body: any = errAny?.response?.data ?? errAny?.data ?? (() => {
               try { return JSON.parse(errAny?.message ?? "{}"); } catch { return {}; }
             })();
+
+            // ── 503 NO_KEYS_AVAILABLE — all Decart keys in cooldown ──────────
+            if (statusCode === 503 || body?.error === "NO_KEYS_AVAILABLE") {
+              const retryAfter = body?.retryAfterSeconds ?? body?.retryAfterSec ?? 60;
+              setNoKeysRetryAt(Date.now() + retryAfter * 1000);
+              setNoKeysRetryCountdown(retryAfter);
+              setIsStreamStarting(false);
+              toast({
+                title: "Streaming slots temporarily full",
+                description: `All connection slots are busy right now. Try again in ${retryAfter}s.`,
+                variant: "destructive",
+              });
+              return;
+            }
+            // ─────────────────────────────────────────────────────────────────
+
             if (body?.code === "SESSION_ALREADY_ACTIVE" && body?.existingSessionId) {
               const orphanId = String(body.existingSessionId);
               const licKey = localStorage.getItem("fullswap_license_key") ?? "";
@@ -1791,11 +1827,15 @@ export default function StreamPage() {
                   </div>
                   <button
                     onClick={handleStartStream}
-                    disabled={startSession.isPending}
+                    disabled={startSession.isPending || noKeysRetryAt !== null}
                     className="mt-1 flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
                   >
                     {startSession.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                    {startSession.isPending ? "Starting..." : "Stream Now"}
+                    {startSession.isPending
+                      ? "Starting..."
+                      : noKeysRetryAt !== null
+                        ? `Retry in ${noKeysRetryCountdown}s`
+                        : "Stream Now"}
                   </button>
                 </div>
               )}
@@ -2011,12 +2051,16 @@ export default function StreamPage() {
                 <Button
                   data-testid="button-start-stream"
                   onClick={handleStartStream}
-                  disabled={startSession.isPending || !cameraReady || noAccess || licenseExhausted}
+                  disabled={startSession.isPending || !cameraReady || noAccess || licenseExhausted || noKeysRetryAt !== null}
                   className="gap-2 flex-1 h-14 text-base font-bold tracking-wide"
                   style={{ boxShadow: "0 0 28px hsl(187 100% 52% / 0.30)" }}
                 >
                   <Play className="w-5 h-5" />
-                  {startSession.isPending ? "Starting..." : "Stream Now"}
+                  {startSession.isPending
+                    ? "Starting..."
+                    : noKeysRetryAt !== null
+                      ? `Retry in ${noKeysRetryCountdown}s`
+                      : "Stream Now"}
                 </Button>
               )}
             </div>
