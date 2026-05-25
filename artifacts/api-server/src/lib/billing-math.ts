@@ -80,6 +80,14 @@ export const HEARTBEAT_GRACE_MS       = 35_000;
 // Abnormal disconnects now stop the orphan session in 15s instead of 2 minutes,
 // cutting maximum post-disconnect Decart billing from ~276 credits to ~34 credits.
 export const ORPHAN_GRACE_MS          = 15_000;
+  // INITIAL_CONNECT_GRACE_MS: grace period for sessions that have NEVER sent a heartbeat.
+  // The client needs time to connect to Decart and begin the stream before it can send its
+  // first heartbeat. 15 s (ORPHAN_GRACE_MS) is too tight — the orphan sweeper was killing
+  // fresh sessions before the first heartbeat could arrive. 45 s gives the client plenty of
+  // time to complete the connect() + token handshake + first heartbeat cycle.
+  // Applied ONLY when lastHeartbeatAt IS NULL (never received a heartbeat).
+  // Once a heartbeat is received, the normal ORPHAN_GRACE_MS (15 s) applies.
+  export const INITIAL_CONNECT_GRACE_MS  = 45_000;
 export const SWEEP_INTERVAL_MS        = 3_000;  // LEAK-04: reduced from 5 000ms → tighter orphan detection window
 export const SINGLE_SESSION_GRACE_MS  = 5_000;
 export const DEDUCTION_FREEZE_MS      = 45_000;
