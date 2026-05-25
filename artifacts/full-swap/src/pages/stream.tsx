@@ -1298,7 +1298,7 @@ export default function StreamPage() {
         try {
           const freshToken = await fetchDecartToken();
           prewarmedTokenRef.current    = freshToken;
-          prewarmedTokenExpiry.current = Date.now() + 14_000; // valid for just under 15s
+          prewarmedTokenExpiry.current = Date.now() + 29_000; // client-side staleness guard (not Decart token lifetime)
           console.info("[Decart] token_prewarm: fresh token ready for next reconnect");
         } catch (refreshErr) {
           console.warn("[Decart] token_prewarm: failed (non-fatal):", refreshErr);
