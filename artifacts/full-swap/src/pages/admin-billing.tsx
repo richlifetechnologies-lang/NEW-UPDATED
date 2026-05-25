@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { ProfitOptimizerPanel } from "@/components/profit-optimizer-panel";
 
-const COST_RATE = 2.3; // Decart API fixed cost — never changes
+const activeCostRate = 2.3; // Decart API fixed cost — never changes
 
 const authH = () => ({
   "Content-Type": "application/json",
@@ -64,16 +64,16 @@ const PROFILES = [
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
 /** Profit margin at a given billing rate */
-function margin(rate: number): number {
-  return rate > 0 ? Math.round(((rate - COST_RATE) / COST_RATE) * 1000) / 10 : 0;
+function margin(rate: number, costRate = activeCostRate): number {
+  return rate > 0 ? Math.round(((rate - costRate) / costRate) * 1000) / 10 : 0;
 }
 /** Real streaming minutes a wallet-hour yields at this billing rate */
-function realMinPerWalletHour(rate: number): number {
-  return rate > 0 ? Math.round((60 * COST_RATE / rate) * 10) / 10 : 60;
+function realMinPerWalletHour(rate: number, costRate = activeCostRate): number {
+  return rate > 0 ? Math.round((60 * costRate / rate) * 10) / 10 : 60;
 }
 /** Real streaming seconds remaining from wallet seconds remaining */
-function realStreamRemaining(walletSec: number, rate: number): number {
-  return rate > 0 ? Math.round(walletSec * COST_RATE / rate) : walletSec;
+function realStreamRemaining(walletSec: number, rate: number, costRate = activeCostRate): number {
+  return rate > 0 ? Math.round(walletSec * costRate / rate) : walletSec;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -118,6 +118,8 @@ export default function AdminBillingPage() {
   const [brkData, setBrkData]     = useState<BrkResponse | null>(null);
   const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  // Source API cost rate from backend response; fall back to module constant if not yet loaded
+  const activeCostRate = rateInfo?.apiCostRate ?? brkData?.apiCostRate ?? activeCostRate;
   const [inputRate, setInputRate] = useState<string>("");
   const [saving, setSaving]       = useState(false);
   const [loading, setLoading]     = useState(true);
@@ -294,8 +296,8 @@ export default function AdminBillingPage() {
   const totalRevenue = Math.round(keys.reduce((a, k) => a + k.usedSeconds * k.effectiveRate, 0) * 100) / 100;
   // Total Decart cost = SUM(real_stream_sec × 2.3) per key
   const totalCost    = Math.round(keys.reduce((a, k) => {
-    const realSec = k.effectiveRate > 0 ? k.usedSeconds * COST_RATE / k.effectiveRate : k.usedSeconds;
-    return a + realSec * COST_RATE;
+    const realSec = k.effectiveRate > 0 ? k.usedSeconds * activeCostRate / k.effectiveRate : k.usedSeconds;
+    return a + realSec * activeCostRate;
   }, 0) * 100) / 100;
   const totalProfit  = Math.round((totalRevenue - totalCost) * 100) / 100;
 
@@ -353,12 +355,12 @@ export default function AdminBillingPage() {
   const prevSecs      = prevMins * 60;
   const previewMargin = previewRate != null ? margin(previewRate) : null;
   // Real streaming seconds the wallet gives at this billing rate
-  const previewRealSec    = previewRate != null ? Math.round(prevSecs * COST_RATE / previewRate) : null;
+  const previewRealSec    = previewRate != null ? Math.round(prevSecs * activeCostRate / previewRate) : null;
   const previewRealMin    = previewRealSec != null ? Math.round(previewRealSec / 60 * 10) / 10 : null;
   // Revenue = wallet_seconds × billing_rate
   const previewRevenue    = previewRate != null ? Math.round(prevSecs * previewRate * 100) / 100 : null;
   // Decart cost = real_stream_seconds × 2.3
-  const previewDecartCost = previewRealSec != null ? Math.round(previewRealSec * COST_RATE * 100) / 100 : null;
+  const previewDecartCost = previewRealSec != null ? Math.round(previewRealSec * activeCostRate * 100) / 100 : null;
   // Profit = revenue - cost
   const previewProfit     = previewRevenue != null && previewDecartCost != null
     ? Math.round((previewRevenue - previewDecartCost) * 100) / 100 : null;
@@ -418,8 +420,8 @@ export default function AdminBillingPage() {
               <SCard
                 label="Profit Margin"
                 value={currentRate != null ? `${margin(currentRate)}%` : "—"}
-                sub={currentRate != null ? `${Math.round((currentRate - COST_RATE) * 100) / 100} cr/s profit` : ""}
-                color={currentRate != null && currentRate > COST_RATE ? "#26de81" : "#fc5c65"}
+                sub={currentRate != null ? `${Math.round((currentRate - activeCostRate) * 100) / 100} cr/s profit` : ""}
+                color={currentRate != null && currentRate > activeCostRate ? "#26de81" : "#fc5c65"}
                 icon={TrendingUp}
               />
               <SCard
@@ -499,7 +501,7 @@ export default function AdminBillingPage() {
                   <div className="flex flex-col gap-1 text-xs font-mono">
                     <span className="text-muted-foreground">Rate: <span className="text-foreground font-bold">{currentRate ?? "—"} cr/s</span></span>
                     <span className="text-muted-foreground">Margin: <span style={{ color: nearestProfile?.color ?? "hsl(215 20% 55%)" }} className="font-bold">{currentRate != null ? `${margin(currentRate)}%` : "—"}</span></span>
-                    <span className="text-muted-foreground">Decart Cost: <span className="text-foreground font-bold">{COST_RATE} cr/s fixed</span></span>
+                    <span className="text-muted-foreground">Decart Cost: <span className="text-foreground font-bold">{activeCostRate} cr/s fixed</span></span>
                   </div>
                   <div className="ml-auto flex flex-col items-end gap-1">
                     <p className="text-[10px] font-mono text-muted-foreground">Profit Margin Meter</p>
@@ -665,8 +667,8 @@ export default function AdminBillingPage() {
                       </div>
                       <p className="text-[11px] font-mono text-muted-foreground">
                         Deduction speed: <span className="text-foreground font-bold">
-                          {previewRate != null ? `${Math.round(previewRate / COST_RATE * 1000) / 1000}× faster` : "—"}
-                        </span> than real time at {COST_RATE} cr/s base
+                          {previewRate != null ? `${Math.round(previewRate / activeCostRate * 1000) / 1000}× faster` : "—"}
+                        </span> than real time at {activeCostRate} cr/s base
                       </p>
                     </div>
 
@@ -705,8 +707,8 @@ export default function AdminBillingPage() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
                     {[
                       { label: "Billing Rate",           value: previewRate != null ? `${previewRate} cr/s` : "—" },
-                      { label: "Decart Base Cost",        value: `${COST_RATE} cr/s` },
-                      { label: "Profit per Hr Streamed",  value: previewRate != null ? `${Math.round((previewRate - COST_RATE) * 3600)} cr` : "—" },
+                      { label: "Decart Base Cost",        value: `${activeCostRate} cr/s` },
+                      { label: "Profit per Hr Streamed",  value: previewRate != null ? `${Math.round((previewRate - activeCostRate) * 3600)} cr` : "—" },
                       { label: "Margin",                  value: previewMargin != null ? `${previewMargin}%` : "—" },
                     ].map(m => (
                       <div key={m.label} className="rounded-lg px-3 py-2 text-center"
@@ -756,8 +758,8 @@ export default function AdminBillingPage() {
                           const rate       = k.effectiveRate;
                           const realRemSec = realStreamRemaining(k.remainingSeconds, rate);
                           const revenue    = Math.round(k.usedSeconds * rate * 100) / 100;
-                          const realUsed   = rate > 0 ? k.usedSeconds * COST_RATE / rate : k.usedSeconds;
-                          const cost       = Math.round(realUsed * COST_RATE * 100) / 100;
+                          const realUsed   = rate > 0 ? k.usedSeconds * activeCostRate / rate : k.usedSeconds;
+                          const cost       = Math.round(realUsed * activeCostRate * 100) / 100;
                           const profit     = Math.round((revenue - cost) * 100) / 100;
                           const marginPct  = margin(rate);
                           const isEditing  = editingKeyId === k.licenseKeyId;
@@ -920,14 +922,14 @@ export default function AdminBillingPage() {
               const estRateNum   = parseFloat(estRate) || (currentRate ?? 4);
               const estMinsNum   = Math.max(1, parseFloat(estWalletMins) || 60);
               const estSecs      = estMinsNum * 60;
-              const estRealSec   = estRateNum > 0 ? Math.round(estSecs * COST_RATE / estRateNum) : estSecs;
+              const estRealSec   = estRateNum > 0 ? Math.round(estSecs * activeCostRate / estRateNum) : estSecs;
               const estRealMin   = Math.round(estRealSec / 60 * 10) / 10;
               const estRevenue   = Math.round(estSecs * estRateNum * 100) / 100;
-              const estCost      = Math.round(estRealSec * COST_RATE * 100) / 100;
+              const estCost      = Math.round(estRealSec * activeCostRate * 100) / 100;
               const estProfit    = Math.round((estRevenue - estCost) * 100) / 100;
-              const estMarginPct = estRateNum > 0 ? Math.round(((estRateNum - COST_RATE) / estRateNum) * 1000) / 10 : 0;
-              const estDrainSpd  = estRateNum > 0 ? Math.round(estRateNum / COST_RATE * 1000) / 1000 : 1;
-              const estProfitHr  = Math.round((estRateNum - COST_RATE) * 3600);
+              const estMarginPct = estRateNum > 0 ? Math.round(((estRateNum - activeCostRate) / estRateNum) * 1000) / 10 : 0;
+              const estDrainSpd  = estRateNum > 0 ? Math.round(estRateNum / activeCostRate * 1000) / 1000 : 1;
+              const estProfitHr  = Math.round((estRateNum - activeCostRate) * 3600);
               return (
                 <div className="space-y-6">
                   <div className="rounded-lg p-4" style={{ background: "hsl(187 100% 52% / 0.06)", border: "1px solid hsl(187 100% 52% / 0.2)" }}>
@@ -1008,17 +1010,17 @@ export default function AdminBillingPage() {
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-xs">Drain Speed</p>
                         <p className="font-bold text-foreground">{estDrainSpd}× faster than real time</p>
-                        <p className="text-[10px] text-muted-foreground">at {estRateNum} cr/s ÷ {COST_RATE} base</p>
+                        <p className="text-[10px] text-muted-foreground">at {estRateNum} cr/s ÷ {activeCostRate} base</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-xs">Profit per Hour Streamed</p>
                         <p className="font-bold" style={{ color: estProfitHr >= 0 ? "#26de81" : "#fc5c65" }}>{estProfitHr} cr/hr</p>
-                        <p className="text-[10px] text-muted-foreground">({estRateNum} − {COST_RATE}) × 3600s</p>
+                        <p className="text-[10px] text-muted-foreground">({estRateNum} − {activeCostRate}) × 3600s</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-xs">Real Stream per Wallet-Hour</p>
-                        <p className="font-bold text-foreground">{estRateNum > 0 ? Math.round(60 * COST_RATE / estRateNum * 10) / 10 : 60}m</p>
-                        <p className="text-[10px] text-muted-foreground">60 × {COST_RATE} ÷ {estRateNum} cr/s</p>
+                        <p className="font-bold text-foreground">{estRateNum > 0 ? Math.round(60 * activeCostRate / estRateNum * 10) / 10 : 60}m</p>
+                        <p className="text-[10px] text-muted-foreground">60 × {activeCostRate} ÷ {estRateNum} cr/s</p>
                       </div>
                     </div>
                   </div>
