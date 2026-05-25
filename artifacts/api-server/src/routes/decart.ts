@@ -232,7 +232,15 @@ router.get("/token", requireLicense, async (req, res) => {
   }
 
   if (!resolvedKey) {
-    res.status(503).json({ error: "No Decart API keys available. Please contact support." });
+    // All pool keys are in cooldown — tell the client exactly when to retry
+    // instead of leaving them to hammer the endpoint with blind retries.
+    const retrySec = Math.max(1, Math.ceil(decartPool.getSoonestCooldownMs() / 1000));
+    res.setHeader("Retry-After", String(retrySec));
+    res.status(503).json({
+      error: "All Decart API keys are temporarily in cooldown. Please retry shortly.",
+      code: "POOL_COOLDOWN",
+      retryAfterSec: retrySec,
+    });
     return;
   }
 
