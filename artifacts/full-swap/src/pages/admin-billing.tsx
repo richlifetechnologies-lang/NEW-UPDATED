@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { ProfitOptimizerPanel } from "@/components/profit-optimizer-panel";
 
-const activeCostRate = 2.3; // Decart API fixed cost — never changes
+const COST_RATE = 2.3; // Decart API fixed cost — fallback; prefer apiCostRate from API response
 
 const authH = () => ({
   "Content-Type": "application/json",
@@ -64,15 +64,15 @@ const PROFILES = [
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
 /** Profit margin at a given billing rate */
-function margin(rate: number, costRate = activeCostRate): number {
+function margin(rate: number, costRate = COST_RATE): number {
   return rate > 0 ? Math.round(((rate - costRate) / costRate) * 1000) / 10 : 0;
 }
 /** Real streaming minutes a wallet-hour yields at this billing rate */
-function realMinPerWalletHour(rate: number, costRate = activeCostRate): number {
+function realMinPerWalletHour(rate: number, costRate = COST_RATE): number {
   return rate > 0 ? Math.round((60 * costRate / rate) * 10) / 10 : 60;
 }
 /** Real streaming seconds remaining from wallet seconds remaining */
-function realStreamRemaining(walletSec: number, rate: number, costRate = activeCostRate): number {
+function realStreamRemaining(walletSec: number, rate: number, costRate = COST_RATE): number {
   return rate > 0 ? Math.round(walletSec * costRate / rate) : walletSec;
 }
 
@@ -119,7 +119,7 @@ export default function AdminBillingPage() {
   const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   // Source API cost rate from backend response; fall back to module constant if not yet loaded
-  const activeCostRate = rateInfo?.apiCostRate ?? brkData?.apiCostRate ?? activeCostRate;
+  const activeCostRate = rateInfo?.apiCostRate ?? brkData?.apiCostRate ?? COST_RATE;
   const [inputRate, setInputRate] = useState<string>("");
   const [saving, setSaving]       = useState(false);
   const [loading, setLoading]     = useState(true);
