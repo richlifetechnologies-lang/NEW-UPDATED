@@ -206,7 +206,108 @@ export default function AdminBillingAuditPage() {
           ))}
         </div>
 
-        {/* ── Live Event Feed ─────────────────────────────────────────────── */}
+        {/* ── Session Billing Audit Trail ────────────────────────────────── */}
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                  <Table2 className="w-4 h-4 text-primary"/>
+                  Session Billing Audit Trail
+                  {auditQuery.isFetching && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground ml-1"/>}
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Filter className="w-3.5 h-3.5 text-muted-foreground"/>
+                  <select value={auditFilter} onChange={e=>setAuditFilter(e.target.value)}
+                    className="text-xs rounded border border-border bg-background text-foreground px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary">
+                    <option value="all">All sessions</option>
+                    <option value="orphan">Orphan-killed only</option>
+                    <option value="stop">User stopped</option>
+                    <option value="freeze_kill">Freeze-killed</option>
+                    <option value="heartbeat_exhausted">Time exhausted</option>
+                  </select>
+                  <button onClick={()=>auditQuery.refetch()}
+                    className="text-xs px-2 py-1 rounded border border-border hover:bg-muted transition-colors">
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {auditQuery.isLoading ? (
+                <div className="flex items-center justify-center py-10 text-muted-foreground text-sm gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin"/>Loading audit data…
+                </div>
+              ) : filteredAudit.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground text-sm">
+                  <Database className="w-6 h-6 mb-2 opacity-40"/>No sessions found
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30 text-muted-foreground">
+                        <th className="text-left px-4 py-2.5 font-medium">Session ID</th>
+                        <th className="text-left px-4 py-2.5 font-medium">License Key</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Started</th>
+                        <th className="text-right px-4 py-2.5 font-medium">Duration</th>
+                        <th className="text-right px-4 py-2.5 font-medium">Decart Credits</th>
+                        <th className="text-right px-4 py-2.5 font-medium">Heartbeats</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Stop Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredAudit.map((row:any) => (
+                        <tr key={row.id}
+                          className={`border-b border-border/50 hover:bg-muted/20 transition-colors ${row.orphanKilled?"bg-red-950/10":""}`}>
+                          <td className="px-4 py-2.5 font-mono">
+                            <button onClick={()=>{setSessionId(row.id);setInput(row.id);}}
+                              className="text-muted-foreground hover:text-primary transition-colors" title={row.id}>
+                              {row.id.slice(0,8)}…
+                            </button>
+                          </td>
+                          <td className="px-4 py-2.5 font-mono">
+                            {row.licenseKey&&row.licenseKey!=="—"
+                              ? <span className="bg-muted/40 px-1.5 py-0.5 rounded text-[11px]">{row.licenseKey.slice(0,14)}{row.licenseKey.length>14?"…":""}</span>
+                              : <span className="text-muted-foreground/50">—</span>}
+                          </td>
+                          <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">
+                            {fmtTime(row.startedAt)} <span className="opacity-50">({fmtRelative(row.startedAt)})</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono">
+                            {row.status==="active"
+                              ? <span className="text-blue-400 animate-pulse">live</span>
+                              : <span className={row.durationSeconds<5?"text-amber-400":""}>{fmt(row.durationSeconds)}</span>}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono">
+                            <span className={row.orphanKilled?"text-red-400 font-bold":row.decartCredits>30?"text-amber-400":""}>
+                              {row.decartCredits>0?row.decartCredits.toFixed(1):"—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className={row.heartbeatCount===0&&row.status!=="active"?"text-red-400 font-bold":"text-muted-foreground"}>
+                              {row.heartbeatCount}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">{stopBadge(row.stopReason,row.orphanKilled)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="px-4 py-2 text-xs text-muted-foreground border-t border-border/50 flex items-center gap-4">
+                    <span>{filteredAudit.length} session{filteredAudit.length!==1?"s":""}</span>
+                    {filteredAudit.filter((r:any)=>r.orphanKilled).length>0&&(
+                      <span className="text-red-400 font-semibold">
+                        ⚠ {filteredAudit.filter((r:any)=>r.orphanKilled).length} orphan-killed
+                      </span>
+                    )}
+                    <span className="ml-auto opacity-50">Credits = duration × 2.3 cr/s · refreshes every 30s</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Live Event Feed ─────────────────────────────────────────────── */}
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -271,7 +372,37 @@ export default function AdminBillingAuditPage() {
               <div className="max-h-72 overflow-y-auto space-y-0.5 pr-1">
                 {liveEvents.map((ev: any) => {
                   const meta = liveMeta(ev.eventType, ev.metadata);
-                  return (
+                
+    // ── Session Audit Trail ────────────────────────────────────────────────────
+    const auditQuery = useQuery({
+      queryKey: ["/api/admin/billing-audit/sessions-audit"],
+      queryFn: () => apiFetch("/api/admin/billing-audit/sessions-audit"),
+      refetchInterval: 30_000,
+    });
+    const [auditFilter, setAuditFilter] = useState<string>("all");
+    const auditRows: any[] = auditQuery.data?.sessions ?? [];
+    const filteredAudit = auditFilter === "all" ? auditRows
+      : auditFilter === "orphan" ? auditRows.filter((r:any) => r.orphanKilled)
+      : auditRows.filter((r:any) => r.stopReason === auditFilter);
+
+    function stopBadge(reason: string, orphan: boolean) {
+      if (orphan) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-600/20 text-red-400 border border-red-600/30"><Ghost className="w-3 h-3"/>orphan_kill</span>;
+      const map: Record<string,string> = {
+        stop:                 "bg-green-500/10 text-green-400 border-green-500/20",
+        freeze_kill:          "bg-orange-500/15 text-orange-400 border-orange-500/20",
+        hard_kill:            "bg-rose-600/15 text-rose-400 border-rose-600/20",
+        heartbeat_exhausted:  "bg-amber-500/15 text-amber-400 border-amber-500/20",
+        active:               "bg-blue-500/15 text-blue-400 border-blue-500/20 animate-pulse",
+      };
+      const label: Record<string,string> = {
+        stop:"user_stop", freeze_kill:"freeze_kill", hard_kill:"hard_kill",
+        heartbeat_exhausted:"time_exhausted", active:"● live",
+      };
+      const cls = map[reason] ?? "bg-slate-500/10 text-slate-400 border-slate-500/20";
+      return <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${cls}`}>{label[reason]??reason??"—"}</span>;
+    }
+
+    return (
                     <div
                       key={ev.id}
                       className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-muted/30 transition-colors group cursor-pointer"
