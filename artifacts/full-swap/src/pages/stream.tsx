@@ -310,6 +310,10 @@ export default function StreamPage() {
     // SAFETY: Synchronous re-entry guard — prevents duplicate sessions from rapid
     // double-clicks before React's async isStreamStarting state reaches the DOM.
     const isStartingRef = useRef<boolean>(false);
+  // Auto-retry: counts how many automatic retries have fired for the current
+  // manual click. Reset to 0 on every user-initiated click. Capped at 1 so
+  // a single transient failure auto-recovers without looping indefinitely.
+  const autoRetryAttemptsRef = useRef<number>(0);
 
   // ── Audio sync refs ──────────────────────────────────────────────────
   const audioContextRef     = useRef<AudioContext | null>(null);
@@ -343,6 +347,7 @@ export default function StreamPage() {
   // Bug #5: track when license minutes are fully exhausted to show splash screen
   const [licenseExhausted,  setLicenseExhausted]   = useState(false);
   const [isStreamStarting,  setIsStreamStarting]   = useState(false);
+  const [isAutoRetrying,    setIsAutoRetrying]      = useState(false);
   const [styleCollapsed,    setStyleCollapsed]      = useState(false);
   // Retry-After state for 503 NO_KEYS_AVAILABLE responses
   const [noKeysRetryAt,          setNoKeysRetryAt]          = useState<number | null>(null);
@@ -960,11 +965,16 @@ export default function StreamPage() {
     }
   }, []);
 
-  const handleStartStream = async () => {
+  const handleStartStream = async (isRetry = false) => {
     // FIX #3: Synchronous ref guard + state guard to prevent duplicate sessions.
     // isStartingRef blocks the gap before React re-renders isStreamStarting=true.
     if (isStartingRef.current || isStreamStarting) return;
     isStartingRef.current = true;
+    if (!isRetry) {
+      // Fresh manual click — reset retry counter and clear any auto-retry UI
+      autoRetryAttemptsRef.current = 0;
+      setIsAutoRetrying(false);
+    }
     userStoppedRef.current = false; // clear for new session
     setIsStreamStarting(true);
 
@@ -1384,6 +1394,26 @@ export default function StreamPage() {
         setTimeout(() => setLocation("/"), 1800);
         return;
       }
+
+      // ── Auto-retry once on transient errors ───────────────────────────────
+      // Skip retry for: invalid key (handled above), wallet empty (402),
+      // rate limit (429/503), or user-stopped. Only fire once per manual click.
+      const isExhausted   = errMsg.includes("No streaming time") || errMsg.includes("LICENSE_EXHAUSTED");
+      const isRateLimited = errMsg.includes("rate limit") || errMsg.includes("Too many") || errMsg.includes("cooldown");
+      const canRetry = !isExhausted && !isRateLimited && !userStoppedRef.current && autoRetryAttemptsRef.current < 1;
+      if (canRetry) {
+        autoRetryAttemptsRef.current += 1;
+        setIsAutoRetrying(true);
+        setIsStreamStarting(false);
+        console.info(`[Stream] auto_retry attempt=${autoRetryAttemptsRef.current} reason="${errMsg}"`);
+        setTimeout(() => {
+          setIsAutoRetrying(false);
+          handleStartStream(true);
+        }, 2500);
+        return;
+      }
+
+      setIsAutoRetrying(false);
       toast({ title: "Cannot start session", description: errMsg, variant: "destructive" });
     }
   };
@@ -1837,18 +1867,20 @@ export default function StreamPage() {
                     <p className="text-sm text-muted-foreground mt-1">Start streaming to see your transformation here</p>
                   </div>
                   <button
-                    onClick={handleStartStream}
-                    disabled={isStreamStarting || startSession.isPending || noKeysRetryAt !== null}
+                    onClick={() => handleStartStream(false)}
+                    disabled={isStreamStarting || isAutoRetrying || startSession.isPending || noKeysRetryAt !== null}
                     className="mt-1 flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
                   >
-                    {(isStreamStarting || startSession.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                    {isStreamStarting
-                      ? "Preparing..."
-                      : startSession.isPending
-                        ? "Starting..."
-                        : noKeysRetryAt !== null
-                          ? `Retry in ${noKeysRetryCountdown}s`
-                          : "Stream Now"}
+                    {(isStreamStarting || isAutoRetrying || startSession.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    {isAutoRetrying
+                      ? "Retrying..."
+                      : isStreamStarting
+                        ? "Preparing..."
+                        : startSession.isPending
+                          ? "Starting..."
+                          : noKeysRetryAt !== null
+                            ? `Retry in ${noKeysRetryCountdown}s`
+                            : "Stream Now"}
                   </button>
                 </div>
               )}
@@ -2063,21 +2095,23 @@ export default function StreamPage() {
               ) : (
                 <Button
                   data-testid="button-start-stream"
-                  onClick={handleStartStream}
-                  disabled={isStreamStarting || startSession.isPending || !cameraReady || noAccess || licenseExhausted || noKeysRetryAt !== null}
+                  onClick={() => handleStartStream(false)}
+                  disabled={isStreamStarting || isAutoRetrying || startSession.isPending || !cameraReady || noAccess || licenseExhausted || noKeysRetryAt !== null}
                   className="gap-2 flex-1 h-14 text-base font-bold tracking-wide"
                   style={{ boxShadow: "0 0 28px hsl(187 100% 52% / 0.30)" }}
                 >
-                  {(isStreamStarting || startSession.isPending)
+                  {(isStreamStarting || isAutoRetrying || startSession.isPending)
                     ? <Loader2 className="w-5 h-5 animate-spin" />
                     : <Play className="w-5 h-5" />}
-                  {isStreamStarting
-                    ? "Preparing..."
-                    : startSession.isPending
-                      ? "Starting..."
-                      : noKeysRetryAt !== null
-                        ? `Retry in ${noKeysRetryCountdown}s`
-                        : "Stream Now"}
+                  {isAutoRetrying
+                    ? "Retrying..."
+                    : isStreamStarting
+                      ? "Preparing..."
+                      : startSession.isPending
+                        ? "Starting..."
+                        : noKeysRetryAt !== null
+                          ? `Retry in ${noKeysRetryCountdown}s`
+                          : "Stream Now"}
                 </Button>
               )}
             </div>
