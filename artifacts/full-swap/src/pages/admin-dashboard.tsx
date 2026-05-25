@@ -630,13 +630,47 @@ export default function AdminDashboardPage() {
   const [toasts, setToasts] = useState<{ id: string; message: string; level: "critical" | "warning" | "info"; ts: number }[]>([]);
   const seenAlerts = useRef<Set<string>>(new Set());
 
+  // ── Audio alert (Web Audio API — no deps, silent on failure) ────────────
+  const playAlertBeep = useCallback((level: "critical" | "warning") => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+
+      const schedule = (freq: number, startTime: number, duration: number, volume: number) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, startTime);
+        g.gain.setValueAtTime(0, startTime);
+        g.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+        osc.start(startTime);
+        osc.stop(startTime + duration + 0.05);
+      };
+
+      if (level === "critical") {
+        // Three descending tones — urgent but not jarring
+        schedule(880, ctx.currentTime,        0.18, 0.18);
+        schedule(660, ctx.currentTime + 0.22, 0.18, 0.14);
+        schedule(440, ctx.currentTime + 0.44, 0.25, 0.12);
+      } else {
+        // Single soft tone for warnings
+        schedule(660, ctx.currentTime, 0.2, 0.10);
+      }
+    } catch { /* silent — browser may block audio without user gesture */ }
+  }, []);
+
   const pushToast = useCallback((id: string, message: string, level: "critical" | "warning" | "info") => {
     if (seenAlerts.current.has(id)) return;
     seenAlerts.current.add(id);
     const ts = Date.now();
     setToasts(prev => [...prev.slice(-4), { id, message, level, ts }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 8000);
-  }, []);
+    if (level === "critical" || level === "warning") playAlertBeep(level);
+  }, [playAlertBeep]);
 
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
