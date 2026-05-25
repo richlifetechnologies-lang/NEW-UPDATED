@@ -143,6 +143,36 @@ export default function AdminBillingAuditPage() {
 
   const liveEvents: any[] = liveData?.events ?? [];
 
+
+  // ── Session Audit Trail ────────────────────────────────────────────────────
+  const auditQuery = useQuery({
+    queryKey: ["/api/admin/billing-audit/sessions-audit"],
+    queryFn: () => apiFetch("/api/admin/billing-audit/sessions-audit"),
+    refetchInterval: 30_000,
+  });
+  const [auditFilter, setAuditFilter] = useState<string>("all");
+  const auditRows: any[] = auditQuery.data?.sessions ?? [];
+  const filteredAudit = auditFilter === "all" ? auditRows
+    : auditFilter === "orphan" ? auditRows.filter((r:any) => r.orphanKilled)
+    : auditRows.filter((r:any) => r.stopReason === auditFilter);
+
+  function stopBadge(reason: string, orphan: boolean) {
+    if (orphan) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-600/20 text-red-400 border border-red-600/30"><Skull className="w-3 h-3"/>orphan_kill</span>;
+    const map: Record<string,string> = {
+      stop:                 "bg-green-500/10 text-green-400 border-green-500/20",
+      freeze_kill:          "bg-orange-500/15 text-orange-400 border-orange-500/20",
+      hard_kill:            "bg-rose-600/15 text-rose-400 border-rose-600/20",
+      heartbeat_exhausted:  "bg-amber-500/15 text-amber-400 border-amber-500/20",
+      active:               "bg-blue-500/15 text-blue-400 border-blue-500/20 animate-pulse",
+    };
+    const label: Record<string,string> = {
+      stop:"user_stop", freeze_kill:"freeze_kill", hard_kill:"hard_kill",
+      heartbeat_exhausted:"time_exhausted", active:"● live",
+    };
+    const cls = map[reason] ?? "bg-slate-500/10 text-slate-400 border-slate-500/20";
+    return <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${cls}`}>{label[reason]??reason??"—"}</span>;
+  }
+
   return (
     <AdminLayout>
       <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -373,35 +403,6 @@ export default function AdminBillingAuditPage() {
                 {liveEvents.map((ev: any) => {
                   const meta = liveMeta(ev.eventType, ev.metadata);
                 
-    // ── Session Audit Trail ────────────────────────────────────────────────────
-    const auditQuery = useQuery({
-      queryKey: ["/api/admin/billing-audit/sessions-audit"],
-      queryFn: () => apiFetch("/api/admin/billing-audit/sessions-audit"),
-      refetchInterval: 30_000,
-    });
-    const [auditFilter, setAuditFilter] = useState<string>("all");
-    const auditRows: any[] = auditQuery.data?.sessions ?? [];
-    const filteredAudit = auditFilter === "all" ? auditRows
-      : auditFilter === "orphan" ? auditRows.filter((r:any) => r.orphanKilled)
-      : auditRows.filter((r:any) => r.stopReason === auditFilter);
-
-    function stopBadge(reason: string, orphan: boolean) {
-      if (orphan) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-600/20 text-red-400 border border-red-600/30"><Skull className="w-3 h-3"/>orphan_kill</span>;
-      const map: Record<string,string> = {
-        stop:                 "bg-green-500/10 text-green-400 border-green-500/20",
-        freeze_kill:          "bg-orange-500/15 text-orange-400 border-orange-500/20",
-        hard_kill:            "bg-rose-600/15 text-rose-400 border-rose-600/20",
-        heartbeat_exhausted:  "bg-amber-500/15 text-amber-400 border-amber-500/20",
-        active:               "bg-blue-500/15 text-blue-400 border-blue-500/20 animate-pulse",
-      };
-      const label: Record<string,string> = {
-        stop:"user_stop", freeze_kill:"freeze_kill", hard_kill:"hard_kill",
-        heartbeat_exhausted:"time_exhausted", active:"● live",
-      };
-      const cls = map[reason] ?? "bg-slate-500/10 text-slate-400 border-slate-500/20";
-      return <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${cls}`}>{label[reason]??reason??"—"}</span>;
-    }
-
     return (
                     <div
                       key={ev.id}
