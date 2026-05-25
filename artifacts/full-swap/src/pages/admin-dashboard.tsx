@@ -625,6 +625,57 @@ export default function AdminDashboardPage() {
   const keyUsageSummary = useKeyUsageSummary();
   const billingAuditStats = useBillingAuditStats();
   const billingAnalytics = useBillingAnalytics();
+
+  // ── Toast alert state ────────────────────────────────────────────────────
+  const [toasts, setToasts] = useState<{ id: string; message: string; level: "critical" | "warning" | "info"; ts: number }[]>([]);
+  const seenAlerts = useRef<Set<string>>(new Set());
+
+  const pushToast = useCallback((id: string, message: string, level: "critical" | "warning" | "info") => {
+    if (seenAlerts.current.has(id)) return;
+    seenAlerts.current.add(id);
+    const ts = Date.now();
+    setToasts(prev => [...prev.slice(-4), { id, message, level, ts }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 8000);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Watch live sessions for orphan/critical alerts
+  useEffect(() => {
+    const sessions: any[] = liveSessionsAdv.data?.sessions ?? [];
+    for (const s of sessions) {
+      if (s.isCritical) {
+        pushToast(`crit-${s.sessionId}`, `Critical session — wallet nearly empty (${s.wallet?.remainingMinutes?.toFixed(0) ?? "?"}m left): ${s.sessionId?.slice(0, 12)}`, "critical");
+      }
+      if (s.isOrphan) {
+        pushToast(`orphan-${s.sessionId}`, `Orphan session detected — no heartbeat: ${s.sessionId?.slice(0, 12)}`, "warning");
+      }
+    }
+  }, [liveSessionsAdv.data, pushToast]);
+
+  // Watch stream health for critical streams
+  useEffect(() => {
+    const streams: any[] = streamHealth.data?.streams ?? [];
+    for (const s of streams) {
+      if (s.healthStatus === "critical") {
+        pushToast(`health-crit-${s.sessionId}`, `Stream health CRITICAL — ${s.style ?? "unknown"} on ${s.decartKeyLabel ?? "?"} (${s.estimatedMinsLeft ?? "?"}m left)`, "critical");
+      }
+    }
+  }, [streamHealth.data, pushToast]);
+
+  // Watch abuse flags for high-severity
+  useEffect(() => {
+    const flags: any[] = sessionMonitor.abuseFlags ?? [];
+    for (const f of flags) {
+      if (f.severity === "high") {
+        const alertId = `abuse-${f.sessionId}-${f.type}`;
+        pushToast(alertId, `Abuse flag: ${f.type?.replace(/_/g, " ")} on session ${f.sessionId?.slice(0, 12)} (${f.count}x in ${f.windowSeconds}s)`, "warning");
+      }
+    }
+  }, [sessionMonitor.abuseFlags, pushToast]);
+
   const revenueChart = useGetAdminRevenueChart({
     query: { queryKey: getGetAdminRevenueChartQueryKey(), refetchInterval: 60000 },
   });
@@ -683,6 +734,52 @@ export default function AdminDashboardPage() {
 
   return (
     <AdminLayout>
+      {/* ── Mission Control Toast Alerts (fixed overlay) ── */}
+      {toasts.length > 0 && (
+        <div
+          className="fixed z-50 flex flex-col gap-2 pointer-events-none"
+          style={{ bottom: "24px", right: "24px", width: "340px" }}
+        >
+          {toasts.map(t => (
+            <div
+              key={t.id}
+              className="pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl"
+              style={{
+                background: t.level === "critical" ? "#1a0505" : t.level === "warning" ? "#1a1005" : "#050f1a",
+                border: `1px solid ${t.level === "critical" ? "#ef444440" : t.level === "warning" ? "#f59e0b40" : "#38bdf840"}`,
+                boxShadow: `0 0 20px ${t.level === "critical" ? "#ef444420" : t.level === "warning" ? "#f59e0b20" : "#38bdf820"}`,
+                animation: "fadeInUp 0.3s ease",
+              }}
+            >
+              <div className="shrink-0 mt-0.5">
+                {t.level === "critical" ? (
+                  <AlertTriangle className="w-4 h-4" style={{ color: "#ef4444" }} />
+                ) : t.level === "warning" ? (
+                  <AlertTriangle className="w-4 h-4" style={{ color: "#f59e0b" }} />
+                ) : (
+                  <Activity className="w-4 h-4" style={{ color: "#38bdf8" }} />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div
+                  className="text-[10px] font-mono tracking-widest mb-0.5"
+                  style={{ color: t.level === "critical" ? "#ef4444" : t.level === "warning" ? "#f59e0b" : "#38bdf8" }}
+                >
+                  {t.level === "critical" ? "⚠ CRITICAL ALERT" : t.level === "warning" ? "⚠ WARNING" : "ℹ INFO"}
+                </div>
+                <div className="text-[11px] font-mono text-gray-300 leading-relaxed">{t.message}</div>
+              </div>
+              <button
+                onClick={() => dismissToast(t.id)}
+                className="shrink-0 text-gray-600 hover:text-gray-300 transition-colors mt-0.5"
+              >
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <style>{`@keyframes fadeInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }`}</style>
       <div
         className="min-h-screen"
         style={{
