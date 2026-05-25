@@ -10,7 +10,11 @@ import { emitSessionStarted, emitSessionSettled, emitWalletUpdated } from "../li
 import { getBillingRateForLicense } from "../lib/billing-rate-cache";
 import { logSessionBillingEvent } from "../lib/session-billing-logger";
 
-// ── All billing/timing constants imported from single source of truth ──────
+// ── Per-license creation lock: prevents two simultaneous POST /sessions for
+  // the same license key from both passing the active-session guard.
+  const sessionCreationLocks = new Set<string>();
+
+  // ── All billing/timing constants imported from single source of truth ──────
 // Billing rate IS needed for heartbeat exhaustion check (DISPLAY-BOUND model):
 //   displayRemainingSeconds controls exhaustion — wallet.used_seconds drives billing only.
 import {
@@ -372,8 +376,19 @@ router.post("/", requireLicense, async (req, res) => {
     return;
   }
 
-  // FIX #3: Stricter single-active-session guard: refuse any active session within grace window
-  const liveCutoff = new Date(Date.now() - SINGLE_SESSION_GRACE_MS);
+  // ── Mutex: block concurrent session creation for the same license key ─────
+    if (sessionCreationLocks.has(license.id)) {
+      res.status(409).json({
+        error: "A session is already being created for this license. Please try again in a moment.",
+        code: "SESSION_CREATION_IN_PROGRESS",
+      });
+      return;
+    }
+    sessionCreationLocks.add(license.id);
+    try {
+
+    // FIX #3: Stricter single-active-session guard: refuse any active session within grace window
+    const liveCutoff = new Date(Date.now() - SINGLE_SESSION_GRACE_MS);
   const activeOthers = await db.select().from(sessionsTable)
     .where(and(eq(sessionsTable.licenseKeyId, license.id), eq(sessionsTable.status, "active")))
     .orderBy(desc(sessionsTable.startedAt));
@@ -479,9 +494,13 @@ router.post("/", requireLicense, async (req, res) => {
   emitWalletUpdated(license.id, (license.usedSeconds ?? 0) + MINIMUM_RESERVATION_SEC, Math.max(0, remainingSeconds - MINIMUM_RESERVATION_SEC));
 
   res.status(201).json(formatSession(session));
-});
 
-router.post("/:sessionId/output-started", requireLicense, async (req, res) => {
+    } finally {
+      sessionCreationLocks.delete(license.id);
+    }
+  });
+
+  router.post("/:sessionId/output-started", requireLicense, async (req, res) => {
   const license   = (req as any).license;
   const sessionId = req.params["sessionId"] as string;
   const [session] = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId));
@@ -560,12 +579,20 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   const used      = freshLicense.usedSeconds ?? 0;
   const remaining = Math.max(0, allocated - used);
 
-  if (incrementSec > 0 && remaining > 0) {
-    const debit = Math.min(incrementSec, remaining);
-    await db.update(licenseKeysTable)
-      .set({ usedSeconds: used + debit, lastUsedAt: now })
-      .where(eq(licenseKeysTable.id, license.id));
-  }
+  // ── FIX: atomic debit via SQL LEAST() — two concurrent heartbeats cannot
+    // both read the same usedSeconds and apply duplicate debits. RETURNING gives
+    // the real post-write value used in the exhaustion check below.
+    let newUsedSeconds = used;
+    if (incrementSec > 0 && remaining > 0) {
+      const [debited] = await db.update(licenseKeysTable)
+        .set({
+          usedSeconds: sql`LEAST(${licenseKeysTable.minutesAllocated} * 60, ${licenseKeysTable.usedSeconds} + ${incrementSec})`,
+          lastUsedAt: now,
+        })
+        .where(eq(licenseKeysTable.id, license.id))
+        .returning({ usedSeconds: licenseKeysTable.usedSeconds });
+      newUsedSeconds = debited?.usedSeconds ?? (used + Math.min(incrementSec, remaining));
+    }
 
   // ── Compute live durationSeconds from billing anchor ───────────────────────
   // Writing this every heartbeat makes active sessions visible with real-time
@@ -598,8 +625,8 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // ── Exhaustion check ──────────────────────────────────────────────────────
   // incrementSec is already billing-rate-compressed so the wallet drains at the
   // right speed. Kill the stream the moment the compressed wallet hits zero.
-  const newUsed = used + Math.min(incrementSec, remaining);
-  const newRealRemaining = Math.max(0, allocated - newUsed);
+  // newUsedSeconds = actual value written by the atomic LEAST() UPDATE above
+    const newRealRemaining = Math.max(0, allocated - newUsedSeconds);
 
   // Hard-kill safety reserve (HARD_KILL_SAFETY_RESERVE_SEC = 3):
   // Kill the session when the compressed wallet remaining falls to/below the
