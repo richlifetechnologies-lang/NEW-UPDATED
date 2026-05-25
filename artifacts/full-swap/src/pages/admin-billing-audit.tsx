@@ -283,6 +283,7 @@ export default function AdminBillingAuditPage() {
                         <th className="text-right px-4 py-2.5 font-medium">Decart Credits</th>
                         <th className="text-right px-4 py-2.5 font-medium">Heartbeats</th>
                         <th className="text-left px-4 py-2.5 font-medium">Stop Reason</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Type</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -319,6 +320,11 @@ export default function AdminBillingAuditPage() {
                             </span>
                           </td>
                           <td className="px-4 py-2.5">{stopBadge(row.stopReason,row.orphanKilled)}</td>
+                          <td className="px-4 py-2.5">
+                            {row.isTokenReconnect
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" title="Session created by a silent 15s token-window reconnect">↻ reconnect</span>
+                              : <span className="text-muted-foreground/40 text-xs">user</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
