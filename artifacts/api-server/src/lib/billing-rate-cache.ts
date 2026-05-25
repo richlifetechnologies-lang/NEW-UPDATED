@@ -51,6 +51,14 @@ let _lastKnownGlobalRate: number | null = null;
 const RATE_CACHE_TTL_MS = 5_000;
 let _globalRateCache: { rate: number; expiresAt: number } | null = null;
 const _licenseRateCache = new Map<number, { rate: number; expiresAt: number }>();
+// ISSUE-C fix: evict expired entries every 60s so the map doesn't grow unboundedly
+// at high license-key counts. Entries expire in 5s (RATE_CACHE_TTL_MS) but were
+// never removed. At thousands of keys this would be a measurable memory leak.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _licenseRateCache)
+    if (v.expiresAt < now) _licenseRateCache.delete(k);
+}, 60_000).unref?.();
 
 /**
  * Returns the active GLOBAL billing rate (credits/sec).
