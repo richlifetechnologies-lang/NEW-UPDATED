@@ -20,6 +20,7 @@ import { logSessionBillingEvent } from "../lib/session-billing-logger";
 import {
   HEARTBEAT_GRACE_MS,
   ORPHAN_GRACE_MS,
+  INITIAL_CONNECT_GRACE_MS,
   SWEEP_INTERVAL_MS,
   SINGLE_SESSION_GRACE_MS,
   DEDUCTION_FREEZE_MS,
@@ -242,14 +243,19 @@ async function settleStartupOrphans() {
     // Any session that is still "active" but had no heartbeat in the last
     // ORPHAN_GRACE_MS (15 s) could not have had a heartbeat from this
     // process — settle it immediately rather than waiting for the sweeper.
-    const cutoff = new Date(Date.now() - ORPHAN_GRACE_MS);
-    // Mirror the periodic sweeper: use the heartbeat timestamp (or startedAt if
-    // no heartbeat was ever received) so sessions with a recent heartbeat before
-    // the restart are NOT prematurely settled.
+    // Two-tier grace — mirrors the periodic sweeper.
+    // Tier A (lastHeartbeatAt IS NULL, never heartbeated): INITIAL_CONNECT_GRACE_MS (45 s)
+    // Tier B (lastHeartbeatAt IS NOT NULL): ORPHAN_GRACE_MS (15 s)
+    const startupInitialCutoff = new Date(Date.now() - INITIAL_CONNECT_GRACE_MS);
+    const startupOrphanCutoff  = new Date(Date.now() - ORPHAN_GRACE_MS);
     const stale = await db.select().from(sessionsTable)
       .where(and(
         eq(sessionsTable.status, "active"),
-        sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${cutoff}`
+        sql`(
+          (${sessionsTable.lastHeartbeatAt} IS NULL     AND ${sessionsTable.startedAt}       < ${startupInitialCutoff})
+          OR
+          (${sessionsTable.lastHeartbeatAt} IS NOT NULL AND ${sessionsTable.lastHeartbeatAt} < ${startupOrphanCutoff})
+        )`
       ));
 
     for (const s of stale) {
@@ -290,15 +296,28 @@ function startOrphanSweeper() {
     try {
       const now = Date.now();
 
-      // ── Pass 1: Orphaned sessions (no heartbeat for ORPHAN_GRACE_MS = 15 s) ──
-      // Client died or disconnected without calling /stop.
-      const orphanCutoff = new Date(now - ORPHAN_GRACE_MS);
+      // ── Pass 1: Orphaned sessions — two-tier grace ─────────────────────────────
+      // ROOT-CAUSE FIX: sessions were being killed before the client could send
+      // its first heartbeat. A fresh session needs up to ~15 s just to connect
+      // to Decart and send heartbeat #1. Under any network delay the sweeper
+      // fired first and killed the session (confirmed in Railway logs: session
+      // killed 16.5 s after creation with lastHeartbeatAt IS NULL).
+      //
+      // Tier A — lastHeartbeatAt IS NULL (never heartbeated):
+      //   Grace = INITIAL_CONNECT_GRACE_MS (45 s)
+      // Tier B — lastHeartbeatAt IS NOT NULL (active stream):
+      //   Grace = ORPHAN_GRACE_MS (15 s) — normal disconnect path
+      const initialConnectCutoff = new Date(now - INITIAL_CONNECT_GRACE_MS);
+      const orphanCutoff          = new Date(now - ORPHAN_GRACE_MS);
       const orphans = await db.select().from(sessionsTable)
         .where(and(
           eq(sessionsTable.status, "active"),
-          sql`coalesce(${sessionsTable.lastHeartbeatAt}, ${sessionsTable.startedAt}) < ${orphanCutoff}`
+          sql`(
+            (${sessionsTable.lastHeartbeatAt} IS NULL     AND ${sessionsTable.startedAt}       < ${initialConnectCutoff})
+            OR
+            (${sessionsTable.lastHeartbeatAt} IS NOT NULL AND ${sessionsTable.lastHeartbeatAt} < ${orphanCutoff})
+          )`
         ));
-      for (const s of orphans) {
         await ensureDecartKeyLinked(s);
         const endAt = new Date(now);
         const billingStart = s.billingStartedAt ?? s.startedAt;
