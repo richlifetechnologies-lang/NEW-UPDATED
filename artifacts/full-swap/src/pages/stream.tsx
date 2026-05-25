@@ -357,6 +357,9 @@ export default function StreamPage() {
   // Retry-After state for 503 NO_KEYS_AVAILABLE responses
   const [noKeysRetryAt,          setNoKeysRetryAt]          = useState<number | null>(null);
   const [noKeysRetryCountdown,   setNoKeysRetryCountdown]   = useState<number>(0);
+  // Reconnect flash: briefly shown on the video overlay after a silent 15s token-window reconnect
+  const [showReconnectFlash,     setShowReconnectFlash]     = useState(false);
+  const reconnectFlashTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Countdown timer: ticks every second while noKeysRetryAt is set (503 NO_KEYS_AVAILABLE)
   useEffect(() => {
@@ -1251,6 +1254,11 @@ export default function StreamPage() {
               prewarmedTokenExpiry.current = 0;
               connectionStatusRef.current = "connecting";
               setConnectionStatus("connecting");
+              // Show a brief "↻ Reconnected" flash on the video overlay so the user
+              // can see the silent 15s token-window handoff is working, not breaking.
+              if (reconnectFlashTimerRef.current) clearTimeout(reconnectFlashTimerRef.current);
+              setShowReconnectFlash(true);
+              reconnectFlashTimerRef.current = setTimeout(() => setShowReconnectFlash(false), 3000);
               teardownStream("dropped").then(() => {
                 // Double-check: bail if user stopped while teardown was in-flight
                 if (!userStoppedRef.current) handleStartStream();
@@ -1929,6 +1937,26 @@ export default function StreamPage() {
                      style={{ zIndex: 1 }}>
                   <Loader2 className="w-12 h-12 text-primary animate-spin" />
                   <p className="text-sm text-primary font-mono tracking-wide">Connecting to stream...</p>
+                </div>
+              )}
+
+              {/* Reconnect flash badge — briefly visible after a silent 15s token-window handoff */}
+              {showReconnectFlash && (
+                <div
+                  className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold pointer-events-none animate-pulse"
+                  style={{
+                    zIndex: 30,
+                    background: "rgba(0, 210, 180, 0.18)",
+                    border: "1px solid rgba(0, 210, 180, 0.45)",
+                    color: "rgb(0, 220, 190)",
+                    backdropFilter: "blur(6px)",
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
+                    <path d="M8.5 2A4.5 4.5 0 1 0 9.5 5.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                    <path d="M7 0.5L8.5 2L6.5 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Reconnected
                 </div>
               )}
 
