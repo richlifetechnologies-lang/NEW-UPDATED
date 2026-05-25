@@ -144,7 +144,7 @@ async function getOrCreateToken(
     tokenCache.delete(normalizedKey);
   } else if (
     cached &&
-    cached.expiresAt - now > 30_000 &&
+    cached.expiresAt - now > 5_000 &&
     cached.sourceKeyId === sourceKeyId
   ) {
     // Reuse token if still valid AND was issued for the SAME API key.
