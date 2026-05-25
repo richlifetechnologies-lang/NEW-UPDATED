@@ -314,6 +314,10 @@ export default function StreamPage() {
   // manual click. Reset to 0 on every user-initiated click. Capped at 1 so
   // a single transient failure auto-recovers without looping indefinitely.
   const autoRetryAttemptsRef = useRef<number>(0);
+  // CREDITS GUARD: set to true just before client.realtime.connect() is called.
+  // Auto-retry is blocked when this is true — Decart has already been contacted
+  // and retrying would reserve another window of credits for the failed attempt.
+  const decartConnectAttemptedRef = useRef<boolean>(false);
 
   // ── Audio sync refs ──────────────────────────────────────────────────
   const audioContextRef     = useRef<AudioContext | null>(null);
@@ -348,6 +352,7 @@ export default function StreamPage() {
   const [licenseExhausted,  setLicenseExhausted]   = useState(false);
   const [isStreamStarting,  setIsStreamStarting]   = useState(false);
   const [isAutoRetrying,    setIsAutoRetrying]      = useState(false);
+  const [connectionStep,    setConnectionStep]      = useState<"token"|"session"|"decart"|null>(null);
   const [styleCollapsed,    setStyleCollapsed]      = useState(false);
   // Retry-After state for 503 NO_KEYS_AVAILABLE responses
   const [noKeysRetryAt,          setNoKeysRetryAt]          = useState<number | null>(null);
@@ -975,8 +980,10 @@ export default function StreamPage() {
       autoRetryAttemptsRef.current = 0;
       setIsAutoRetrying(false);
     }
+    decartConnectAttemptedRef.current = false; // reset credits guard for this attempt
     userStoppedRef.current = false; // clear for new session
     setIsStreamStarting(true);
+    setConnectionStep("token"); // Step 1: fetch token
 
     // Desktop license guard
     if (typeof window !== "undefined" && (window as any).electronAPI?.isElectron) {
@@ -1063,6 +1070,9 @@ export default function StreamPage() {
       if (tokenIsFresh) prewarmedTokenRef.current = null; // consume once
       const tokenPromise = tokenIsFresh ? Promise.resolve(cachedToken!) : fetchDecartToken();
 
+      // Step 1+2 run in parallel: token fetch + session creation
+      setConnectionStep("session"); // show "Creating session" while both are in-flight
+
       // PATCH-02: 409 auto-recovery — if SESSION_ALREADY_ACTIVE, auto-stop the
       // orphan and retry once so the user never has to wait 2 minutes manually.
       const [session, shortLivedKey] = await Promise.all([
@@ -1147,6 +1157,11 @@ export default function StreamPage() {
         throw new Error("Streaming SDK failed to initialise. Please refresh and try again.");
       }
       const prompt = customPrompt || selectedStyleData?.prompt || "A person with a natural, realistic face";
+
+      // CREDITS GUARD: mark that we are about to call Decart so the auto-retry
+      // in the catch block knows NOT to retry — Decart has already reserved credits.
+      decartConnectAttemptedRef.current = true;
+      setConnectionStep("decart"); // Step 3: connecting to Decart
 
       connectStartMsRef.current = performance.now();
       // FIX: Clone each video track before handing to Decart.
@@ -1361,11 +1376,13 @@ export default function StreamPage() {
         })();
       }
 
+      setConnectionStep(null); // clear step indicator — stream is live
       toast({ title: "Session started", description: "Stream is live — Real Time transformation active" });
     } catch (err: unknown) {
       setConnectionStatus("idle");
       setIsStreaming(false);
       setActiveSession(null);
+      setConnectionStep(null); // clear step indicator on failure
       isStartingRef.current = false;
       setIsStreamStarting(false);
       if (timerRef.current)        clearInterval(timerRef.current);
@@ -1397,10 +1414,16 @@ export default function StreamPage() {
 
       // ── Auto-retry once on transient errors ───────────────────────────────
       // Skip retry for: invalid key (handled above), wallet empty (402),
-      // rate limit (429/503), or user-stopped. Only fire once per manual click.
+      // rate limit (429/503), user-stopped, OR if Decart was already contacted
+      // (decartConnectAttemptedRef=true) — retrying after Decart's realtime.connect()
+      // was called would burn another window of credits for the failed attempt.
+      // Only retries errors that happened BEFORE reaching Decart (token fetch /
+      // session creation) which are genuinely free to retry.
       const isExhausted   = errMsg.includes("No streaming time") || errMsg.includes("LICENSE_EXHAUSTED");
       const isRateLimited = errMsg.includes("rate limit") || errMsg.includes("Too many") || errMsg.includes("cooldown");
-      const canRetry = !isExhausted && !isRateLimited && !userStoppedRef.current && autoRetryAttemptsRef.current < 1;
+      const canRetry = !isExhausted && !isRateLimited && !userStoppedRef.current
+        && !decartConnectAttemptedRef.current  // CREDITS GUARD — never retry after Decart was called
+        && autoRetryAttemptsRef.current < 1;
       if (canRetry) {
         autoRetryAttemptsRef.current += 1;
         setIsAutoRetrying(true);
@@ -1882,6 +1905,17 @@ export default function StreamPage() {
                             ? `Retry in ${noKeysRetryCountdown}s`
                             : "Stream Now"}
                   </button>
+                  {(isStreamStarting || isAutoRetrying) && (
+                    <p className="text-xs text-primary/70 font-mono mt-1 animate-pulse">
+                      {isAutoRetrying
+                        ? "↻ Connection failed — retrying safely..."
+                        : connectionStep === "decart"
+                          ? "3/3 · Connecting to Decart..."
+                          : connectionStep === "session"
+                            ? "2/3 · Creating session..."
+                            : "1/3 · Fetching stream token..."}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -2115,6 +2149,22 @@ export default function StreamPage() {
                 </Button>
               )}
             </div>
+
+            {/* Step indicator — shows exactly which startup stage is in progress */}
+            {(isStreamStarting || isAutoRetrying) && (
+              <div className="flex items-center justify-center gap-2 mt-1">
+                <Loader2 className="w-3 h-3 text-primary/60 animate-spin flex-shrink-0" />
+                <p className="text-xs text-primary/70 font-mono animate-pulse">
+                  {isAutoRetrying
+                    ? "↻ Retrying safely — no credits used yet..."
+                    : connectionStep === "decart"
+                      ? "3/3 · Connecting to Decart..."
+                      : connectionStep === "session"
+                        ? "2/3 · Creating session..."
+                        : "1/3 · Fetching stream token..."}
+                </p>
+              </div>
+            )}
 
             {/* No streaming time remaining — shown below button when applicable */}
             {(noAccess || licenseExhausted) && !isStreaming && (
