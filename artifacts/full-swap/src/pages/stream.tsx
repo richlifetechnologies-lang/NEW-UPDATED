@@ -508,18 +508,53 @@ export default function StreamPage() {
     setAudioEnabled(false);
     audioEnabledRef.current = false;
 
-    // 7. Call backend /stop using fetch+keepalive (safe for all paths including unload)
-    // Note: sid, secs, and activeSessionRef.current=null already handled at top (RC#4).
+    // 7. Call backend /stop with exponential-backoff retry.
+    //
+    // DESIGN (safe-stop guarantee):
+    //   • Attempt 1 — awaited immediately so the caller can proceed once the
+    //     first try lands. keepalive:true survives page-hide / tab close.
+    //   • Attempts 2 & 3 — fire-and-forget background retries (500 ms / 1 500 ms).
+    //     They run AFTER teardownStream returns so they NEVER delay the UI.
+    //   • 404 / 409 are treated as success — session already stopped (idempotent).
+    //   • Retries are skipped on the "unload" path; keepalive on attempt 1 is
+    //     the only reliable mechanism during page teardown.
+    //   • The backend settleSession() is fully idempotent — calling /stop twice
+    //     on the same session is completely safe and has no billing side-effects.
     if (sid) {
       const lk = localStorage.getItem("fullswap_license_key") ?? "";
+      const stopOpts = {
+        method: "POST" as const,
+        headers: { "Content-Type": "application/json", "X-License-Key": lk, "X-Device-ID": getDeviceId() },
+        body: JSON.stringify({}),
+        keepalive: true,
+      };
+
+      // Attempt 1 — awaited, keepalive so it survives unload
+      let stopSucceeded = false;
       try {
-        await fetch(`/api/sessions/${sid}/stop`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-License-Key": lk, "X-Device-ID": getDeviceId() },
-          body: JSON.stringify({}),
-          keepalive: true,
-        });
-      } catch { /* best effort */ }
+        const r1 = await fetch(`/api/sessions/${sid}/stop`, stopOpts);
+        // 200/201 = clean stop; 404 = already settled by sweeper; 409 = race (idempotent)
+        stopSucceeded = r1.ok || r1.status === 404 || r1.status === 409;
+      } catch { /* network error — fall through to background retries */ }
+
+      // Attempts 2 & 3 — background retries, only when first attempt failed
+      // and we are NOT in the unload path (keepalive on attempt 1 already covers that).
+      if (!stopSucceeded && reason !== "unload") {
+        (async () => {
+          const backoffMs = [500, 1_500];
+          for (const delay of backoffMs) {
+            await new Promise<void>(res => setTimeout(res, delay));
+            try {
+              const rN = await fetch(`/api/sessions/${sid}/stop`, {
+                ...stopOpts,
+                keepalive: false, // keepalive not needed — page is still alive here
+              });
+              if (rN.ok || rN.status === 404 || rN.status === 409) return; // done
+            } catch { /* continue to next retry */ }
+          }
+          // All retries exhausted — orphan sweeper will settle within 15 s (ORPHAN_GRACE_MS)
+        })().catch(() => {});
+      }
     }
     // Always invalidate license cache after any teardown (except page unload where
     // React state/query-client may already be destroyed). This covers the no_time
