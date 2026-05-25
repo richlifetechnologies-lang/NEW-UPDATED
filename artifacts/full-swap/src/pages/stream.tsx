@@ -1280,29 +1280,33 @@ export default function StreamPage() {
       decartClientRef.current = realtimeClient;
       console.info("[Decart] SDK client connected successfully. Waiting for first remote frame...");
 
-      // ── OPTION-B: 25-second token pre-warm loop ────────────────────────────
-      // The server now issues tokens with maxSessionDuration=30s (was 90s).
-      // This limits Decart freeze billing to 30×2=60 credits (was 180).
-      // To keep healthy sessions running beyond 30 seconds we pre-fetch a fresh
-      // token every 25 seconds so one is always ready the instant a reconnect
-      // is needed after a drop. The existing session is unaffected — this only
-      // populates prewarmedTokenRef for the NEXT connect() call.
+      // ── Token pre-warm: fire IMMEDIATELY then every 10s ───────────────────
+      // ROOT-CAUSE FIX: TOKEN_WINDOW_HARD_CAP_SEC=15 means Decart drops the
+      // connection after 15 seconds. The old loop fired every 25s — always too
+      // late. When the drop came at t=15s, prewarmedTokenRef was still null so
+      // the auto-reconnect guard failed and the stream broke (user saw "Stream
+      // disconnected" at ~32s remaining = the 15s that had just been consumed).
+      //
+      // Fix: fire immediately on connect so a fresh token is ready well before
+      // the 15s window expires, then keep refreshing every 10s so there is
+      // always a valid token available for any reconnect that follows.
       // Safety: the interval is cleared by teardownStream on any disconnect path.
       if (tokenRefreshRef.current) clearInterval(tokenRefreshRef.current);
-      tokenRefreshRef.current = setInterval(async () => {
-        // Only refresh while the stream is genuinely active
+      const doTokenPrewarm = async () => {
         if (!decartClientRef.current) return;
         try {
           const freshToken = await fetchDecartToken();
-          prewarmedTokenRef.current  = freshToken;
-          prewarmedTokenExpiry.current = Date.now() + 29_000; // treat as valid for 29s
-          console.info("[Decart] token_refresh: pre-warmed fresh 30s token for instant reconnect");
+          prewarmedTokenRef.current    = freshToken;
+          prewarmedTokenExpiry.current = Date.now() + 14_000; // valid for just under 15s
+          console.info("[Decart] token_prewarm: fresh token ready for next reconnect");
         } catch (refreshErr) {
-          // Non-fatal: if refresh fails (network blip), the next tick will retry.
-          // The running session is completely unaffected.
-          console.warn("[Decart] token_refresh: pre-warm failed (non-fatal):", refreshErr);
+          console.warn("[Decart] token_prewarm: failed (non-fatal):", refreshErr);
         }
-      }, 25_000);
+      };
+      // Fire immediately so a token is ready before the 15s window expires
+      doTokenPrewarm();
+      // Then keep refreshing every 10s to stay ahead of every subsequent window
+      tokenRefreshRef.current = setInterval(doTokenPrewarm, 10_000);
 
       // Attach Decart's session ID for cross-reference tracking.
       // Fire-and-forget — never blocks streaming, never throws.
