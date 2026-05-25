@@ -307,6 +307,8 @@ export default function StreamPage() {
   // Pre-exhaustion guard — ensures the early-stop fires at most once per session.
   // Reset to false at the start of every new session in handleStartStream.
   const hasTriggeredPreStopRef = useRef<boolean>(false);
+  // Tracks current displayFactor so resync effect can read it without stale closure.
+  const displayFactorRef        = useRef<number>(1);
     // SAFETY: Synchronous re-entry guard — prevents duplicate sessions from rapid
     // double-clicks before React's async isStreamStarting state reaches the DOM.
     const isStartingRef = useRef<boolean>(false);
@@ -449,7 +451,7 @@ export default function StreamPage() {
   //   "license_exhausted" — wallet empty (no toast — caller shows its own)
   //   "dropped"         — Decart WebRTC drop (no toast — caller already toasted)
   //   "unload"          — page close / beforeunload (no toast, fire-and-forget)
-  const teardownStream = useCallback(async (reason?: string) => {
+  const teardownStream = useCallback(async (reason?: string, sessionIdOverride?: string) => {
     // RC#4 FIX: Capture and null both critical refs SYNCHRONOUSLY at the very top,
     // before any await. Without this, a rapid reconnect can write a new client/session
     // into decartClientRef/activeSessionRef while this teardown is still awaiting
@@ -457,7 +459,10 @@ export default function StreamPage() {
     // leaving its Decart WebRTC runtime alive with no handle to ever disconnect it.
     const clientToClose = decartClientRef.current;
     decartClientRef.current = null;
-    const sid  = activeSessionRef.current;
+    // FIX (Bug #3 — orphan kill): When called from heartbeat no_time / freeze paths,
+    // activeSessionRef is already null (cleared before stopStreamInternally was called).
+    // Accept an explicit override so the /stop call always fires with the real session ID.
+    const sid  = sessionIdOverride ?? activeSessionRef.current;
     activeSessionRef.current = null;
     const secs = elapsedSecsRef.current;
 
@@ -639,7 +644,10 @@ export default function StreamPage() {
   // Thin wrapper preserving the legacy call signature used across the component.
   // Delegates entirely to teardownStream so all paths share a single code path.
   const stopStreamInternally = useCallback(async (sessionId: string, secs: number, trialExpired = false) => {
-    await teardownStream(trialExpired ? "license_exhausted" : undefined);
+    // FIX (Bug #3): Pass sessionId explicitly so teardownStream can call /stop even
+    // when activeSessionRef has already been cleared by the caller (heartbeat no_time
+    // and freeze paths both null the ref before calling this function).
+    await teardownStream(trialExpired ? "license_exhausted" : undefined, sessionId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teardownStream]);
 
@@ -1618,16 +1626,36 @@ export default function StreamPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming, activeSession, stopStreamInternally]);
 
+  // Keep displayFactorRef in sync with the latest computed displayFactor so the
+  // resync effect below can read a fresh value without a stale closure.
+  useEffect(() => { displayFactorRef.current = displayFactor; }, [displayFactor]);
+
   // Recalibrate smooth countdown on each 5s server poll during streaming.
   // server.remainingSeconds = allocated - usedBefore - sessionElapsed
   // → effective start ref = remainingSeconds + currentElapsed (anchors smooth tick-down)
+  //
+  // FIX (Bug #2 — display drain): The display anchor must be:
+  //   displayStartRef = serverRem + elapsed * displayFactor
+  // NOT:
+  //   displayStartRef = serverRem + elapsed          ← wrong for factor > 1
+  //
+  // Proof: display(t) = displayStartRef - t * F
+  //   We want display(T) = serverRem (server truth at resync moment T).
+  //   => serverRem = displayStartRef - T * F
+  //   => displayStartRef = serverRem + T * F
+  //
+  // Using the wrong formula (serverRem + T) causes the display to lose
+  // T*(F-1) extra display-seconds on every resync, making it hit the
+  // pre-exhaustion threshold (≤5s) far too early and killing the stream.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (isStreaming && licenseStatus.data?.remainingSeconds !== undefined) {
       const serverRem = licenseStatus.data.remainingSeconds;
+      const F = displayFactorRef.current;
+      // Real-seconds anchor: unchanged — paidSecsRemaining drains 1:1 per real second.
       streamStartRemRef.current  = serverRem + elapsedSecsRef.current;
-      // Resync display anchor from server remaining (already compressed) + elapsed offset
-      displayStartRemRef.current = serverRem + elapsedSecsRef.current;
+      // Display anchor: multiply elapsed by F so display drains at the correct compressed rate.
+      displayStartRemRef.current = serverRem + elapsedSecsRef.current * F;
     }
   }, [licenseStatus.data]); // re-run only when server data updates (every 5s)
 
