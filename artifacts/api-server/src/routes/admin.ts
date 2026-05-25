@@ -12,6 +12,7 @@ import { DECART_CREDITS_PER_SEC, DECART_API_COST_PER_SEC } from "../lib/billing-
 import { getBillingRate, invalidateBillingRateCache } from "../lib/billing-rate-cache";
 import { getAllKeysCreditStatus, getKeyCreditStatus, recordTopup, recordTopupDelta, getKeyUsageHistory } from "../lib/credit-tracker";
 import { emitBillingRateChanged } from "../lib/billing-ws";
+import { decartPool } from "../lib/decart-pool";
 import { isRateLimited, recordFailedAttempt, clearAttempts, retryAfterSeconds } from "../lib/rate-limiter";
 
 function parseLoginBody(body: unknown): { email: string; password: string } | null {
@@ -1443,6 +1444,9 @@ router.post("/decart-keys", requireAdmin, async (req, res) => {
     usageLoad: 0,
     healthStatus: "healthy",
   }).returning();
+  // Immediately reload pool — critical for rescue-key scenario (all keys in cooldown)
+  await decartPool.load();
+
   res.status(201).json({
     id: key.id,
     label: key.label,
@@ -1471,6 +1475,8 @@ router.put("/decart-keys/:id", requireAdmin, async (req, res) => {
   const [updated] = await db.update(decartApiKeysTable).set(updates)
     .where(eq(decartApiKeysTable.id, keyId)).returning();
   if (!updated) { res.status(404).json({ error: "Key not found" }); return; }
+  // Reload pool to pick up isActive changes instantly (e.g. re-enabling a disabled key)
+  await decartPool.load();
   res.json({ id: updated.id, label: updated.label, isActive: updated.isActive, maxUsers: updated.maxUsers });
 });
 
@@ -1499,6 +1505,8 @@ router.delete("/decart-keys/:id", requireAdmin, async (req, res) => {
       .from(licenseKeysTable)
       .where(eq(licenseKeysTable.assignedDecartKeyId, newKeyId ?? -1));
 
+    // Remove deleted key from pool immediately
+    await decartPool.load();
     res.json({ deleted: true, usersReassignedTo: newKeyId, reassignedCount: Number(reassigned[0]?.count ?? 0) });
   } catch (err: any) {
     console.error("[admin] DELETE /decart-keys error:", err);
