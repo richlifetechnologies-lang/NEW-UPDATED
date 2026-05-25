@@ -307,6 +307,9 @@ export default function StreamPage() {
   // Pre-exhaustion guard — ensures the early-stop fires at most once per session.
   // Reset to false at the start of every new session in handleStartStream.
   const hasTriggeredPreStopRef = useRef<boolean>(false);
+    // SAFETY: Synchronous re-entry guard — prevents duplicate sessions from rapid
+    // double-clicks before React's async isStreamStarting state reaches the DOM.
+    const isStartingRef = useRef<boolean>(false);
 
   // ── Audio sync refs ──────────────────────────────────────────────────
   const audioContextRef     = useRef<AudioContext | null>(null);
@@ -958,8 +961,10 @@ export default function StreamPage() {
   }, []);
 
   const handleStartStream = async () => {
-    // FIX #3: Debounce rapid re-clicks during startup to prevent duplicate sessions
-    if (isStreamStarting) return;
+    // FIX #3: Synchronous ref guard + state guard to prevent duplicate sessions.
+    // isStartingRef blocks the gap before React re-renders isStreamStarting=true.
+    if (isStartingRef.current || isStreamStarting) return;
+    isStartingRef.current = true;
     userStoppedRef.current = false; // clear for new session
     setIsStreamStarting(true);
 
@@ -967,6 +972,7 @@ export default function StreamPage() {
     if (typeof window !== "undefined" && (window as any).electronAPI?.isElectron) {
       const licCheck = await (window as any).electronAPI.license.check().catch(() => ({ licensed: false }));
       if (!licCheck.licensed) {
+        isStartingRef.current = false;
         setIsStreamStarting(false);
         return;
       }
@@ -974,6 +980,7 @@ export default function StreamPage() {
 
     if (!cameraReady || !cameraStreamRef.current) {
       toast({ title: "Camera not ready", description: "Please enable your camera first", variant: "destructive" });
+      isStartingRef.current = false;
       setIsStreamStarting(false);
       return;
     }
@@ -986,6 +993,7 @@ export default function StreamPage() {
       await startCamera(selectedCameraId || undefined);
       if (!cameraStreamRef.current || cameraStreamRef.current.getVideoTracks().filter(t => t.readyState === "live").length === 0) {
         toast({ title: "Camera not ready", description: "Camera could not be restarted. Please enable it manually.", variant: "destructive" });
+        isStartingRef.current = false;
         setIsStreamStarting(false);
         return;
       }
@@ -1008,6 +1016,7 @@ export default function StreamPage() {
         description: "Your browser doesn't support WebRTC. Please use Chrome, Firefox, Safari, or Edge.",
         variant: "destructive",
       });
+      isStartingRef.current = false;
       setIsStreamStarting(false);
       return;
     }
@@ -1018,6 +1027,7 @@ export default function StreamPage() {
       _sdk = await getDecartSdk();
     } catch {
       toast({ title: "SDK error", description: "Streaming SDK failed to load. Please refresh the page.", variant: "destructive" });
+      isStartingRef.current = false;
       setIsStreamStarting(false);
       return;
     }
@@ -1025,12 +1035,14 @@ export default function StreamPage() {
     if (typeof createDecartClient !== "function") {
       console.error("[Decart] createDecartClient is not available:", createDecartClient);
       toast({ title: "SDK error", description: "Streaming SDK failed to load. Please refresh the page.", variant: "destructive" });
+      isStartingRef.current = false;
       setIsStreamStarting(false);
       return;
     }
 
     try {
       // Fire session creation and token fetch in parallel — they are independent
+      isStartingRef.current = false; // isStreaming=true + Stop Stream button covers guard from here
       setIsStreaming(true);
       setElapsedSecs(0);
       setConnectionStatus("connecting");
@@ -1220,6 +1232,8 @@ export default function StreamPage() {
               }).catch(() => {});
               return;
             }
+            // Stop display timer immediately so countdown doesn't freeze at last value
+            if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
             connectionStatusRef.current = "dropped";
             setConnectionStatus("dropped");
             toast({
@@ -1342,6 +1356,7 @@ export default function StreamPage() {
       setConnectionStatus("idle");
       setIsStreaming(false);
       setActiveSession(null);
+      isStartingRef.current = false;
       setIsStreamStarting(false);
       if (timerRef.current)        clearInterval(timerRef.current);
       if (tokenRefreshRef.current) clearInterval(tokenRefreshRef.current);
@@ -1450,7 +1465,7 @@ export default function StreamPage() {
     const MAX_FAILURES = 3;
     // RC#2: gate controls actual heartbeat fire frequency
     let lastHbFiredMs = 0;
-    const NORMAL_HB_MS         = 10_000; // fire every 10s when wallet is healthy
+    const NORMAL_HB_MS         = 5_000;  // fire every 5s (was 10s) — ensures heartbeat reaches server within 15s orphan window
     const LOW_WALLET_HB_MS     = 3_000;  // fire every 3s when wallet is nearly empty
     const LOW_WALLET_THRESH_SEC = 30;     // threshold to switch to fast mode
 
@@ -1827,7 +1842,7 @@ export default function StreamPage() {
                   </div>
                   <button
                     onClick={handleStartStream}
-                    disabled={startSession.isPending || noKeysRetryAt !== null}
+                    disabled={isStreamStarting || startSession.isPending || noKeysRetryAt !== null}
                     className="mt-1 flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
                   >
                     {startSession.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -2051,7 +2066,7 @@ export default function StreamPage() {
                 <Button
                   data-testid="button-start-stream"
                   onClick={handleStartStream}
-                  disabled={startSession.isPending || !cameraReady || noAccess || licenseExhausted || noKeysRetryAt !== null}
+                  disabled={isStreamStarting || startSession.isPending || !cameraReady || noAccess || licenseExhausted || noKeysRetryAt !== null}
                   className="gap-2 flex-1 h-14 text-base font-bold tracking-wide"
                   style={{ boxShadow: "0 0 28px hsl(187 100% 52% / 0.30)" }}
                 >
