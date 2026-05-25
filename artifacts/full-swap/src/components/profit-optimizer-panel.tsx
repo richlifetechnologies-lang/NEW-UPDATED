@@ -16,7 +16,6 @@ import {
   Target, Cpu, DollarSign, Activity,
 } from "lucide-react";
 
-const COST_RATE = 2.3;
 
 const authH = () => ({
   "Content-Type": "application/json",
@@ -369,16 +368,16 @@ export function ProfitOptimizerPanel({
                 <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Smart Rule Engine</p>
                 {[
                   {
-                    condition: summary.globalBillingRate < COST_RATE,
-                    active: summary.globalBillingRate < COST_RATE,
+                    condition: summary.globalBillingRate < (summary.apiCostRate ?? 2.3),
+                    active: summary.globalBillingRate < (summary.apiCostRate ?? 2.3),
                     label: "Rate below cost → Reduce pacing to protect margin",
                     color: "#fc5c65",
                     icon: AlertTriangle,
                   },
                   {
                     condition: true,
-                    active: summary.globalBillingRate > COST_RATE,
-                    label: `Rate above cost (${summary.globalBillingRate} > 2.3) → Allow higher pacing for UX quality`,
+                    active: summary.globalBillingRate > (summary.apiCostRate ?? 2.3),
+                    label: `Rate above cost (${summary.globalBillingRate} > ${summary.apiCostRate ?? 2.3}) → Allow higher pacing for UX quality`,
                     color: "#26de81",
                     icon: ShieldCheck,
                   },
