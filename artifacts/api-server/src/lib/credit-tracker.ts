@@ -333,6 +333,7 @@ export async function getKeyUsageHistory(
       licenseKeyId: sessionsTable.licenseKeyId,
       startedAt: sessionsTable.startedAt,
       stoppedAt: sessionsTable.stoppedAt,
+      lastHeartbeatAt: sessionsTable.lastHeartbeatAt,
       durationSeconds: sessionsTable.durationSeconds,
       status: sessionsTable.status,
     })
@@ -342,10 +343,17 @@ export async function getKeyUsageHistory(
     .limit(limit);
 
   return rows.map((r) => {
-    // Wall-clock time matches Decart's actual billing (connect → disconnect)
+    // Wall-clock time matches Decart's actual billing (connect → disconnect).
+    // For sessions without stoppedAt, apply ORPHAN_GRACE_MS filter: only treat as live
+    // if the last heartbeat (or startedAt) was within ORPHAN_GRACE_MS. Orphaned sessions
+    // are capped at last-activity + grace to avoid inflating admin usage history display.
+    const lastActivity = r.lastHeartbeatAt ?? r.startedAt;
+    const isLive = (Date.now() - lastActivity.getTime()) < ORPHAN_GRACE_MS;
     const wallClockSec = r.stoppedAt
       ? Math.floor((r.stoppedAt.getTime() - r.startedAt.getTime()) / 1000)
-      : Math.floor((Date.now() - r.startedAt.getTime()) / 1000);
+      : isLive
+        ? Math.floor((Date.now() - r.startedAt.getTime()) / 1000)
+        : Math.floor((lastActivity.getTime() + ORPHAN_GRACE_MS - r.startedAt.getTime()) / 1000);
     return {
       sessionId: r.id,
       licenseKeyId: r.licenseKeyId,
