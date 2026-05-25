@@ -103,6 +103,20 @@ class DecartKeyPool {
     return chosen;
   }
 
+  /**
+   * Returns milliseconds until the soonest enabled key exits cooldown.
+   * Use this to set a Retry-After header on the 503 returned when
+   * getHealthyKey() comes back null. Falls back to COOLDOWN_MS when
+   * all keys are admin-disabled (no automatic recovery expected).
+   */
+  getSoonestCooldownMs(): number {
+    const now = Date.now();
+    const enabledKeys = this.keys.filter((k) => k.isEnabled);
+    if (enabledKeys.length === 0) return COOLDOWN_MS;
+    const soonestExpiry = Math.min(...enabledKeys.map((k) => k.cooldownUntil));
+    return Math.max(0, soonestExpiry - now);
+  }
+
   /** Report a successful request for a key. */
   reportSuccess(keyId: number): void {
     const key = this.keys.find((k) => k.id === keyId);
