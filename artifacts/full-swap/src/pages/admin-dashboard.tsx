@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import {
   useGetAdminDashboard,
   getGetAdminDashboardQueryKey,
@@ -12,6 +12,8 @@ import { AdminLayout } from "@/components/admin-layout";
 import {
   RefreshCw, Zap, DollarSign, TrendingUp, Activity,
   ArrowUp, ArrowDown, Plus, RotateCcw, PencilLine, BarChart2,
+  AlertTriangle, CheckCircle2, XCircle, Ghost, Clock,
+  Key, Brain, Radio, Shield, ExternalLink, Eye,
 } from "lucide-react";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -321,6 +323,91 @@ function useDecartKeys() {
   return { keys, loading, refresh };
 }
 
+// ─── New data hooks (additive only) ──────────────────────────────────────────
+
+function useStreamHealth() {
+  const [data, setData] = useState<any>(null);
+  const load = async () => {
+    const token = localStorage.getItem("fullswap_admin_token") ?? "";
+    try {
+      const res = await fetch("/api/admin/stream-health", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setData(await res.json());
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id); }, []);
+  return { data, reload: load };
+}
+
+function useSessionMonitor() {
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [abuseFlags, setAbuseFlags] = useState<any[]>([]);
+  const load = async () => {
+    const token = localStorage.getItem("fullswap_admin_token") ?? "";
+    try {
+      const [sr, ar] = await Promise.all([
+        fetch("/api/admin/license-keys/active-streaming", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/admin/unified/abuse-detection", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (sr.ok) { const d = await sr.json(); setSessions(d.sessions ?? []); }
+      if (ar.ok) { const d = await ar.json(); setAbuseFlags(d.flags ?? d.abuseSessions ?? []); }
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id); }, []);
+  return { sessions, abuseFlags, reload: load };
+}
+
+function useLiveSessionsAdvanced() {
+  const [data, setData] = useState<any>(null);
+  const load = async () => {
+    const token = localStorage.getItem("fullswap_admin_token") ?? "";
+    try {
+      const res = await fetch("/api/admin/live-sessions", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setData(await res.json());
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
+  return { data, reload: load };
+}
+
+function useKeyUsageSummary() {
+  const [data, setData] = useState<any>(null);
+  const load = async () => {
+    const token = localStorage.getItem("fullswap_admin_token") ?? "";
+    try {
+      const res = await fetch("/api/admin/key-usage", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setData(await res.json());
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id); }, []);
+  return { data, reload: load };
+}
+
+function useBillingAuditStats() {
+  const [data, setData] = useState<any>(null);
+  const load = async () => {
+    const token = localStorage.getItem("fullswap_admin_token") ?? "";
+    try {
+      const res = await fetch("/api/admin/billing-audit/stats", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setData(await res.json());
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); const id = setInterval(load, 15000); return () => clearInterval(id); }, []);
+  return { data, reload: load };
+}
+
+function useBillingAnalytics() {
+  const [data, setData] = useState<any>(null);
+  const load = async () => {
+    const token = localStorage.getItem("fullswap_admin_token") ?? "";
+    try {
+      const res = await fetch("/api/admin/billing-rate-per-key", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setData(await res.json());
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); const id = setInterval(load, 20000); return () => clearInterval(id); }, []);
+  return { data, reload: load };
+}
+
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
 function fmtSecs(s: number) {
@@ -532,6 +619,12 @@ export default function AdminDashboardPage() {
   const { resetCredits } = useAdminCreditsReset(() => dashboard.refetch());
   const decartCredits = useDecartCredits();
   const { keys: decartKeys, refresh: refreshKeys } = useDecartKeys();
+  const streamHealth = useStreamHealth();
+  const sessionMonitor = useSessionMonitor();
+  const liveSessionsAdv = useLiveSessionsAdvanced();
+  const keyUsageSummary = useKeyUsageSummary();
+  const billingAuditStats = useBillingAuditStats();
+  const billingAnalytics = useBillingAnalytics();
   const revenueChart = useGetAdminRevenueChart({
     query: { queryKey: getGetAdminRevenueChartQueryKey(), refetchInterval: 60000 },
   });
@@ -1211,6 +1304,394 @@ export default function AdminDashboardPage() {
               </div>
             ))}
           </div>
+
+        {/* ════════════════════════════════════════════════════════════
+            SECTION A — BILLING ANALYTICS
+        ════════════════════════════════════════════════════════════ */}
+        <div className="rounded-xl border overflow-hidden" style={{ background: "#080f1c", borderColor: "#0d1f35" }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "#0d1f35", background: "#050b16" }}>
+            <div className="flex items-center gap-2">
+              <BarChart2 className="w-3.5 h-3.5" style={{ color: "#f59e0b" }} />
+              <span className="text-[11px] font-mono tracking-widest text-gray-400">BILLING ANALYTICS</span>
+            </div>
+            <Link href="/admin/analytics">
+              <span className="flex items-center gap-1 text-[10px] font-mono text-gray-600 hover:text-yellow-400 transition-colors cursor-pointer">
+                FULL VIEW <ExternalLink className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+          <div className="p-4">
+            {!billingAnalytics.data ? (
+              <p className="text-[11px] font-mono text-gray-600 text-center py-4">Loading billing data…</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  {[
+                    { label: "BILLING RATE", value: `${billingAnalytics.data.globalBillingRate ?? "—"} cr/s`, color: "#f59e0b" },
+                    { label: "API COST RATE", value: `${billingAnalytics.data.apiCostRate ?? 2.3} cr/s`, color: "#ef4444" },
+                    { label: "TOTAL KEYS", value: billingAnalytics.data.total ?? "—", color: "#38bdf8" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="rounded-lg p-3 text-center" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+                      <div className="text-[10px] font-mono text-gray-600 tracking-wider mb-1">{label}</div>
+                      <div className="text-sm font-bold font-mono" style={{ color }}>{String(value)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-1">
+                  {(billingAnalytics.data.keys ?? []).slice(0, 5).map((k: any) => (
+                    <div key={k.licenseKeyId} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Key className="w-3 h-3 shrink-0" style={{ color: k.isLive ? "#4ade80" : "#6b7280" }} />
+                        <span className="text-[11px] font-mono text-gray-400 truncate">{k.licenseKey?.slice(0, 10)}…</span>
+                        {k.isLive && <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "#4ade8015", color: "#4ade80" }}>LIVE</span>}
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-[10px] font-mono" style={{ color: "#38bdf8" }}>{k.effectiveRate} cr/s</span>
+                        <span className="text-[10px] font-mono" style={{ color: (k.projectedProfitPct ?? 0) > 0 ? "#4ade80" : "#ef4444" }}>
+                          {k.projectedProfitPct?.toFixed(1) ?? "—"}%
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {(billingAnalytics.data.keys?.length ?? 0) === 0 && (
+                    <p className="text-[11px] font-mono text-gray-600 text-center py-2">No key data</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════
+            SECTION B — SESSION MONITOR
+        ════════════════════════════════════════════════════════════ */}
+        <div className="rounded-xl border overflow-hidden" style={{ background: "#080f1c", borderColor: "#0d1f35" }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "#0d1f35", background: "#050b16" }}>
+            <div className="flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5" style={{ color: "#38bdf8" }} />
+              <span className="text-[11px] font-mono tracking-widest text-gray-400">SESSION MONITOR</span>
+              {sessionMonitor.abuseFlags.length > 0 && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "#ef444415", color: "#ef4444" }}>
+                  {sessionMonitor.abuseFlags.length} ABUSE FLAGS
+                </span>
+              )}
+            </div>
+            <Link href="/admin/sessions">
+              <span className="flex items-center gap-1 text-[10px] font-mono text-gray-600 hover:text-sky-400 transition-colors cursor-pointer">
+                FULL VIEW <ExternalLink className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+          <div className="p-4">
+            <div className="flex items-center gap-4 mb-3 text-[11px] font-mono">
+              <span style={{ color: "#38bdf8" }}>{sessionMonitor.sessions.length} active streaming</span>
+              {sessionMonitor.abuseFlags.filter((f: any) => f.severity === "high").length > 0 && (
+                <span style={{ color: "#ef4444" }}>⚠ {sessionMonitor.abuseFlags.filter((f: any) => f.severity === "high").length} high-severity</span>
+              )}
+            </div>
+            {sessionMonitor.sessions.length === 0 ? (
+              <p className="text-[11px] font-mono text-gray-600 text-center py-3">No active streaming sessions</p>
+            ) : (
+              <div className="space-y-1">
+                {sessionMonitor.sessions.slice(0, 6).map((s: any) => (
+                  <div key={s.sessionId} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+                    <div className="flex items-center gap-2">
+                      <Radio className="w-3 h-3 animate-pulse" style={{ color: "#4ade80" }} />
+                      <span className="text-[11px] font-mono text-gray-300 capitalize">{s.style ?? "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-mono text-gray-500">{s.minutesRemaining?.toFixed(0) ?? "—"}m left</span>
+                      <span className="text-[10px] font-mono text-gray-600">{s.key?.slice(0, 8)}…</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {sessionMonitor.abuseFlags.length > 0 && (
+              <div className="mt-3 pt-3 border-t" style={{ borderColor: "#0d1f35" }}>
+                <div className="text-[10px] font-mono text-gray-600 mb-2 tracking-wider">ABUSE FLAGS</div>
+                <div className="space-y-1">
+                  {sessionMonitor.abuseFlags.slice(0, 3).map((f: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-1.5 rounded" style={{ background: "#1a0a0a", border: "1px solid #2a0f0f" }}>
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-3 h-3" style={{ color: f.severity === "high" ? "#ef4444" : "#f59e0b" }} />
+                        <span className="text-[10px] font-mono text-gray-400">{f.type ?? "flag"}</span>
+                      </div>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{
+                        background: f.severity === "high" ? "#ef444415" : "#f59e0b15",
+                        color: f.severity === "high" ? "#ef4444" : "#f59e0b",
+                      }}>{f.severity?.toUpperCase()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════
+            SECTION C — STREAM HEALTH
+        ════════════════════════════════════════════════════════════ */}
+        <div className="rounded-xl border overflow-hidden" style={{ background: "#080f1c", borderColor: "#0d1f35" }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "#0d1f35", background: "#050b16" }}>
+            <div className="flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5" style={{ color: "#a78bfa" }} />
+              <span className="text-[11px] font-mono tracking-widest text-gray-400">STREAM HEALTH</span>
+            </div>
+            <Link href="/admin/stream-health">
+              <span className="flex items-center gap-1 text-[10px] font-mono text-gray-600 hover:text-violet-400 transition-colors cursor-pointer">
+                FULL VIEW <ExternalLink className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+          <div className="p-4">
+            {!streamHealth.data ? (
+              <p className="text-[11px] font-mono text-gray-600 text-center py-4">Loading stream health…</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  {[
+                    { label: "ACTIVE STREAMS", value: streamHealth.data.summary?.activeStreams ?? 0, color: "#4ade80" },
+                    { label: "BURN RATE", value: `${((streamHealth.data.summary?.totalBurnRateCrSec ?? 0)).toFixed(2)} cr/s`, color: "#f59e0b" },
+                    { label: "DECART KEYS IN USE", value: streamHealth.data.summary?.decartKeysInUse ?? 0, color: "#38bdf8" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="rounded-lg p-3 text-center" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+                      <div className="text-[10px] font-mono text-gray-600 tracking-wider mb-1">{label}</div>
+                      <div className="text-sm font-bold font-mono" style={{ color }}>{String(value)}</div>
+                    </div>
+                  ))}
+                </div>
+                {(streamHealth.data.streams ?? []).length === 0 ? (
+                  <p className="text-[11px] font-mono text-gray-600 text-center py-2">No active streams</p>
+                ) : (
+                  <div className="space-y-1">
+                    {streamHealth.data.streams.slice(0, 5).map((s: any) => (
+                      <div key={s.sessionId} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{
+                        background: "#060b14",
+                        border: `1px solid ${s.healthStatus === "critical" ? "#ef444430" : s.healthStatus === "warning" ? "#f59e0b30" : "#22c55e30"}`,
+                      }}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full" style={{ background: s.healthStatus === "critical" ? "#ef4444" : s.healthStatus === "warning" ? "#f59e0b" : "#22c55e" }} />
+                          <span className="text-[11px] font-mono text-gray-300 capitalize">{s.style ?? "—"}</span>
+                          <span className="text-[10px] font-mono text-gray-600">{s.decartKeyLabel ?? "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-mono" style={{ color: "#38bdf8" }}>{s.estimatedMinsLeft ?? "—"}m left</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded capitalize" style={{
+                            background: s.healthStatus === "critical" ? "#ef444415" : s.healthStatus === "warning" ? "#f59e0b15" : "#22c55e15",
+                            color: s.healthStatus === "critical" ? "#ef4444" : s.healthStatus === "warning" ? "#f59e0b" : "#22c55e",
+                          }}>{s.healthStatus}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════
+            SECTION D — SESSION INTELLIGENCE
+        ════════════════════════════════════════════════════════════ */}
+        <div className="rounded-xl border overflow-hidden" style={{ background: "#080f1c", borderColor: "#0d1f35" }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "#0d1f35", background: "#050b16" }}>
+            <div className="flex items-center gap-2">
+              <Brain className="w-3.5 h-3.5" style={{ color: "#f472b6" }} />
+              <span className="text-[11px] font-mono tracking-widest text-gray-400">SESSION INTELLIGENCE</span>
+            </div>
+            <Link href="/admin/session-intelligence">
+              <span className="flex items-center gap-1 text-[10px] font-mono text-gray-600 hover:text-pink-400 transition-colors cursor-pointer">
+                FULL VIEW <ExternalLink className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+          <div className="p-4">
+            <div className="rounded-lg p-4 text-center space-y-3" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+              <Brain className="w-6 h-6 mx-auto" style={{ color: "#f472b6" }} />
+              <div className="text-[11px] font-mono text-gray-400">Per-session AI billing analysis — timeline replay, risk flags, and anomaly detection</div>
+              <div className="flex items-center justify-center gap-4 text-[10px] font-mono text-gray-600">
+                <span className="flex items-center gap-1"><Shield className="w-3 h-3" style={{ color: "#f472b6" }} /> Risk Flags</span>
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" style={{ color: "#38bdf8" }} /> Event Timeline</span>
+                <span className="flex items-center gap-1"><Eye className="w-3 h-3" style={{ color: "#4ade80" }} /> AI Analysis</span>
+              </div>
+              <Link href="/admin/session-intelligence">
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[11px] font-mono cursor-pointer transition-all hover:brightness-125" style={{ background: "#f472b615", border: "1px solid #f472b630", color: "#f472b6" }}>
+                  Search by Session ID <ExternalLink className="w-3 h-3" />
+                </span>
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════
+            SECTION E — LIVE STREAM MONITOR
+        ════════════════════════════════════════════════════════════ */}
+        <div className="rounded-xl border overflow-hidden" style={{ background: "#080f1c", borderColor: "#0d1f35" }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "#0d1f35", background: "#050b16" }}>
+            <div className="flex items-center gap-2">
+              <Radio className="w-3.5 h-3.5" style={{ color: "#4ade80" }} />
+              <span className="text-[11px] font-mono tracking-widest text-gray-400">LIVE STREAM MONITOR</span>
+              {(liveSessionsAdv.data?.summary?.orphanCount ?? 0) > 0 && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "#ef444415", color: "#ef4444" }}>
+                  {liveSessionsAdv.data.summary.orphanCount} ORPHAN
+                </span>
+              )}
+            </div>
+            <Link href="/admin/live-sessions">
+              <span className="flex items-center gap-1 text-[10px] font-mono text-gray-600 hover:text-green-400 transition-colors cursor-pointer">
+                FULL VIEW <ExternalLink className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+          <div className="p-4">
+            {!liveSessionsAdv.data ? (
+              <p className="text-[11px] font-mono text-gray-600 text-center py-4">Loading live sessions…</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  {[
+                    { label: "ACTIVE", value: liveSessionsAdv.data.summary?.totalActive ?? 0, color: "#4ade80" },
+                    { label: "ORPHAN", value: liveSessionsAdv.data.summary?.orphanCount ?? 0, color: "#ef4444" },
+                    { label: "CRITICAL", value: liveSessionsAdv.data.summary?.criticalCount ?? 0, color: "#f59e0b" },
+                    { label: "WALLET LEFT", value: `${Math.round((liveSessionsAdv.data.summary?.totalWalletRemainingSeconds ?? 0) / 60)}m`, color: "#38bdf8" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="rounded-lg p-2 text-center" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+                      <div className="text-[9px] font-mono text-gray-600 tracking-wider mb-1">{label}</div>
+                      <div className="text-sm font-bold font-mono" style={{ color }}>{String(value)}</div>
+                    </div>
+                  ))}
+                </div>
+                {(liveSessionsAdv.data.sessions ?? []).length === 0 ? (
+                  <p className="text-[11px] font-mono text-gray-600 text-center py-2">No live sessions</p>
+                ) : (
+                  <div className="space-y-1">
+                    {liveSessionsAdv.data.sessions.slice(0, 5).map((s: any) => (
+                      <div key={s.sessionId} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{
+                        background: "#060b14",
+                        border: `1px solid ${s.isCritical ? "#ef444430" : s.isOrphan ? "#f59e0b30" : "#0d1f35"}`,
+                      }}>
+                        <div className="flex items-center gap-2">
+                          {s.isOrphan ? <Ghost className="w-3 h-3" style={{ color: "#f59e0b" }} /> : <Radio className="w-3 h-3 animate-pulse" style={{ color: "#4ade80" }} />}
+                          <span className="text-[11px] font-mono text-gray-400">{s.sessionId?.slice(0, 12)}…</span>
+                          <span className="text-[10px] font-mono text-gray-600">{s.licenseKey?.slice(0, 6)}…</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className="text-[10px] font-mono" style={{ color: "#38bdf8" }}>wallet: {s.wallet?.remainingMinutes?.toFixed(0) ?? "—"}m</div>
+                            <div className="text-[10px] font-mono text-gray-600">real: {s.realStream?.remainingMinutes?.toFixed(0) ?? "—"}m</div>
+                          </div>
+                          {s.isCritical && <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "#ef444415", color: "#ef4444" }}>CRIT</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════
+            SECTION F — KEY USAGE
+        ════════════════════════════════════════════════════════════ */}
+        <div className="rounded-xl border overflow-hidden" style={{ background: "#080f1c", borderColor: "#0d1f35" }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "#0d1f35", background: "#050b16" }}>
+            <div className="flex items-center gap-2">
+              <Key className="w-3.5 h-3.5" style={{ color: "#f59e0b" }} />
+              <span className="text-[11px] font-mono tracking-widest text-gray-400">KEY USAGE</span>
+            </div>
+            <Link href="/admin/key-usage">
+              <span className="flex items-center gap-1 text-[10px] font-mono text-gray-600 hover:text-amber-400 transition-colors cursor-pointer">
+                FULL VIEW <ExternalLink className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+          <div className="p-4">
+            {!keyUsageSummary.data ? (
+              <p className="text-[11px] font-mono text-gray-600 text-center py-4">Loading key usage…</p>
+            ) : (
+              <div className="space-y-2">
+                {(keyUsageSummary.data.keys ?? []).filter((k: any) => k.hasBeenUsed).slice(0, 6).map((k: any) => {
+                  const pct = Math.min(100, Math.round(((k.usedSeconds ?? 0) / Math.max(1, (k.allocatedSeconds ?? 1))) * 100));
+                  return (
+                    <div key={k.id} className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono">
+                        <div className="flex items-center gap-2">
+                          {k.isStreaming ? <Radio className="w-3 h-3 animate-pulse" style={{ color: "#4ade80" }} /> : <Key className="w-3 h-3" style={{ color: "#6b7280" }} />}
+                          <span className="text-gray-400">{k.key?.slice(0, 10)}…</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span style={{ color: pct > 80 ? "#ef4444" : pct > 50 ? "#f59e0b" : "#4ade80" }}>{pct}%</span>
+                          {k.lastStopReason && <span className="text-gray-600">{k.lastStopReason === "client_stop" ? "user stop" : k.lastStopReason === "out_of_time" ? "expired" : k.lastStopReason?.replace(/_/g, " ")}</span>}
+                        </div>
+                      </div>
+                      <div className="h-1 rounded-full overflow-hidden" style={{ background: "#0d1f35" }}>
+                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: pct > 80 ? "#ef4444" : pct > 50 ? "#f59e0b" : "#4ade80" }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {(keyUsageSummary.data.keys ?? []).filter((k: any) => k.hasBeenUsed).length === 0 && (
+                  <p className="text-[11px] font-mono text-gray-600 text-center py-2">No key usage yet</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════
+            SECTION G — BILLING AUDIT (24h)
+        ════════════════════════════════════════════════════════════ */}
+        <div className="rounded-xl border overflow-hidden" style={{ background: "#080f1c", borderColor: "#0d1f35" }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "#0d1f35", background: "#050b16" }}>
+            <div className="flex items-center gap-2">
+              <Shield className="w-3.5 h-3.5" style={{ color: "#22d3ee" }} />
+              <span className="text-[11px] font-mono tracking-widest text-gray-400">BILLING AUDIT — LAST 24H</span>
+            </div>
+            <Link href="/admin/billing-audit">
+              <span className="flex items-center gap-1 text-[10px] font-mono text-gray-600 hover:text-cyan-400 transition-colors cursor-pointer">
+                FULL VIEW <ExternalLink className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+          <div className="p-4">
+            {!billingAuditStats.data ? (
+              <p className="text-[11px] font-mono text-gray-600 text-center py-4">Loading audit data…</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  {[
+                    { label: "TOTAL DEBITED", value: `${Math.round((billingAuditStats.data.totalDebitedSec ?? 0) / 60)}m`, color: "#22d3ee" },
+                    { label: "SESSIONS (24H)", value: billingAuditStats.data.totalSessions ?? "—", color: "#a78bfa" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="rounded-lg p-3 text-center" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+                      <div className="text-[10px] font-mono text-gray-600 tracking-wider mb-1">{label}</div>
+                      <div className="text-sm font-bold font-mono" style={{ color }}>{String(value)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {Object.entries(billingAuditStats.data.eventCounts ?? {}).slice(0, 8).map(([type, count]: [string, any]) => {
+                    const colorMap: Record<string, string> = {
+                      connect: "#38bdf8", stream_start: "#4ade80", heartbeat_ok: "#4ade80",
+                      heartbeat_exhausted: "#ef4444", stop: "#f59e0b", disconnect: "#f59e0b",
+                      orphan_kill: "#ef4444", freeze_kill: "#ef4444", hard_kill: "#ef4444",
+                      settle: "#22d3ee", token_issued: "#a78bfa",
+                    };
+                    const c = colorMap[type] ?? "#6b7280";
+                    return (
+                      <div key={type} className="flex items-center justify-between px-2 py-1.5 rounded" style={{ background: "#060b14", border: "1px solid #0d1f35" }}>
+                        <span className="text-[10px] font-mono text-gray-500">{type.replace(/_/g, " ")}</span>
+                        <span className="text-[10px] font-bold font-mono" style={{ color: c }}>{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
 
         </div>
       </div>
