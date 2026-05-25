@@ -970,7 +970,7 @@ export default function StreamPage() {
     }
   }, []);
 
-  const handleStartStream = async (isRetry = false) => {
+  const handleStartStream = async (isRetry = false, isTokenReconnect = false) => {
     // FIX #3: Synchronous ref guard + state guard to prevent duplicate sessions.
     // isStartingRef blocks the gap before React re-renders isStreamStarting=true.
     if (isStartingRef.current || isStreamStarting) return;
@@ -1078,7 +1078,7 @@ export default function StreamPage() {
       const [session, shortLivedKey] = await Promise.all([
         (async () => {
           try {
-            return await startSession.mutateAsync({ data: { style: selectedStyle } });
+            return await startSession.mutateAsync({ data: { style: selectedStyle, ...(isTokenReconnect ? { tokenReconnect: true } : {}) } });
           } catch (startErr: unknown) {
             const errAny = startErr as any;
             const statusCode = errAny?.response?.status ?? errAny?.status ?? 0;
@@ -1253,7 +1253,8 @@ export default function StreamPage() {
               setConnectionStatus("connecting");
               teardownStream("dropped").then(() => {
                 // Double-check: bail if user stopped while teardown was in-flight
-                if (!userStoppedRef.current) handleStartStream();
+                // isTokenReconnect=true tells the server this is a silent 15s token-window handoff
+                if (!userStoppedRef.current) handleStartStream(false, true);
               }).catch(() => {});
               return;
             }
