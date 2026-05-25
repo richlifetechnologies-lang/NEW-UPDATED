@@ -629,6 +629,7 @@ export default function AdminDashboardPage() {
   // ── Toast alert state ────────────────────────────────────────────────────
   const [toasts, setToasts] = useState<{ id: string; message: string; level: "critical" | "warning" | "info"; ts: number }[]>([]);
   const seenAlerts = useRef<Set<string>>(new Set());
+  const [soundMuted, setSoundMuted] = useState(false);
 
   // ── Audio alert (Web Audio API — no deps, silent on failure) ────────────
   const playAlertBeep = useCallback((level: "critical" | "warning") => {
@@ -669,8 +670,8 @@ export default function AdminDashboardPage() {
     const ts = Date.now();
     setToasts(prev => [...prev.slice(-4), { id, message, level, ts }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 8000);
-    if (level === "critical" || level === "warning") playAlertBeep(level);
-  }, [playAlertBeep]);
+    if (!soundMuted && (level === "critical" || level === "warning")) playAlertBeep(level);
+  }, [playAlertBeep, soundMuted]);
 
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -841,6 +842,30 @@ export default function AdminDashboardPage() {
                 {live.count ?? 0} LIVE SESSIONS
               </span>
             </div>
+            <span className="w-px h-4 bg-gray-700" />
+            <button
+              onClick={() => setSoundMuted(m => !m)}
+              title={soundMuted ? "Unmute alerts" : "Mute alerts"}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-all duration-150 hover:brightness-125"
+              style={{
+                background: soundMuted ? "#1a0f0520" : "#0a1520",
+                borderColor: soundMuted ? "#f59e0b30" : "#1e3a5520",
+                color: soundMuted ? "#f59e0b" : "#4b6070",
+              }}
+            >
+              {soundMuted ? (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                </svg>
+              )}
+              <span className="text-[10px] font-mono tracking-wider">
+                {soundMuted ? "MUTED" : "SOUND"}
+              </span>
+            </button>
             <span className="w-px h-4 bg-gray-700" />
             <LiveClock />
           </div>
