@@ -12,7 +12,7 @@
 
 import { Router } from "express";
 import { db, sessionBillingEventsTable, sessionAccountingLogTable, sessionsTable, licenseKeysTable } from "@workspace/db";
-import { eq, desc, asc, and, gte, count, like } from "drizzle-orm";
+import { eq, desc, asc, and, gte, count, like, inArray } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth";
 import { logger } from "../lib/logger";
 import { DECART_REAL_API_COST_RATE } from "../lib/billing-math";
@@ -124,7 +124,89 @@ router.get("/live", requireAdmin, async (req, res) => {
   }
 });
 
-// ── GET /api/admin/billing-audit/recent ─────────────────────────────────────
+
+  // ── GET /api/admin/billing-audit/sessions-audit ─────────────────────────────
+  // Full audit trail: one row per session with Decart credits consumed, stop reason,
+  // heartbeat count, and orphan-kill flag. Read-only, degrades gracefully.
+  router.get("/sessions-audit", requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt((req.query["limit"] as string) || "100", 10), 200);
+
+      const sessions = await db
+        .select({
+          id: sessionsTable.id,
+          status: sessionsTable.status,
+          startedAt: sessionsTable.startedAt,
+          stoppedAt: sessionsTable.stoppedAt,
+          durationSeconds: sessionsTable.durationSeconds,
+          billingRateSnapshot: sessionsTable.billingRateSnapshot,
+          licenseKey: licenseKeysTable.key,
+        })
+        .from(sessionsTable)
+        .leftJoin(licenseKeysTable, eq(sessionsTable.licenseKeyId, licenseKeysTable.id))
+        .orderBy(desc(sessionsTable.startedAt))
+        .limit(limit);
+
+      const sessionIds = sessions.map(s => s.id);
+
+      // Fetch all billing events for these sessions in a single query
+      const events = sessionIds.length > 0
+        ? await db
+            .select({
+              sessionId: sessionBillingEventsTable.sessionId,
+              eventType: sessionBillingEventsTable.eventType,
+              metadata: sessionBillingEventsTable.metadata,
+            })
+            .from(sessionBillingEventsTable)
+            .where(inArray(sessionBillingEventsTable.sessionId, sessionIds))
+            .orderBy(asc(sessionBillingEventsTable.createdAt))
+        : [];
+
+      // Group events by session
+      const bySession: Record<string, typeof events> = {};
+      for (const e of events) {
+        if (!bySession[e.sessionId]) bySession[e.sessionId] = [];
+        bySession[e.sessionId].push(e);
+      }
+
+      const TERMINAL = new Set(["stop", "orphan_kill", "freeze_kill", "hard_kill",
+        "startup_orphan_kill", "heartbeat_exhausted"]);
+      const ORPHAN_TYPES = new Set(["startup_orphan_kill", "orphan_kill"]);
+
+      const result = sessions.map(s => {
+        const evts = bySession[s.id] ?? [];
+        const heartbeatCount = evts.filter(e => e.eventType === "heartbeat_ok").length;
+        const terminal = [...evts].reverse().find(e => TERMINAL.has(e.eventType));
+        const settle = evts.find(e => e.eventType === "settle");
+        const debitedSec = (settle?.metadata as any)?.debited ?? s.durationSeconds ?? 0;
+
+        let stopReason: string =
+          s.status === "active" ? "active" : terminal?.eventType ?? "stopped";
+
+        return {
+          id: s.id,
+          licenseKey: s.licenseKey ?? "—",
+          status: s.status,
+          startedAt: s.startedAt,
+          stoppedAt: s.stoppedAt,
+          durationSeconds: s.durationSeconds ?? 0,
+          debitedSeconds: Math.round(debitedSec),
+          decartCredits: Math.round((s.durationSeconds ?? 0) * DECART_REAL_API_COST_RATE * 10) / 10,
+          heartbeatCount,
+          stopReason,
+          orphanKilled: ORPHAN_TYPES.has(stopReason),
+          billingRate: s.billingRateSnapshot,
+        };
+      });
+
+      res.json({ sessions: result, total: result.length });
+    } catch (err) {
+      logger.error({ err }, "billing-audit: sessions-audit failed");
+      res.json({ sessions: [], total: 0 });
+    }
+  });
+
+  // ── GET /api/admin/billing-audit/recent ─────────────────────────────────────
 router.get("/recent", requireAdmin, async (req, res) => {
   try {
     const sessions = await db
