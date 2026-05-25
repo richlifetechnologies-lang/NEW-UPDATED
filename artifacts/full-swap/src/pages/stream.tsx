@@ -1639,18 +1639,14 @@ export default function StreamPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopStreamInternally, cameraReady]);
 
-  // Pre-warm the Decart token as soon as the camera is ready
-  // so the first click on "Stream Now" doesn't wait for the API round-trip
-  useEffect(() => {
-    if (!cameraReady || prewarmedTokenRef.current) return;
-    fetchDecartToken()
-      .then(key => {
-        prewarmedTokenRef.current = key;
-        prewarmedTokenExpiry.current = Date.now() + 55 * 60 * 1000; // valid 55 min
-        console.info("[Decart] Token pre-warmed — stream start will be instant");
-      })
-      .catch(() => {}); // silent fail — will retry on click
-  }, [cameraReady]);
+  // NOTE: Pre-warming the token on camera-ready was removed.
+  // The server hard-caps tokens at TOKEN_WINDOW_HARD_CAP_SEC (15s). A token
+  // fetched when the camera becomes ready expires at Decart's end within 15s,
+  // long before the user clicks "Stream Now". Passing that expired token to
+  // createDecartClient() caused Decart to reject it with "invalid API key",
+  // wasting credits on a failed session start. Tokens are now always fetched
+  // fresh at click-time so they are guaranteed to be valid.
+
 
   // CSS-based fullscreen — works in all contexts including sandboxed iframes
   const handleFullscreen = useCallback(() => {
