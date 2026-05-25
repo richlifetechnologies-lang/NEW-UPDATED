@@ -48,7 +48,7 @@ setInterval(() => {
 const TOKEN_WINDOW_SEC_DEFAULT = 30; // 30s cap — limits freeze drain to 60 credits max
 // RC#1: Absolute hard cap applied AFTER any per-key/sub-admin/global override.
 // Ensures no configuration path can accidentally restore a large reservation window.
-const TOKEN_WINDOW_HARD_CAP_SEC = 30;
+const TOKEN_WINDOW_HARD_CAP_SEC = 15; // Reduced: limits orphan-kill credit drain to 15×2.3≈35cr max
 
 const GLOBAL_TOKEN_WINDOW_SETTING = "global_default_token_window_minutes";
 
