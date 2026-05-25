@@ -176,6 +176,7 @@ router.get("/live", requireAdmin, async (req, res) => {
       const result = sessions.map(s => {
         const evts = bySession[s.id] ?? [];
         const heartbeatCount = evts.filter(e => e.eventType === "heartbeat_ok").length;
+        const isTokenReconnect = evts.some(e => e.eventType === "token_reconnect");
         const terminal = [...evts].reverse().find(e => TERMINAL.has(e.eventType));
         const settle = evts.find(e => e.eventType === "settle");
         const debitedSec = (settle?.metadata as any)?.debited ?? s.durationSeconds ?? 0;
@@ -196,6 +197,7 @@ router.get("/live", requireAdmin, async (req, res) => {
           stopReason,
           orphanKilled: ORPHAN_TYPES.has(stopReason),
           billingRate: s.billingRateSnapshot,
+          isTokenReconnect, // true = this session was created by a silent 15s token-window handoff
         };
       });
 
