@@ -170,7 +170,7 @@ export default function AdminBillingAuditPage() {
               value: statsData?.orphanKills24h ?? "—",
               icon: ShieldAlert,
               red: (statsData?.orphanKills24h ?? 0) > 0,
-              tip: "Ghost sessions cleared on startup sweep",
+              tip: "Skull sessions cleared on startup sweep",
             },
             {
               label: "Settles (24h)",
@@ -211,12 +211,12 @@ export default function AdminBillingAuditPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                  <Table2 className="w-4 h-4 text-primary"/>
+                  <Database className="w-4 h-4 text-primary"/>
                   Session Billing Audit Trail
                   {auditQuery.isFetching && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground ml-1"/>}
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  <Filter className="w-3.5 h-3.5 text-muted-foreground"/>
+                  <Search className="w-3.5 h-3.5 text-muted-foreground"/>
                   <select value={auditFilter} onChange={e=>setAuditFilter(e.target.value)}
                     className="text-xs rounded border border-border bg-background text-foreground px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary">
                     <option value="all">All sessions</option>
@@ -348,7 +348,7 @@ export default function AdminBillingAuditPage() {
               </select>
               <Input
                 className="h-8 text-xs font-mono w-60"
-                placeholder="Filter by session ID (4+ chars)..."
+                placeholder="Search by session ID (4+ chars)..."
                 value={liveSessionFilter}
                 onChange={e => setLiveSessionFilter(e.target.value)}
               />
@@ -386,7 +386,7 @@ export default function AdminBillingAuditPage() {
       : auditRows.filter((r:any) => r.stopReason === auditFilter);
 
     function stopBadge(reason: string, orphan: boolean) {
-      if (orphan) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-600/20 text-red-400 border border-red-600/30"><Ghost className="w-3 h-3"/>orphan_kill</span>;
+      if (orphan) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-600/20 text-red-400 border border-red-600/30"><Skull className="w-3 h-3"/>orphan_kill</span>;
       const map: Record<string,string> = {
         stop:                 "bg-green-500/10 text-green-400 border-green-500/20",
         freeze_kill:          "bg-orange-500/15 text-orange-400 border-orange-500/20",
