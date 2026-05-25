@@ -1841,12 +1841,14 @@ export default function StreamPage() {
                     disabled={isStreamStarting || startSession.isPending || noKeysRetryAt !== null}
                     className="mt-1 flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
                   >
-                    {startSession.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                    {startSession.isPending
-                      ? "Starting..."
-                      : noKeysRetryAt !== null
-                        ? `Retry in ${noKeysRetryCountdown}s`
-                        : "Stream Now"}
+                    {(isStreamStarting || startSession.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    {isStreamStarting
+                      ? "Preparing..."
+                      : startSession.isPending
+                        ? "Starting..."
+                        : noKeysRetryAt !== null
+                          ? `Retry in ${noKeysRetryCountdown}s`
+                          : "Stream Now"}
                   </button>
                 </div>
               )}
@@ -2066,12 +2068,16 @@ export default function StreamPage() {
                   className="gap-2 flex-1 h-14 text-base font-bold tracking-wide"
                   style={{ boxShadow: "0 0 28px hsl(187 100% 52% / 0.30)" }}
                 >
-                  <Play className="w-5 h-5" />
-                  {startSession.isPending
-                    ? "Starting..."
-                    : noKeysRetryAt !== null
-                      ? `Retry in ${noKeysRetryCountdown}s`
-                      : "Stream Now"}
+                  {(isStreamStarting || startSession.isPending)
+                    ? <Loader2 className="w-5 h-5 animate-spin" />
+                    : <Play className="w-5 h-5" />}
+                  {isStreamStarting
+                    ? "Preparing..."
+                    : startSession.isPending
+                      ? "Starting..."
+                      : noKeysRetryAt !== null
+                        ? `Retry in ${noKeysRetryCountdown}s`
+                        : "Stream Now"}
                 </Button>
               )}
             </div>
