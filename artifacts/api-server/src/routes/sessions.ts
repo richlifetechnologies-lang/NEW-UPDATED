@@ -236,7 +236,7 @@ async function getLicenseKeyString(licenseKeyId: number | null): Promise<string 
 async function settleStartupOrphans() {
   try {
     // Any session that is still "active" but had no heartbeat in the last
-    // ORPHAN_GRACE_MS (2 min) could not have had a heartbeat from this
+    // ORPHAN_GRACE_MS (15 s) could not have had a heartbeat from this
     // process — settle it immediately rather than waiting for the sweeper.
     const cutoff = new Date(Date.now() - ORPHAN_GRACE_MS);
     // Mirror the periodic sweeper: use the heartbeat timestamp (or startedAt if
@@ -286,7 +286,7 @@ function startOrphanSweeper() {
     try {
       const now = Date.now();
 
-      // ── Pass 1: Orphaned sessions (no heartbeat for ORPHAN_GRACE_MS = 2 min) ──
+      // ── Pass 1: Orphaned sessions (no heartbeat for ORPHAN_GRACE_MS = 15 s) ──
       // Client died or disconnected without calling /stop.
       const orphanCutoff = new Date(now - ORPHAN_GRACE_MS);
       const orphans = await db.select().from(sessionsTable)
@@ -601,10 +601,10 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   const newUsed = used + Math.min(incrementSec, remaining);
   const newRealRemaining = Math.max(0, allocated - newUsed);
 
-  // Hard-kill safety reserve (HARD_KILL_SAFETY_RESERVE_SEC = 5):
+  // Hard-kill safety reserve (HARD_KILL_SAFETY_RESERVE_SEC = 3):
   // Kill the session when the compressed wallet remaining falls to/below the
   // reserve threshold instead of waiting for it to hit exactly zero.
-  // The 5-second reserve absorbs WebRTC teardown delay (2-8 s) and heartbeat
+  // The 3-second reserve absorbs WebRTC teardown delay (2-8 s) and heartbeat
   // lag (0-10 s) so Decart never bills meaningfully past the user's entitlement.
   if (newRealRemaining <= HARD_KILL_SAFETY_RESERVE_SEC) {
     // Commercial entitlement is exhausted — auto-stop immediately.
