@@ -89,12 +89,11 @@ class DecartKeyPool {
     );
 
     if (healthyKeys.length === 0) {
-      logger.warn("[DecartPool] All keys are in cooldown or disabled");
-      // Last resort: return the key with the earliest cooldown expiry
-      const soonest = this.keys
-        .filter((k) => k.isEnabled)
-        .sort((a, b) => a.cooldownUntil - b.cooldownUntil)[0];
-      return soonest ?? null;
+      // ISSUE-D fix: all keys are in cooldown — return null so the caller
+      // can respond 503 to the user instead of handing back a key that Decart
+      // will reject with 429, wasting a connection attempt and Decart credits.
+      logger.warn("[DecartPool] All keys in cooldown/disabled — returning null (caller should 503)");
+      return null;
     }
 
     // Random selection across healthy keys — simpler than cursor-based round-robin
