@@ -569,7 +569,17 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // streaming goes un-billed --- not the entire session.
   const billingStart = billingAnchor;
   const lastDebit    = session.lastDeductedAt ?? billingStart;
-  const rawIncrementSec = Math.max(0, Math.floor((now.getTime() - lastDebit.getTime()) / 1000));
+  // FIX: cap per-heartbeat deduction to prevent a delayed heartbeat from
+  // consuming 35+ wallet-seconds in one shot, which would jump past the
+  // HARD_KILL_SAFETY_RESERVE_SEC=3 threshold unexpectedly (bug: stream stops
+  // at ~36-38s remaining when heartbeat fires after a 33-35 second gap).
+  // Cap: 15 real-seconds max per heartbeat — any excess is accounted for
+  // on the NEXT heartbeat instead of causing a cliff-edge kill.
+  const MAX_SINGLE_HEARTBEAT_DEDUCTION_SEC = 15;
+  const rawIncrementSec = Math.min(
+    Math.max(0, Math.floor((now.getTime() - lastDebit.getTime()) / 1000)),
+    MAX_SINGLE_HEARTBEAT_DEDUCTION_SEC
+  );
 
   const [freshLicense] = await db.select().from(licenseKeysTable).where(eq(licenseKeysTable.id, license.id));
   if (!freshLicense) { res.status(404).json({ error: "License missing" }); return; }
