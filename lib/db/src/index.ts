@@ -38,10 +38,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
     ["decart_api_keys", "cooldown_until",                 "timestamp"],
   ];
 
-  // All enum values the billing event logger can emit.
-  // ALTER TYPE ... ADD VALUE IF NOT EXISTS is idempotent and safe to re-run.
-  // CRITICAL: This statement CANNOT run inside a transaction block (PostgreSQL limitation).
-  // We use a dedicated pool.connect() call and never wrap these in BEGIN/COMMIT.
+  // All values for billing_event_type enum — kept in sync with session-billing-events.ts schema.
   const BILLING_EVENT_ENUM_VALUES = [
     "token_issued",
     "token_cache_hit",
@@ -62,26 +59,23 @@ import { drizzle } from "drizzle-orm/node-postgres";
 
   /**
    * Applies missing column additions via raw SQL on every startup.
-   * Runs BEFORE the Drizzle migration system to guarantee columns exist
-   * even if the Drizzle journal previously recorded a migration as applied
-   * without actually executing the SQL.
    *
-   * Each statement is run individually (pg rejects multi-statement queries).
-   * If a table doesn't exist yet (e.g. created later by migrations), its
-   * fixes are skipped with a warning — they will be applied on the next startup
-   * after migrations have created the table.
+   * ALSO creates the session_billing_events table + billing_event_type enum if they
+   * don't exist. This table is managed by drizzle-kit push, not SQL migrations, so
+   * on a fresh Railway deploy it may never have been created — causing every
+   * logSessionBillingEvent insert to silently fail (heartbeatCount=0 in audit trail,
+   * no stop/settle events, etc.).
    *
-   * Never aborts startup — column fix errors are warnings, not fatals.
+   * All statements are idempotent (IF NOT EXISTS / ADD VALUE IF NOT EXISTS).
+   * Never aborts startup — errors are warnings, not fatals.
    *
-   * Also ensures billing_event_type enum has all required values.
-   * The session_billing_events table is created via drizzle-kit push, not migrations,
-   * so the enum may be missing values added after the initial push — causing silent
-   * insert failures in logSessionBillingEvent (heartbeat_ok = 0 in audit trail).
+   * IMPORTANT: ALTER TYPE ... ADD VALUE must run outside a transaction block (PostgreSQL
+   * limitation). pool.connect() auto-commits individual .query() calls, satisfying that.
    */
   export async function applyColumnFixes(): Promise<void> {
     const client = await pool.connect();
     try {
-      // ── Column additions ─────────────────────────────────────────────────────
+      // ── 1. Column additions ───────────────────────────────────────────────────
       for (const [table, column, ddl] of COLUMN_FIXES) {
         try {
           await client.query(
@@ -97,34 +91,70 @@ import { drizzle } from "drizzle-orm/node-postgres";
         }
       }
 
-      // ── billing_event_type enum sync ─────────────────────────────────────────
-      // Checks whether the enum exists first; if the session_billing_events table
-      // was never pushed to this DB the enum won't exist yet — skip gracefully.
-      // ALTER TYPE ... ADD VALUE must run outside a transaction (PostgreSQL rule).
-      // pool.connect() auto-commits each query, satisfying that requirement.
+      // ── 2. Ensure billing_event_type enum exists ──────────────────────────────
+      // The session_billing_events table is managed by drizzle-kit push, not SQL
+      // migrations. On a fresh DB it may never have been created. We create the enum
+      // and table here so logSessionBillingEvent never silently fails.
       try {
-        const enumCheck = await client.query(
-          `SELECT 1 FROM pg_type WHERE typname = 'billing_event_type' LIMIT 1`
-        );
-        if (enumCheck.rowCount && enumCheck.rowCount > 0) {
-          for (const value of BILLING_EVENT_ENUM_VALUES) {
-            try {
-              await client.query(
-                `ALTER TYPE billing_event_type ADD VALUE IF NOT EXISTS '${value}'`
+        // Create enum if it doesn't exist (PL/pgSQL anonymous block for IF NOT EXISTS)
+        await client.query(`
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'billing_event_type') THEN
+              CREATE TYPE billing_event_type AS ENUM (
+                'token_issued', 'token_cache_hit', 'token_cache_miss',
+                'connect', 'stream_start',
+                'heartbeat_ok', 'heartbeat_exhausted',
+                'hard_kill', 'settle', 'startup_orphan_kill',
+                'disconnect', 'stop', 'orphan_kill', 'freeze_kill',
+                'ai_explanation_generated'
               );
-            } catch (err: unknown) {
-              const msg = (err as Error)?.message ?? String(err);
-              console.error(`[applyColumnFixes] billing_event_type ADD VALUE '${value}' failed:`, msg);
-            }
-          }
-          console.log("[applyColumnFixes] billing_event_type enum synced ✓");
-        } else {
-          console.warn("[applyColumnFixes] billing_event_type enum not found — session_billing_events table not yet pushed to this DB");
-        }
+            END IF;
+          END $$
+        `);
+        console.log("[applyColumnFixes] billing_event_type enum ready ✓");
       } catch (err: unknown) {
-        const msg = (err as Error)?.message ?? String(err);
-        console.error("[applyColumnFixes] enum sync check failed:", msg);
+        console.error("[applyColumnFixes] billing_event_type enum creation failed:", (err as Error)?.message ?? String(err));
       }
+
+      // ── 3. Add any missing enum values (for deployments that already had the enum) ──
+      // ALTER TYPE ... ADD VALUE cannot run inside a transaction — pool.connect() auto-commits.
+      for (const value of BILLING_EVENT_ENUM_VALUES) {
+        try {
+          await client.query(
+            `ALTER TYPE billing_event_type ADD VALUE IF NOT EXISTS '${value}'`
+          );
+        } catch (err: unknown) {
+          const msg = (err as Error)?.message ?? String(err);
+          // "cannot be executed from a function" only happens inside an explicit txn — safe to warn
+          if (!msg.includes("cannot be executed from a function")) {
+            console.error(`[applyColumnFixes] billing_event_type ADD VALUE '${value}' failed:`, msg);
+          }
+        }
+      }
+
+      // ── 4. Create session_billing_events table if it doesn't exist ────────────
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS session_billing_events (
+            id          UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+            session_id  TEXT            NOT NULL,
+            decart_session_id TEXT,
+            event_type  billing_event_type NOT NULL,
+            wallet_remaining_seconds INTEGER,
+            token_window_seconds     INTEGER,
+            cost_snapshot            REAL,
+            metadata                 JSONB,
+            created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+          )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_sbe_session_id         ON session_billing_events(session_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_sbe_decart_session_id  ON session_billing_events(decart_session_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_sbe_event_type         ON session_billing_events(event_type)`);
+        console.log("[applyColumnFixes] session_billing_events table ready ✓");
+      } catch (err: unknown) {
+        console.error("[applyColumnFixes] session_billing_events table creation failed:", (err as Error)?.message ?? String(err));
+      }
+
     } finally {
       client.release();
     }
