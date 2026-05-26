@@ -280,6 +280,8 @@ export default function AdminBillingAuditPage() {
                         <th className="text-left px-4 py-2.5 font-medium">License Key</th>
                         <th className="text-left px-4 py-2.5 font-medium">Started</th>
                         <th className="text-right px-4 py-2.5 font-medium">Duration</th>
+                          <th className="text-right px-4 py-2.5 font-medium opacity-70" title="Loading time — session start to first heartbeat">Video Start</th>
+                          <th className="text-right px-4 py-2.5 font-medium opacity-70" title="Actual live video — first to last heartbeat">Live Video</th>
                         <th className="text-right px-4 py-2.5 font-medium">Decart Credits</th>
                         <th className="text-right px-4 py-2.5 font-medium">Heartbeats</th>
                         <th className="text-left px-4 py-2.5 font-medium">Stop Reason</th>
@@ -309,6 +311,12 @@ export default function AdminBillingAuditPage() {
                               ? <span className="text-blue-400 animate-pulse">live</span>
                               : <span className={row.durationSeconds<5?"text-amber-400":""}>{fmt(row.durationSeconds)}</span>}
                           </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-xs text-muted-foreground">
+                            {row.videoStartDelaySec!=null?<span className={row.videoStartDelaySec>15?"text-amber-400":""}>{row.videoStartDelaySec}s</span>:<span className="opacity-30">—</span>}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-xs">
+                            {row.videoActiveSec!=null?<span className={row.videoActiveSec<10?"text-amber-400":"text-emerald-400"}>{fmt(row.videoActiveSec)}</span>:<span className="opacity-30 text-muted-foreground">—</span>}
+                          </td>
                           <td className="px-4 py-2.5 text-right font-mono">
                             <span className={row.orphanKilled?"text-red-400 font-bold":row.decartCredits>30?"text-amber-400":""}>
                               {row.decartCredits>0?row.decartCredits.toFixed(1):"—"}
@@ -336,7 +344,7 @@ export default function AdminBillingAuditPage() {
                         ⚠ {filteredAudit.filter((r:any)=>r.orphanKilled).length} orphan-killed
                       </span>
                     )}
-                    <span className="ml-auto opacity-50">Credits = duration × 2.3 cr/s · refreshes every 30s</span>
+                    <span className="ml-auto opacity-50">Credits = duration × 2.3 cr/s · Live Video = heartbeat span · refreshes every 30s</span>
                   </div>
                 </div>
               )}
