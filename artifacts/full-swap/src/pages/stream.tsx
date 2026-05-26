@@ -297,6 +297,8 @@ export default function StreamPage() {
   const trialLimitRef         = useRef<number>(Infinity);
   const streamStartRemRef     = useRef<number>(0);   // remaining secs captured at stream start for smooth countdown
   const displayStartRemRef    = useRef<number>(0);   // display display secs at stream start (UI timer only — never billing)
+    // FIX: Tracks last reconnect timestamp to enforce 12s cooldown between Decart reconnects.
+    const reconnectCooldownRef  = useRef<number>(0);
   const activeSessionRef      = useRef<string | null>(null);
   const connectionStatusRef   = useRef<"idle"|"connecting"|"connected"|"error"|"dropped">("idle");
   // Wall-clock start for elapsed timer (avoids setInterval drift when tab is hidden/throttled)
