@@ -1333,7 +1333,7 @@ export default function StreamPage() {
           const msg = (err as any)?.message ?? "Stream error — please try again.";
           console.error("[Decart] Stream error:", msg);
           setConnectionStatus("error");
-          toast({ title: "Stream error", description: msg, variant: "destructive" });
+          toast({ title: "Stream interrupted", description: msg?.includes("token") || msg?.includes("expired") ? "Connection token expired — tap Stream Now to reconnect." : "Your stream was interrupted. Tap Stream Now to start again.", variant: "destructive" });
         },
       });
 
@@ -1501,7 +1501,7 @@ export default function StreamPage() {
       }
 
       setIsAutoRetrying(false);
-      toast({ title: "Cannot start session", description: errMsg, variant: "destructive" });
+      toast({ title: "Unable to start stream", description: errMsg?.includes("network") || errMsg?.includes("Failed") ? "Couldn’t reach the server — check your connection and try again." : errMsg?.includes("time") || errMsg?.includes("minutes") ? "No streaming time left on this license key." : "Couldn’t start your stream — please try again in a moment.", variant: "destructive" });
     }
   };
 
@@ -2003,14 +2003,19 @@ export default function StreamPage() {
                 </div>
               )}
 
-              {/* Connecting overlay — z-index 1 */}
-              {connectionStatus === "connecting" && (
-                <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-4"
-                     style={{ zIndex: 1 }}>
-                  <Loader2 className="w-12 h-12 text-primary animate-spin" />
-                  <p className="text-sm text-primary font-mono tracking-wide">Connecting to stream...</p>
-                </div>
-              )}
+              {/* Loading / Connecting / Reconnecting overlay — fires from first click through live */}
+                {(connectionStatus === "connecting" || isStreamStarting) && (
+                  <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-3"
+                       style={{ zIndex: 1 }}>
+                    <Loader2 className="w-12 h-12 text-primary animate-spin" />
+                    <p className="text-sm text-primary font-mono tracking-wide">
+                      {isStreaming ? "Reconnecting…" : connectionStep === "decart" ? "Connecting to stream…" : connectionStep === "session" ? "Creating session…" : "Starting up…"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground font-mono opacity-60">
+                      {isStreaming ? "Re‑establishing your video connection" : connectionStep === "decart" ? "3 / 3 — linking video stream" : connectionStep === "session" ? "2 / 3 — setting up session" : "1 / 3 — fetching stream token"}
+                    </p>
+                  </div>
+                )}
 
               {/* Top-left group: close button — z-index 20 */}
               <div className="absolute top-3 left-3 flex flex-col items-start gap-2" style={{ zIndex: 20 }}>
