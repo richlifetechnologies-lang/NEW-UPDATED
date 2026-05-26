@@ -156,6 +156,7 @@ router.get("/live", requireAdmin, async (req, res) => {
               sessionId: sessionBillingEventsTable.sessionId,
               eventType: sessionBillingEventsTable.eventType,
               metadata: sessionBillingEventsTable.metadata,
+              createdAt: sessionBillingEventsTable.createdAt,
             })
             .from(sessionBillingEventsTable)
             .where(inArray(sessionBillingEventsTable.sessionId, sessionIds))
@@ -175,7 +176,16 @@ router.get("/live", requireAdmin, async (req, res) => {
 
       const result = sessions.map(s => {
         const evts = bySession[s.id] ?? [];
-        const heartbeatCount = evts.filter(e => e.eventType === "heartbeat_ok").length;
+        const heartbeatEvents = evts.filter(e => e.eventType === "heartbeat_ok");
+          const heartbeatCount    = heartbeatEvents.length;
+          const firstBeat = heartbeatEvents.at(0) ?? null;
+          const lastBeat  = heartbeatEvents.at(-1) ?? null;
+          const videoStartDelaySec: number | null = firstBeat && s.startedAt
+            ? Math.max(0, Math.round((new Date((firstBeat as any).createdAt).getTime() - new Date(s.startedAt).getTime()) / 1000))
+            : null;
+          const videoActiveSec: number | null = firstBeat && lastBeat && firstBeat !== lastBeat
+            ? Math.max(0, Math.round((new Date((lastBeat as any).createdAt).getTime() - new Date((firstBeat as any).createdAt).getTime()) / 1000))
+            : heartbeatCount === 1 ? 0 : null;
         const isTokenReconnect = evts.some(e => e.eventType === "token_reconnect");
         const terminal = [...evts].reverse().find(e => TERMINAL.has(e.eventType));
         const settle = evts.find(e => e.eventType === "settle");
@@ -197,7 +207,9 @@ router.get("/live", requireAdmin, async (req, res) => {
           stopReason,
           orphanKilled: ORPHAN_TYPES.has(stopReason),
           billingRate: s.billingRateSnapshot,
-          isTokenReconnect, // true = this session was created by a silent 15s token-window handoff
+          isTokenReconnect,    // true = this session was created by a silent 15s token-window handoff
+            videoStartDelaySec,  // secs from session start to first heartbeat (loading time)
+            videoActiveSec,      // secs from first to last heartbeat (live video span)
         };
       });
 
