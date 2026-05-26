@@ -468,6 +468,14 @@ export default function StreamPage() {
     activeSessionRef.current = null;
     const secs = elapsedSecsRef.current;
 
+    // 0. Immediately invalidate license cache so UI stops showing a draining wallet
+    // the moment teardown begins — not after /stop retries complete (which can take
+    // several seconds of retry delay). Without this, the licenseStatus poll kept
+    // returning the active session's decreasing balance even after video had stopped.
+    if (reason !== "unload") {
+      queryClient.invalidateQueries({ queryKey: ["license-status", licKey] });
+    }
+
     // 1. Clear timers immediately
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
@@ -1280,28 +1288,31 @@ export default function StreamPage() {
         onConnectionStateChange: (state: string) => {
           console.info("[Decart] Connection state →", state);
           if (state === "disconnected" || state === "failed") {
-            // RC#5 (patched): Auto-reconnect on 30s token window expiry.
-            // Three guards must ALL pass before reconnecting:
-            //   1. tokenFresh — a pre-warmed token exists with >1 s of validity left
-            //   2. !userStoppedRef.current — user did NOT click Stop Stream
-            //   3. !!activeSessionRef.current — session is still live.
-            //      Hard-kill (freeze guard) and exhaustion-kill BOTH null
-            //      activeSessionRef BEFORE calling disconnect, so this guard
-            //      is false on those paths → reconnect is NEVER triggered by
-            //      a hard kill or wallet exhaustion.
-            // Token is consumed (nulled) BEFORE teardown to prevent re-entry
-            // if Decart drops again immediately after the reconnect.
-            const storedToken = prewarmedTokenRef.current;
-            const tokenFresh = !!storedToken && prewarmedTokenExpiry.current > Date.now() + 1000;
-            if (tokenFresh && !userStoppedRef.current && !!activeSessionRef.current) {
-              // Consume token immediately — blocks infinite-reconnect loops
+            // FIX (ROOT-CAUSE): The old code gated reconnect on a pre-warmed token
+            // being "fresh" by a 29-second client-side timer. But the server token cache
+            // returns the SAME token used to connect — which Decart already considers
+            // expired at t=15 (TOKEN_WINDOW_HARD_CAP_SEC). So tokenFresh was always
+            // false at the moment of reconnect, causing the stream to die at ~33s
+            // remaining on every 1-minute key (27 real seconds × billingRate ≈ 33s).
+            //
+            // New approach: ALWAYS attempt reconnect if session is alive and user
+            // didn't stop. A 12-second cooldown prevents reconnect storms.
+            // handleStartStream fetches a guaranteed-fresh token from the server.
+            // Guards still in place:
+            //   • !userStoppedRef.current  — never reconnect on user-initiated stop
+            //   • !!activeSessionRef.current — hard-kill / exhaustion-kill null this
+            //     ref before disconnect, so reconnect never fires on those paths
+            //   • reconnectCooldownRef — 12s minimum between reconnect attempts
+            const now = Date.now();
+            const cooldownOk = now - reconnectCooldownRef.current > 12_000;
+            if (!userStoppedRef.current && !!activeSessionRef.current && cooldownOk) {
+              reconnectCooldownRef.current = now;
               prewarmedTokenRef.current = null;
               prewarmedTokenExpiry.current = 0;
               connectionStatusRef.current = "connecting";
               setConnectionStatus("connecting");
               teardownStream("dropped").then(() => {
                 // Double-check: bail if user stopped while teardown was in-flight
-                // isTokenReconnect=true tells the server this is a silent 15s token-window handoff
                 if (!userStoppedRef.current) handleStartStream(false, true);
               }).catch(() => {});
               return;
