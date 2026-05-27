@@ -25,6 +25,7 @@ import {
   SINGLE_SESSION_GRACE_MS,
   DEDUCTION_FREEZE_MS,
   MINIMUM_RESERVATION_SEC,
+  DECART_ICE_BUFFER_SEC,
   HARD_KILL_SAFETY_RESERVE_SEC,
   calculateDebit,
   applyMinimumDuration,
@@ -73,7 +74,7 @@ function formatSession(s: any) {
 
 // Settle billing for a single session. Pure function (no side-effects on res).
 // Returns the number of seconds debited from the license.
-async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
+async function settleSession(sessionId: string, opts?: { endAt?: Date; extraBillingSeconds?: number }) {
   // ── Atomic claim — only one concurrent caller can proceed ─────────────────
   // We set status to "stopped" + stoppedAt in a single UPDATE WHERE status='active'.
   // PostgreSQL guarantees this is atomic: exactly one concurrent caller will get
@@ -81,6 +82,7 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
   // This prevents the double-settle race between the orphan sweeper, the /stop
   // handler, startup cleanup, and heartbeat exhaustion from double-debiting the wallet.
   const endAt = opts?.endAt ?? new Date();
+  const extraBillingSec = Math.max(0, opts?.extraBillingSeconds ?? 0);
   const [session] = await db
     .update(sessionsTable)
     .set({ status: "stopped", stoppedAt: endAt })
@@ -120,13 +122,27 @@ async function settleSession(sessionId: string, opts?: { endAt?: Date }) {
   // final settle is consistent with incremental billing.
   // compression_factor = billingRate / 2.3  (2.3 = Decart cost breakeven)
   // Higher billing rate → faster wallet drain → less real streaming time per minute.
+  // compressionFactor is kept outside the try so the ICE buffer block can reuse it.
+  let compressionFactor = 1.0;
   try {
     if (session.licenseKeyId) {
       const settleRate = await getBillingRateForLicense(session.licenseKeyId);
-      const settleFactor = computeCompressionFactor(settleRate);
-      incrementSec = Math.max(0, Math.round(incrementSec * settleFactor));
+      compressionFactor = computeCompressionFactor(settleRate);
+      incrementSec = Math.max(0, Math.round(incrementSec * compressionFactor));
     }
-  } catch { /* non-fatal — use raw increment */ }
+  } catch { /* non-fatal — use raw increment, compressionFactor stays 1.0 */ }
+
+  // ── Decart ICE overage buffer ───────────────────────────────────────────────
+  // When the orphan sweeper kills a session due to network failure, Decart keeps
+  // billing for a further 30–60 s while WebRTC ICE tears down. extraBillingSeconds
+  // (default 0; set to DECART_ICE_BUFFER_SEC on orphan/startup-orphan kills) covers
+  // this window so the admin never absorbs network-failure Decart costs — they are
+  // passed to the user's license wallet at the same compression rate as heartbeats.
+  if (extraBillingSec > 0) {
+    const compressedBuf = Math.round(extraBillingSec * compressionFactor);
+    incrementSec  = Math.max(0, incrementSec + compressedBuf);
+    totalDuration = Math.max(0, totalDuration + extraBillingSec);
+  }
 
   // Every session has MINIMUM_RESERVATION_SEC debited at creation.
   // Guarantee duration_seconds reflects at least that so analytics never show 0.
@@ -263,14 +279,14 @@ async function settleStartupOrphans() {
       const endAt = new Date();
       const billingStart = s.billingStartedAt ?? s.startedAt;
       const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
-      logger.info({ sessionId: s.id, durationSecs }, "[Session] startup_orphan_kill");
-      await settleSession(s.id, { endAt });
+      logger.info({ sessionId: s.id, durationSecs, iceBufferSec: DECART_ICE_BUFFER_SEC }, "[Session] startup_orphan_kill");
+      await settleSession(s.id, { endAt, extraBillingSeconds: DECART_ICE_BUFFER_SEC });
       // Invalidate token cache so no stale token can be reused for this license
       const licKey = await getLicenseKeyString(s.licenseKeyId);
       if (licKey) invalidateLicenseTokenCache(licKey);
       notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
       // ── Observability: startup_orphan_kill (fire-and-forget) ─────────────────
-      logSessionBillingEvent({ sessionId: s.id, eventType: "startup_orphan_kill", walletRemainingSeconds: null, metadata: { durationSecs, reason: "startup_orphan", killedAt: endAt.toISOString() } });
+      logSessionBillingEvent({ sessionId: s.id, eventType: "startup_orphan_kill", walletRemainingSeconds: null, metadata: { durationSecs, iceBufferSec: DECART_ICE_BUFFER_SEC, reason: "startup_orphan", killedAt: endAt.toISOString() } });
     }
     if (stale.length > 0) {
       logger.info({ count: stale.length }, "[Session] startup_orphan_cleanup_done");
@@ -323,14 +339,14 @@ function startOrphanSweeper() {
         const endAt = new Date(now);
         const billingStart = s.billingStartedAt ?? s.startedAt;
         const durationSecs = Math.max(0, Math.floor((endAt.getTime() - billingStart.getTime()) / 1000));
-        logger.info({ sessionId: s.id, durationSecs }, "[Session] orphan_kill no_heartbeat");
-        await settleSession(s.id, { endAt });
+        logger.info({ sessionId: s.id, durationSecs, iceBufferSec: DECART_ICE_BUFFER_SEC }, "[Session] orphan_kill no_heartbeat");
+        await settleSession(s.id, { endAt, extraBillingSeconds: DECART_ICE_BUFFER_SEC });
         // Invalidate token cache for this license key after orphan settle
         const licKey = await getLicenseKeyString(s.licenseKeyId);
         if (licKey) invalidateLicenseTokenCache(licKey);
         notifySessionDead({ sessionId: s.id, licenseKey: s.licenseKeyId ? String(s.licenseKeyId) : null, durationSecs, reason: "orphan", killedAt: endAt }).catch(() => {});
         // ── Observability: orphan_kill (fire-and-forget) ──────────────────────
-        logSessionBillingEvent({ sessionId: s.id, eventType: "orphan_kill", metadata: { durationSecs, reason: "orphan" } });
+        logSessionBillingEvent({ sessionId: s.id, eventType: "orphan_kill", metadata: { durationSecs, iceBufferSec: DECART_ICE_BUFFER_SEC, reason: "orphan" } });
       }
 
       // ── Pass 2: Deduction-freeze kill ───────────────────────────────────────
