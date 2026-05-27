@@ -1829,6 +1829,74 @@ export default function StreamPage() {
         <LicenseActivationModal onActivate={activateLicense} error={licenseError} mode="no-license" />
       )}
 
+      {/* ── Stream Startup Loading Overlay ──────────────────────────────────────
+          Shows whenever the user has clicked "Stream Now" and the connection is
+          being established. Blocks the entire page so they cannot spam the button.
+          Disappears automatically once isStreamStarting and isAutoRetrying are both
+          false (either stream is live or startup failed). ──────────────────────── */}
+      {(isStreamStarting || isAutoRetrying) && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center">
+          <div className="absolute inset-0 backdrop-blur-sm" style={{ background: "hsl(222 47% 4% / 0.88)" }} />
+          <div className="relative z-10 flex flex-col items-center gap-6 max-w-sm w-full mx-4 text-center p-8 rounded-2xl"
+               style={{ background: "hsl(222 44% 6%)", border: "1px solid hsl(187 100% 52% / 0.22)", boxShadow: "0 0 60px hsl(187 100% 52% / 0.14), 0 0 0 1px hsl(187 100% 52% / 0.06)" }}>
+            <div className="w-20 h-20 rounded-full flex items-center justify-center"
+                 style={{ background: "hsl(187 100% 52% / 0.08)", border: "2px solid hsl(187 100% 52% / 0.3)" }}>
+              <Loader2 className="w-10 h-10 text-primary animate-spin" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-foreground font-mono tracking-wide mb-2">
+                {isAutoRetrying ? "Reconnecting…" : "Starting Stream…"}
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {isAutoRetrying
+                  ? "↻ Retrying safely — no credits used yet…"
+                  : connectionStep === "decart"
+                    ? "3 / 3 · Connecting to Decart…"
+                    : connectionStep === "session"
+                      ? "2 / 3 · Setting up session…"
+                      : "1 / 3 · Fetching stream token…"}
+              </p>
+            </div>
+            {/* 3-step progress bar */}
+            <div className="flex items-center gap-2 w-full px-2">
+              {(["token", "session", "decart"] as const).map((step, i) => {
+                const order = ["token", "session", "decart"] as const;
+                const currentIdx = order.indexOf((connectionStep ?? "token") as typeof order[number]);
+                const done   = i < currentIdx;
+                const active = i === currentIdx;
+                return (
+                  <div key={step} className="flex-1 h-1.5 rounded-full transition-all duration-500"
+                       style={{ background: done ? "hsl(187 100% 52%)" : active ? "hsl(187 100% 52% / 0.45)" : "hsl(222 40% 14%)" }} />
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">Please wait — do not close this window</p>
+            {/* Cancel button — safe to press at any startup stage */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                isStartingRef.current = false;
+                setIsStreamStarting(false);
+                setIsAutoRetrying(false);
+                setConnectionStep(null);
+                setConnectionStatus("idle");
+                const sid = activeSessionRef.current;
+                if (sid) {
+                  stopStreamInternally(sid, elapsedSecs, false);
+                } else {
+                  setIsStreaming(false);
+                }
+              }}
+              className="w-full h-11 font-semibold gap-2"
+              style={{ borderColor: "hsl(187 100% 52% / 0.25)", color: "hsl(187 100% 52% / 0.8)" }}
+            >
+              <X className="w-4 h-4" />
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="p-6 lg:p-8 space-y-6" data-testid="stream-page">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -2192,9 +2260,36 @@ export default function StreamPage() {
               )}
             </div>)}
 
-            {/* Start / Stop button — always shown below camera source */}
+            {/* Start / Stop / Cancel button — always shown below camera source.
+                Three states:
+                  1. isStreamStarting || isAutoRetrying   → outlined Cancel (startup phase, billing not yet active)
+                  2. isStreaming || connectionStatus=connecting → destructive Stop Stream (live billing)
+                  3. idle                                  → primary Stream Now */}
             <div className="flex items-center gap-3">
-              {isStreaming || connectionStatus === "connecting" ? (
+              {(isStreamStarting || isAutoRetrying) ? (
+                <Button
+                  data-testid="button-cancel-startup"
+                  onClick={() => {
+                    isStartingRef.current = false;
+                    setIsStreamStarting(false);
+                    setIsAutoRetrying(false);
+                    setConnectionStep(null);
+                    setConnectionStatus("idle");
+                    const sid = activeSessionRef.current;
+                    if (sid) {
+                      stopStreamInternally(sid, elapsedSecs, false);
+                    } else {
+                      setIsStreaming(false);
+                    }
+                  }}
+                  variant="outline"
+                  className="gap-2 flex-1 h-14 text-base font-bold"
+                  style={{ borderColor: "hsl(187 100% 52% / 0.35)", color: "hsl(187 100% 52% / 0.9)" }}
+                >
+                  <X className="w-5 h-5" />
+                  Cancel
+                </Button>
+              ) : isStreaming || connectionStatus === "connecting" ? (
                 <Button
                   data-testid="button-stop-stream"
                   onClick={handleStopStream}
@@ -2209,22 +2304,18 @@ export default function StreamPage() {
                 <Button
                   data-testid="button-start-stream"
                   onClick={() => handleStartStream(false)}
-                  disabled={isStreamStarting || isAutoRetrying || startSession.isPending || !cameraReady || noAccess || licenseExhausted || noKeysRetryAt !== null}
+                  disabled={startSession.isPending || !cameraReady || noAccess || licenseExhausted || noKeysRetryAt !== null}
                   className="gap-2 flex-1 h-14 text-base font-bold tracking-wide"
                   style={{ boxShadow: "0 0 28px hsl(187 100% 52% / 0.30)" }}
                 >
-                  {(isStreamStarting || isAutoRetrying || startSession.isPending)
+                  {startSession.isPending
                     ? <Loader2 className="w-5 h-5 animate-spin" />
                     : <Play className="w-5 h-5" />}
-                  {isAutoRetrying
-                    ? "Retrying..."
-                    : isStreamStarting
-                      ? "Preparing..."
-                      : startSession.isPending
-                        ? "Starting..."
-                        : noKeysRetryAt !== null
-                          ? `Retry in ${noKeysRetryCountdown}s`
-                          : "Stream Now"}
+                  {startSession.isPending
+                    ? "Starting..."
+                    : noKeysRetryAt !== null
+                      ? `Retry in ${noKeysRetryCountdown}s`
+                      : "Stream Now"}
                 </Button>
               )}
             </div>
