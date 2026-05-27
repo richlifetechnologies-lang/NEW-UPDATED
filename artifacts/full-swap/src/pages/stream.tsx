@@ -651,6 +651,16 @@ export default function StreamPage() {
       displayPaidSecsRemaining == null ||
       displayPaidSecsRemaining > PRE_EXHAUSTION_THRESHOLD_SECS
     ) return;
+    // STARTUP GUARD: never fire an exhaustion kill in the first 5 seconds of a
+    // stream. Prevents any future timing regression where displayPaidSecsRemaining
+    // reads as 0 at startup before displayStartRemRef is fully populated.
+    // A legitimate wallet exhaustion always takes at least several seconds.
+    if (elapsedSecsRef.current < 5) {
+      console.warn(
+        `[Stream] pre_exhaustion_warning suppressed — session age ${elapsedSecsRef.current}s < 5s (startup guard)`
+      );
+      return;
+    }
     hasTriggeredPreStopRef.current = true;
     console.info(
       `[Stream] pre_exhaustion_warning: ${displayPaidSecsRemaining}s display remaining — stopping stream early (threshold=${PRE_EXHAUSTION_THRESHOLD_SECS}s)`
@@ -672,6 +682,16 @@ export default function StreamPage() {
   // (e.g. disconnected tab where the display timer cannot run).
   useEffect(() => {
     if (!isStreaming || hasTriggeredPreStopRef.current || displayPaidSecsRemaining > 0) return;
+    // STARTUP GUARD: never fire a display-exhaustion kill in the first 5 seconds
+    // of a stream. Protects against any future regression where the display timer
+    // reads 0 at startup before displayStartRemRef is fully populated.
+    // Legitimate wallet exhaustion always takes at least several real seconds.
+    if (elapsedSecsRef.current < 5) {
+      console.warn(
+        `[Stream] display_exhaustion suppressed — session age ${elapsedSecsRef.current}s < 5s (startup guard)`
+      );
+      return;
+    }
     hasTriggeredPreStopRef.current = true;
     console.info("[Stream] display_exhaustion: displayPaidSecsRemaining=0 — stopping stream now");
     setLicenseExhausted(true);
