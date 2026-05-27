@@ -23,6 +23,7 @@ import sessionIntelligenceRouter from "./admin-session-intelligence";
 import liveSessionsRouter from "./admin-live-sessions";
   import keyUsageRouter from "./admin-key-usage";
   import billingAuditRouter from "./admin-billing-audit";
+import licenseUsageRouter from "./admin-license-usage";
 
 const router: IRouter = Router();
 
@@ -47,6 +48,7 @@ router.use("/admin/session-intelligence", sessionIntelligenceRouter);
 router.use("/admin/live-sessions", liveSessionsRouter);
   router.use("/admin/billing-audit", billingAuditRouter);
   router.use("/admin/key-usage", keyUsageRouter);
+router.use("/admin/license-usage", licenseUsageRouter);
 router.use(downloadRouter);
 router.use("/subadmin", subAdminRouter);
 router.use("/license", licenseRouter);
