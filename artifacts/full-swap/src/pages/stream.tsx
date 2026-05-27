@@ -1106,9 +1106,13 @@ export default function StreamPage() {
 
     try {
       // Fire session creation and token fetch in parallel — they are independent
-      isStartingRef.current = false; // isStreaming=true + Stop Stream button covers guard from here
-      setIsStreaming(true);
-      setElapsedSecs(0);
+      isStartingRef.current = false;
+      // NOTE: setIsStreaming(true) is intentionally deferred to AFTER displayStartRemRef
+      // is populated (below). Calling it here while displayStartRemRef.current === 0
+      // causes displayPaidSecsRemaining to compute as 0, triggering the display-exhaustion
+      // useEffect immediately — which calls teardownStream() before any heartbeat fires,
+      // orphaning the server-side session. Keep setConnectionStatus early so the
+      // connecting overlay and Cancel button show instantly.
       setConnectionStatus("connecting");
 
       // Use pre-warmed token if fresh (saves ~1-2s), otherwise fetch now
@@ -1184,6 +1188,13 @@ export default function StreamPage() {
       // displayStartRemRef seeds from server remainingSeconds directly.
       // usedSeconds already drains at billingRate compression speed — no extra multiplication.
       displayStartRemRef.current = remainingAtStart;
+
+      // NOW it is safe to flip isStreaming — displayStartRemRef is populated so
+      // displayPaidSecsRemaining will be > 0 and the exhaustion effects won't fire.
+      // This also activates the heartbeat useEffect and shows the Stop Stream button.
+      setIsStreaming(true);
+      setElapsedSecs(0);
+
       // trialLimitRef intentionally not set: exhaustion is determined ONLY
       // by the server heartbeat returning { ok: false, reason: "no_time" }.
       // DO NOT kill the stream from the client-side elapsed timer — that would
@@ -2194,6 +2205,22 @@ export default function StreamPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Stop button below video output — visible during active stream ── */}
+            {(isStreaming || connectionStatus === "connecting") && !isFullscreen && (
+              <div className="flex items-center justify-center">
+                <Button
+                  data-testid="button-stop-stream-below-video"
+                  onClick={handleStopStream}
+                  variant="destructive"
+                  disabled={stopSession.isPending}
+                  className="gap-2 px-8 h-11 text-sm font-bold"
+                >
+                  <Square className="w-4 h-4" />
+                  {stopSession.isPending ? "Stopping..." : "Stop Stream"}
+                </Button>
+              </div>
+            )}
 
             {/* ── Camera Source Selector — hidden in fullscreen/output window ── */}
             {!isFullscreen && (
