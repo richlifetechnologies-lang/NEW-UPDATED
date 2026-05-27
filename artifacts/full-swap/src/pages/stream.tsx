@@ -512,6 +512,7 @@ export default function StreamPage() {
 
     // 6. Reset state
     setIsStreaming(false);
+    setActiveSession(null); // ensure heartbeat effect stops cleanly; reconnect sets it again via handleStartStream
     setAudioPipelineActive(false);
     setConnectionStatus("idle");
     // Reset audio toggle so it auto-starts fresh on the next session
@@ -1592,13 +1593,15 @@ export default function StreamPage() {
         // cannot fire a stale heartbeat against an already-stopped session.
         const currentSid = activeSessionRef.current;
         if (!currentSid) return; // session cleared between ticks — skip
+        const _hbLicKey = localStorage.getItem("fullswap_license_key") ?? "";
         const res = await fetch(`/api/sessions/${currentSid}/heartbeat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-License-Key": (localStorage.getItem("fullswap_license_key") ?? ""),
+            "X-License-Key": _hbLicKey,
             "X-Device-ID": getDeviceId(),
           },
+          body: JSON.stringify({ licenseKey: _hbLicKey }),
           ...(abortSignal ? { signal: abortSignal } : {}),
         });
 
