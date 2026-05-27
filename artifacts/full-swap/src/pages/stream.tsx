@@ -1041,16 +1041,6 @@ export default function StreamPage() {
     setIsStreamStarting(true);
     setConnectionStep("token"); // Step 1: fetch token
 
-    // Desktop license guard
-    if (typeof window !== "undefined" && (window as any).electronAPI?.isElectron) {
-      const licCheck = await (window as any).electronAPI.license.check().catch(() => ({ licensed: false }));
-      if (!licCheck.licensed) {
-        isStartingRef.current = false;
-        setIsStreamStarting(false);
-        return;
-      }
-    }
-
     if (!cameraReady || !cameraStreamRef.current) {
       toast({ title: "Camera not ready", description: "Please enable your camera first", variant: "destructive" });
       isStartingRef.current = false;
