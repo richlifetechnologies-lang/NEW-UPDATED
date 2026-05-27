@@ -2206,22 +2206,6 @@ export default function StreamPage() {
               )}
             </div>
 
-            {/* ── Stop button below video output — visible during active stream ── */}
-            {(isStreaming || connectionStatus === "connecting") && !isFullscreen && (
-              <div className="flex items-center justify-center">
-                <Button
-                  data-testid="button-stop-stream-below-video"
-                  onClick={handleStopStream}
-                  variant="destructive"
-                  disabled={stopSession.isPending}
-                  className="gap-2 px-8 h-11 text-sm font-bold"
-                >
-                  <Square className="w-4 h-4" />
-                  {stopSession.isPending ? "Stopping..." : "Stop Stream"}
-                </Button>
-              </div>
-            )}
-
             {/* ── Camera Source Selector — hidden in fullscreen/output window ── */}
             {!isFullscreen && (
             <div className="p-3 bg-card border border-border rounded-xl">
