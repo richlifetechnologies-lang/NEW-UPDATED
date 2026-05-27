@@ -91,6 +91,11 @@ export const ORPHAN_GRACE_MS          = 15_000;
 export const SWEEP_INTERVAL_MS        = 3_000;  // LEAK-04: reduced from 5 000ms → tighter orphan detection window
 export const SINGLE_SESSION_GRACE_MS  = 5_000;
 export const DEDUCTION_FREEZE_MS      = 45_000;
+// DECART_ICE_BUFFER_SEC: extra seconds charged to the user's wallet on orphan-kill
+// to cover Decart credits burned during WebRTC ICE failure (typically 30–60 s after
+// the last heartbeat). Using 45 s (midpoint) ensures the admin never absorbs
+// network-failure Decart costs — they are passed to the user's license wallet instead.
+export const DECART_ICE_BUFFER_SEC    = 45;
 // Hard-kill safety reserve: backend kills the session when compressed wallet
 // remaining falls to this threshold rather than at zero. The reserve absorbs
 // WebRTC teardown delay (~2-8 s) and heartbeat lag (~0-10 s) so Decart never
