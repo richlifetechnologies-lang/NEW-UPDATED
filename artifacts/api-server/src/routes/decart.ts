@@ -128,7 +128,8 @@ async function getOrCreateToken(
   apiKeyToUse: string,
   tokenWindowSec: number,
   sourceKeyId: number,
-  currentRemainingSeconds: number
+  currentRemainingSeconds: number,
+  realMaxSessionSec: number
 ): Promise<{ apiKey: string; expiresAt: number; _cacheHit: boolean } | null> {
   // FIX (BUG-002): normalize to uppercase so cache set/get/delete all use the same key.
   // Previously tokenCache.set used raw case but invalidateLicenseTokenCache used
@@ -154,11 +155,27 @@ async function getOrCreateToken(
   }
 
   // Create new token
+  // expiresIn = short-lived security window (TOKEN_WINDOW_HARD_CAP_SEC = 15s) — limits
+  //   how long this bearer token can be used to authenticate.  Kept short intentionally
+  //   so a leaked/replayed token can only reserve ≤15×2.3 ≈ 35 Decart credits.
+  //
+  // maxSessionDuration = how long Decart allows the WebRTC session to stay alive.
+  //   MUST be the user's real remaining wall-clock streaming time (wallet seconds
+  //   divided by compressionFactor), NOT the token security window.  Passing tokenWindowSec
+  //   here was the root cause of all orphan_kills: Decart dropped the WebRTC connection
+  //   after 15 s (before the client's first heartbeat could arrive), the orphan sweeper
+  //   then killed the server-side session at 45 s with heartbeatCount = 0.
+  //
+  //   The frontend pre-warms a fresh token every 10 s so the connection is seamlessly
+  //   re-authenticated well before each 15 s expiresIn window closes.  The WebRTC
+  //   session itself only ends when: (a) the user clicks Stop, (b) the server heartbeat
+  //   returns { ok: false, reason: "no_time" } (hard-kill), or (c) Decart's
+  //   maxSessionDuration is reached — which now correctly aligns with the wallet balance.
   const client = createDecartClient({ apiKey: apiKeyToUse });
   const tokenResponse = await client.tokens.create({
     expiresIn: tokenWindowSec,
     allowedModels: ["lucy-2.1"],
-    constraints: { realtime: { maxSessionDuration: tokenWindowSec } },
+    constraints: { realtime: { maxSessionDuration: realMaxSessionSec } },
   });
 
   if (!tokenResponse?.apiKey) {
@@ -198,11 +215,25 @@ router.get("/token", requireLicense, async (req, res) => {
   // Token issuance is gated on displayRemainingSeconds, NOT realRemainingSeconds.
   // Hidden real balance after display exhaustion is internal margin buffer only —
   // it MUST NOT grant a new streaming token. Billing/wallet remain unchanged.
+  //
+  // compressionFactor and realRemainingSeconds are also computed here for
+  // maxSessionDuration (see getOrCreateToken).  The wallet drains at
+  // rawSeconds × compressionFactor per heartbeat, so remainingSeconds is in
+  // "billing-compressed" units.  Decart's maxSessionDuration is wall-clock seconds,
+  // so we must reverse the compression: realSec = remainingSec / compressionFactor.
   let displayRemainingSeconds = remainingSeconds;
+  let realRemainingSeconds    = remainingSeconds; // wall-clock seconds Decart can stream
   try {
-    const billingRate = await getBillingRateForLicense(license.id);
-    displayRemainingSeconds = computeDisplaySeconds(remainingSeconds, computeCompressionFactor(billingRate));
-  } catch { /* non-fatal — fall back to real seconds */ }
+    const billingRate        = await getBillingRateForLicense(license.id);
+    const compressionFactor  = computeCompressionFactor(billingRate);
+    displayRemainingSeconds  = computeDisplaySeconds(remainingSeconds, compressionFactor);
+    // Reverse compression to get real wall-clock seconds for Decart's maxSessionDuration.
+    // At billingRate=2.3 (breakeven) factor=1 → no change.
+    // At billingRate=3   factor≈1.304 → wallet of 1800s = ~1380 real stream seconds.
+    realRemainingSeconds = compressionFactor > 0
+      ? Math.floor(remainingSeconds / compressionFactor)
+      : remainingSeconds;
+  } catch { /* non-fatal — fall back to wallet seconds (conservative) */ }
 
   if (displayRemainingSeconds <= 0) {
     res.status(402).json({ error: "No streaming time remaining on this license.", code: "LICENSE_EXHAUSTED" });
@@ -250,8 +281,14 @@ router.get("/token", requireLicense, async (req, res) => {
     // This ensures no admin config can accidentally restore a large reservation
     // window that causes Decart to pre-charge minutes of credits at connect time.
     const resolvedWindowSec = await resolveTokenWindowSec(license);
+    // tokenWindow = short security window for expiresIn only (hard-capped to 15s).
+    // Completely separate from maxSessionDuration — see getOrCreateToken for explanation.
     const tokenWindow = Math.min(remainingSeconds, Math.min(resolvedWindowSec, TOKEN_WINDOW_HARD_CAP_SEC));
-    const tokenResult = await getOrCreateToken(licenseKey, resolvedKey.apiKey, tokenWindow, resolvedKey.id, remainingSeconds);
+    // realMaxSessionSec = actual wall-clock time Decart should allow the WebRTC session
+    // to run.  Capped at 3600s (1 hour) as a safety ceiling; the hard-kill heartbeat
+    // mechanism and the user's Stop button terminate streams long before this is reached.
+    const realMaxSessionSec = Math.max(1, Math.min(realRemainingSeconds, 3600));
+    const tokenResult = await getOrCreateToken(licenseKey, resolvedKey.apiKey, tokenWindow, resolvedKey.id, remainingSeconds, realMaxSessionSec);
 
     if (!tokenResult) {
       decartPool.reportFailure(resolvedKey.id);
