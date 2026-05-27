@@ -573,6 +573,16 @@ router.post("/", requireLicense, async (req, res) => {
   res.json({ billingStartedAt: now });
 });
 
+router.use("/:sessionId/heartbeat", (req, _res, next) => {
+  const hasKey      = !!(req.headers["x-license-key"] || (req.body as any)?.licenseKey);
+  const hasDeviceId = !!(req.headers["x-device-id"]);
+  logger.info(
+    { sessionId: req.params["sessionId"], hasKey, hasDeviceId, method: req.method },
+    "[Heartbeat] attempt",
+  );
+  next();
+});
+
 router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   const license   = (req as any).license;
   const sessionId = req.params["sessionId"] as string;
@@ -728,6 +738,7 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
     walletRemainingSeconds: newRealRemaining,
   });
 
+  logger.info({ sessionId, newRealRemaining, incrementSec }, "[Heartbeat] ok");
   res.json({ ok: true });
 });
 
