@@ -702,6 +702,23 @@ router.post("/:sessionId/heartbeat", requireLicense, async (req, res) => {
   // The 3-second reserve absorbs WebRTC teardown delay (2-8 s) and heartbeat
   // lag (0-10 s) so Decart never bills meaningfully past the user's entitlement.
   if (newRealRemaining <= HARD_KILL_SAFETY_RESERVE_SEC) {
+    // STARTUP GUARD: never send no_time for a session younger than 10 seconds.
+    // A brand-new session cannot legitimately exhaust its wallet in under 10s
+    // unless there's a billing edge case (e.g. a rounding error, a delayed
+    // debit catchup, or a race condition at session creation). Suppressing here
+    // gives the client time to complete its first heartbeat cycle and lets the
+    // frontend display-exhaustion guard fire cleanly if the wallet is genuinely
+    // empty. The next heartbeat (≥5s later) will re-evaluate and kill normally
+    // if the session is still over-limit.
+    const sessionAgeMs = now.getTime() - session.startedAt.getTime();
+    if (sessionAgeMs < 10_000) {
+      logger.warn(
+        { sessionId, sessionAgeMs, newRealRemaining },
+        "[Heartbeat] no_time suppressed — session age < 10s (startup guard)"
+      );
+      res.json({ ok: true });
+      return;
+    }
     // Commercial entitlement is exhausted — auto-stop immediately.
     const totalDuration = Math.floor((now.getTime() - billingStart.getTime()) / 1000);
     await db.update(sessionsTable)
