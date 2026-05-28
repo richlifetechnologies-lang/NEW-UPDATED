@@ -499,7 +499,20 @@ export default function StreamPage() {
     // 4. Disconnect using the CAPTURED ref snapshot (clientToClose).
     // decartClientRef.current is already null (cleared above) so if a new session
     // starts concurrently it writes its own client without interference from here.
-    try { await clientToClose?.disconnect(); } catch { /* best effort */ }
+    // ORPHAN-FIX: cap disconnect() to 5 s. Decart's WebRTC teardown can hang
+    // for ~47 s with no response, keeping this function blocked. During that
+    // block, setActiveSession(null) / setIsStreaming(false) haven't run yet,
+    // so the heartbeat interval (which checks those STATE values) keeps firing
+    // and updating lastHeartbeatAt — the session looks alive to the sweeper.
+    // With this cap: disconnect completes or times out in ≤5 s, then step 6
+    // runs immediately, state clears, heartbeats stop, sweeper finds the
+    // session stale after ORPHAN_GRACE_MS (15 s) instead of 62+ seconds.
+    try {
+      await Promise.race([
+        clientToClose?.disconnect() ?? Promise.resolve(),
+        new Promise<void>(resolve => setTimeout(resolve, 5_000)),
+      ]);
+    } catch { /* best effort */ }
 
     // 5. Clear video UI
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -1609,6 +1622,13 @@ export default function StreamPage() {
     const LOW_WALLET_THRESH_SEC = 30;     // threshold to switch to fast mode
 
     const id = setInterval(async () => {
+      // ORPHAN-FIX: activeSessionRef.current is nulled SYNCHRONOUSLY at the top
+      // of teardownStream — before any await. Check it here so heartbeats stop
+      // instantly when teardown starts, even while disconnect() is still pending
+      // (setActiveSession(null)/setIsStreaming(false) are in step 6, after await).
+      // Without this, heartbeats kept firing for ~47 s during the disconnect()
+      // hang, making the sweeper see the session as alive → 62 s orphan_kill gap.
+      if (!activeSessionRef.current) return;
       // RC#2: compute wallet remaining from refs (no React state read in interval)
       const walletSec = Math.max(0, streamStartRemRef.current - elapsedSecsRef.current);
       const minGapMs  = walletSec <= LOW_WALLET_THRESH_SEC ? LOW_WALLET_HB_MS : NORMAL_HB_MS;
