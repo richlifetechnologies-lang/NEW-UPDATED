@@ -1562,6 +1562,21 @@ export default function StreamPage() {
         return;
       }
 
+      // NETWORK FAILURE DETECTION:
+      // When a reconnect attempt fails for a reason that is NOT API key credit
+      // exhaustion (POOL_COOLDOWN) and NOT license wallet empty (isExhausted),
+      // it is a network / server issue. Show a clear message so the user knows
+      // to check their connection rather than thinking the stream is broken.
+      if (isTokenReconnect && !isPoolCooldown && !isExhausted) {
+        toast({
+          title: "Stream disconnected",
+          description: "Your stream disconnected due to a network issue. Tap \u2018Stream Now\u2019 to reconnect.",
+          variant: "destructive",
+          duration: 8_000,
+        });
+        return;
+      }
+
       toast({ title: "Unable to start stream", description: errMsg?.includes("network") || errMsg?.includes("Failed") ? "Couldn’t reach the server — check your connection and try again." : errMsg?.includes("time") || errMsg?.includes("minutes") ? "No streaming time left on this license key." : "Couldn’t start your stream — please try again in a moment.", variant: "destructive" });
     }
   };
