@@ -73,7 +73,12 @@ async function fetchDecartToken(): Promise<string> {
       localStorage.removeItem("fullswap_license_key");
       window.location.href = "/";
     }
-    throw new Error(apiErr);
+    // Attach server error code so callers can show targeted messages
+    // (e.g. POOL_COOLDOWN when Decart API key credits are exhausted)
+    const err = new Error(apiErr) as Error & { code?: string; httpStatus?: number };
+    err.code       = body.code as string | undefined;
+    err.httpStatus = res.status;
+    throw err;
   }
   const data = await res.json();
   return data.apiKey as string;
@@ -1536,6 +1541,27 @@ export default function StreamPage() {
       }
 
       setIsAutoRetrying(false);
+
+      // API-KEY EXHAUSTION DETECTION:
+      // When Decart credits run out mid-stream, Decart drops the WebRTC connection.
+      // The onConnectionStateChange handler catches this and fires an auto-reconnect
+      // (isTokenReconnect=true). That reconnect calls /api/decart/token. Because the
+      // API key has no credits, Decart refuses — the server puts the key in cooldown
+      // and returns 503 POOL_COOLDOWN. We detect that specific combination (reconnect
+      // path + POOL_COOLDOWN) and show a clear, informative message instead of the
+      // generic toast.
+      const errCode = (err as any)?.code as string | undefined;
+      const isPoolCooldown = errCode === "POOL_COOLDOWN" || errMsg.includes("cooldown") || errMsg.includes("Cooldown");
+      if (isTokenReconnect && isPoolCooldown) {
+        toast({
+          title: "Streaming temporarily unavailable",
+          description: "Streaming temporarily unavailable due to API key short balance. Please contact support.",
+          variant: "destructive",
+          duration: 10_000,
+        });
+        return;
+      }
+
       toast({ title: "Unable to start stream", description: errMsg?.includes("network") || errMsg?.includes("Failed") ? "Couldn’t reach the server — check your connection and try again." : errMsg?.includes("time") || errMsg?.includes("minutes") ? "No streaming time left on this license key." : "Couldn’t start your stream — please try again in a moment.", variant: "destructive" });
     }
   };
