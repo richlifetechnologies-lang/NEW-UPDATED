@@ -63,6 +63,11 @@ interface ActiveSession {
   startedAt: string; lastHeartbeatAt: string | null; durationSeconds: number | null;
   decartKeyId: number | null;
 }
+interface PoolKeyStatus {
+  id: number; label: string; isEnabled: boolean; inCooldown: boolean;
+  cooldownRemainingMs: number; totalRequests: number; failedRequests: number;
+  failureRate: number; lastFailedAt: number | null; healthy: boolean;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtSec(s: number): string {
@@ -192,6 +197,7 @@ export default function AdminDecartKeysPage() {
   const [statuses, setStatuses]           = useState<DecartKeyStatus[]>([]);
   const [licKeys, setLicKeys]             = useState<LicenseKey[]>([]);
   const [sessions, setSessions]           = useState<ActiveSession[]>([]);
+  const [poolStatus, setPoolStatus]       = useState<PoolKeyStatus[]>([]);
   const [loading, setLoading]             = useState(true);
   const [lastPoll, setLastPoll]           = useState("");
   const [showAdd, setShowAdd]             = useState(false);
@@ -205,16 +211,18 @@ export default function AdminDecartKeysPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchAll = useCallback(async () => {
-    const [keysRes, statRes, licRes, sessRes] = await Promise.all([
+    const [keysRes, statRes, licRes, sessRes, poolRes] = await Promise.all([
       apiFetch<{ keys: DecartKey[] }>("/api/admin/decart-keys"),
       apiFetch<{ statuses: DecartKeyStatus[] }>("/api/admin/decart-credits"),
       apiFetch<{ keys: LicenseKey[] }>("/api/admin/billing-rate-per-key?limit=500"),
       apiFetch<{ sessions: ActiveSession[] }>("/api/admin/sessions"),
+      apiFetch<{ keys: PoolKeyStatus[] }>("/api/admin/decart-pool-status"),
     ]);
     if (keysRes && Array.isArray(keysRes.keys)) setKeys(keysRes.keys);
     if (statRes && Array.isArray(statRes.statuses)) setStatuses(statRes.statuses);
     if (licRes && Array.isArray(licRes.keys)) setLicKeys(licRes.keys);
     if (sessRes && Array.isArray(sessRes.sessions)) setSessions(sessRes.sessions);
+    if (poolRes && Array.isArray(poolRes.keys)) setPoolStatus(poolRes.keys);
     setLastPoll(new Date().toLocaleTimeString());
     setLoading(false);
   }, []);
@@ -373,6 +381,42 @@ export default function AdminDecartKeysPage() {
           </div>
         ) : (
           <>
+            {/* ── Cooldown Alert Banner ─────────────────────────────────────────
+                Shows whenever any Decart API key is in cooldown (i.e. the pool
+                put it on a temporary ban after a failed token request — the most
+                common cause is the API key running out of Decart credits).
+                Refreshes every 4 s with the rest of the page data.          */}
+            {poolStatus.filter(k => k.inCooldown).length > 0 && (
+              <div className="rounded-lg px-4 py-3 flex flex-col gap-2"
+                style={{ background: "rgba(252,92,101,0.08)", border: "1px solid rgba(252,92,101,0.35)" }}>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "#fc5c65" }} />
+                  <span className="text-sm font-semibold" style={{ color: "#fc5c65" }}>
+                    API Key Cooldown Alert — {poolStatus.filter(k => k.inCooldown).length} key{poolStatus.filter(k => k.inCooldown).length > 1 ? "s" : ""} in cooldown
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground ml-6">
+                  Cooldown is triggered when a token request to Decart fails — most commonly because the API key has run out of credits.
+                  Streaming is blocked for affected keys until the cooldown clears or you top up the key on the Decart platform.
+                </p>
+                <div className="ml-6 flex flex-col gap-1">
+                  {poolStatus.filter(k => k.inCooldown).map(k => {
+                    const remSec = Math.ceil(k.cooldownRemainingMs / 1000);
+                    const lastFailed = k.lastFailedAt ? new Date(k.lastFailedAt).toLocaleTimeString() : null;
+                    return (
+                      <div key={k.id} className="flex items-center gap-3 text-xs font-mono">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                        <span className="font-semibold" style={{ color: "#fc5c65" }}>{k.label || `Key #${k.id}`}</span>
+                        <span className="text-muted-foreground">cooldown clears in {remSec}s</span>
+                        {lastFailed && <span className="text-muted-foreground">· failed at {lastFailed}</span>}
+                        <span className="text-muted-foreground">· fail rate {k.failureRate}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <SCard label="Total Decart Keys"    value={`${activeDecart}/${totalKeys}`} sub="active / total"        color="hsl(var(--foreground))" icon={Key} />
