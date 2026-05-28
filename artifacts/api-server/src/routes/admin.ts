@@ -726,6 +726,13 @@ router.get("/decart-status", requireAdmin, async (req, res) => {
   }
 });
 
+// ── Decart pool runtime status (per-key cooldown + health) ───────────────────
+// Returns live in-memory state from DecartKeyPool — no DB hit needed.
+// Includes inCooldown, cooldownRemainingMs, failureRate, lastFailedAt per key.
+router.get("/decart-pool-status", requireAdmin, (_req, res) => {
+  res.json({ keys: decartPool.getStatus(), checkedAt: new Date().toISOString() });
+});
+
 // ── Decart platform usage stats ──────────────────────────────────────────────
 router.get("/decart-usage", requireAdmin, async (_req, res) => {
   const [totals] = await db
