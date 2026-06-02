@@ -1276,7 +1276,7 @@ export default function StreamPage() {
           prompt: { text: prompt, enhance: true },
         },
         onRemoteStream: (editedStream) => {
-        onRemoteStream: (editedStream) => {
+
 
 
 
