@@ -23,7 +23,7 @@ import { Link } from "wouter";
 import { useLicense } from "@/hooks/useLicense";
 import { getLicenseKey, getDeviceId } from "@/lib/auth";
 import { LicenseActivationModal } from "@/components/license-modal";
-
+import { startWatermarkOverlay } from "@/lib/watermark-overlay";
 
 const LUCY_MODEL = "lucy-2.1" as const;
 
@@ -287,7 +287,7 @@ export default function StreamPage() {
 
   const localVideoRef      = useRef<HTMLVideoElement>(null);
   const remoteVideoRef     = useRef<HTMLVideoElement>(null);
-
+  const overlayCanvasRef     = useRef<HTMLCanvasElement>(null);
   const popoutWindowRef    = useRef<Window | null>(null);
   const outputContainerRef = useRef<HTMLDivElement>(null);
   const timerRef              = useRef<NodeJS.Timeout | null>(null);
@@ -1777,6 +1777,17 @@ export default function StreamPage() {
   // resync effect below can read a fresh value without a stale closure.
   useEffect(() => { displayFactorRef.current = displayFactor; }, [displayFactor]);
 
+
+  // ── Watermark overlay: starts when connected, stops when stream ends ──
+  useEffect(() => {
+    if (connectionStatus !== "connected") return;
+    const video   = remoteVideoRef.current;
+    const overlay = overlayCanvasRef.current;
+    if (!video || !overlay) return;
+    const stop = startWatermarkOverlay(video, overlay);
+    return stop;
+  }, [connectionStatus]);
+
   // Recalibrate smooth countdown on each 5s server poll during streaming.
   // server.remainingSeconds = allocated - usedBefore - sessionElapsed
   // → effective start ref = remainingSeconds + currentElapsed (anchors smooth tick-down)
@@ -2128,7 +2139,8 @@ export default function StreamPage() {
               <video ref={remoteVideoRef} autoPlay playsInline
                 className="w-full h-full"
                 style={{ display: "block", objectFit: "cover", backfaceVisibility: "hidden", willChange: "transform", transform: "scaleX(-1)" }} />
-
+              {/* Watermark overlay canvas — sits on top of video, covers the moving AI badge */}
+              <canvas ref={overlayCanvasRef} className="absolute inset-0 w-full h-full" style={{ display: "block", pointerEvents: "none", transform: "scaleX(-1)", zIndex: 4 }} />
               {/* Idle placeholder — z-index 1 so controls above it */}
               {connectionStatus === "idle" && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4"
