@@ -23,7 +23,7 @@ import { Link } from "wouter";
 import { useLicense } from "@/hooks/useLicense";
 import { getLicenseKey, getDeviceId } from "@/lib/auth";
 import { LicenseActivationModal } from "@/components/license-modal";
-import { createWatermarkRemover, type WatermarkRemover } from "@/lib/watermark-remover";
+
 
 const LUCY_MODEL = "lucy-2.1" as const;
 
@@ -287,7 +287,7 @@ export default function StreamPage() {
 
   const localVideoRef      = useRef<HTMLVideoElement>(null);
   const remoteVideoRef     = useRef<HTMLVideoElement>(null);
-  const watermarkRemoverRef = useRef<WatermarkRemover | null>(null);
+
   const popoutWindowRef    = useRef<Window | null>(null);
   const outputContainerRef = useRef<HTMLDivElement>(null);
   const timerRef              = useRef<NodeJS.Timeout | null>(null);
@@ -486,8 +486,8 @@ export default function StreamPage() {
     // 1. Clear timers immediately
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (tokenRefreshRef.current) { clearInterval(tokenRefreshRef.current); tokenRefreshRef.current = null; }
-    // Stop watermark remover canvas loop
-    if (watermarkRemoverRef.current) { watermarkRemoverRef.current.stop(); watermarkRemoverRef.current = null; }
+
+
 
     // 2. Stop microphone tracks only — intentionally leave camera tracks running.
     // Camera tracks are stopped in teardownStream via cameraStreamRef ONLY when the
@@ -1276,26 +1276,26 @@ export default function StreamPage() {
           prompt: { text: prompt, enhance: true },
         },
         onRemoteStream: (editedStream) => {
-          // ── Watermark removal ────────────────────────────────────────────
-          // Only create a new remover when the stream reference changes
-          // (onRemoteStream may fire on every frame — avoid recreating every call)
-          if (!watermarkRemoverRef.current || watermarkRemoverRef.current.inputStream !== editedStream) {
-            watermarkRemoverRef.current?.stop();
-            watermarkRemoverRef.current = createWatermarkRemover(editedStream);
-          }
-          const cleanStream = watermarkRemoverRef.current.cleanStream;
-          // ────────────────────────────────────────────────────────────────
+        onRemoteStream: (editedStream) => {
+
+
+
+
+
+
+
+
+
 
           // Update video element (lightweight, no React state)
-          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = cleanStream;
-          // Pipe clean stream to the popout (OBS source) if open
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = editedStream;
+          // Pipe stream to the popout (OBS source) if open
           if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
             try {
               const v = popoutWindowRef.current.document.getElementById("v") as HTMLVideoElement | null;
-              if (v && !v.srcObject) { v.srcObject = cleanStream; v.play().catch(() => {}); }
+              if (v && !v.srcObject) { v.srcObject = editedStream; v.play().catch(() => {}); }
             } catch { /* cross-origin guard */ }
           }
-
           // Only run first-frame logic once — skip all state updates after the first frame
           if (timerRef.current) return;
 
